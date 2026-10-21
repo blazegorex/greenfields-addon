@@ -4,6 +4,10 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.0.3 - 2026-10-21
+
+- Fixed guild syncing on WoW Forever: the guild roster names people with their surname ("Kaghul Doomskull") but addon messages don't ("Kaghul"), so guildies' professions, stats and profiles were being ignored.
+
 ## 1.0.2 - 2026-10-21
 
 - /gf doctor now reports guild and sync details (how the game names addon senders, which guildies' data arrived or was ignored) to track down profession sync.

@@ -747,6 +747,7 @@ G.GetNumGuildMembers = function()
     return #guild.members, online, online + mobile
 end
 local GUILD_ZONE_OFFLINE = nil
+-- Forever roster names are "Name Surname" (seen in game 2026-10-21), unlike UnitName/addon senders
 G.GetGuildRosterInfo = function(i)
     if not isNum(i) then argErr("GetGuildRosterInfo", 1, "number", i) end
     if not guild or not state.guildLoaded then return nil end
@@ -756,7 +757,7 @@ G.GetGuildRosterInfo = function(i)
     local cd = MOCK.CLASS_DATA[rec.class] or MOCK.CLASS_DATA.WARRIOR
     local status = (m.afk and 1) or (m.dnd and 2) or 0
     local zone = m.online and (m.zone or "Stormwind City") or GUILD_ZONE_OFFLINE
-    return MaybeSecret("roster", fullName(rec)), guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0,
+    return MaybeSecret("roster", rec.name .. " " .. (rec.surname or "Greenfield")), guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0,
         rec.level or 60, cd.name, MaybeSecret("roster", zone), MaybeSecret("roster", m.note or ""),
         MaybeSecret("roster", m.officerNote or ""), m.online and true or false, status, cd.file,
         m.ap or 0, i, m.mobile and not m.online or false, false, 5, MaybeSecret("roster", rec.guid)

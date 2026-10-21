@@ -118,7 +118,9 @@ function API.Key(name)
         if ok and type(n) == "string" and n ~= "" then name = n end
     end
     if API.UniqueNames() then
-        name = name:match("^([^%-]+)") or name
+        -- region-unique first names: drop a "-Realm" suffix and Forever's surname (the guild
+        -- roster says "Kaghul Doomskull" while addon senders and UnitName say "Kaghul")
+        name = name:match("^([^%s%-]+)") or name
     end
     return name
 end
