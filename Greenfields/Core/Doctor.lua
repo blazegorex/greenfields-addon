@@ -66,6 +66,30 @@ local function run()
         GF.Comm.stats.sent, GF.Comm.stats.recv, GF.Comm.stats.throttled)
     add("Roster: %d members, %d online; officer rank <= %d", GF.Roster:Count(), GF.Roster:OnlineCount(), GF.Roster:Config().officerRank)
 
+    -- guild + identity: is the data partition the real guild, and do names line up?
+    local gname, rankName, rankIndex = API.GuildInfo()
+    add("Guild: %s (rank %s/%s), partition %s, ready %s", tostring(gname), tostring(rankName), tostring(rankIndex),
+        tostring(GF.gdbKey), tostring(GF.guildReady))
+    add("My raw name %q -> key %q", tostring(API.UnitName("player")), tostring(API.MyKey()))
+    local sample = {}
+    for _, m in ipairs(API.GuildMembers()) do
+        if #sample < 3 then sample[#sample + 1] = ("%q->%s"):format(m.name, tostring(m.key)) end
+    end
+    add("Roster sample: %s", #sample > 0 and table.concat(sample, ", ") or "empty")
+    local senders = {}
+    for raw, s in pairs(GF.Comm.senders) do
+        senders[#senders + 1] = ("%q->%s[%s]%s"):format(raw, s.key, s.channel, GF.Roster:IsMember(s.key) and "" or " NOT-IN-ROSTER")
+    end
+    add("Addon senders seen: %s", #senders > 0 and table.concat(senders, ", ") or "none (no Greenfields messages received)")
+    local rej = {}
+    for k, n in pairs(GF.Store.rejected) do rej[#rej + 1] = k .. " x" .. n end
+    add("Sync data ignored (not a guildie): %s", #rej > 0 and table.concat(rej, ", ") or "none")
+    local counts = {}
+    for _, ds in ipairs({ "profile", "stats", "recipes", "crafts", "events", "signups" }) do
+        counts[#counts + 1] = ds .. "=" .. GF.Store:Count(ds)
+    end
+    add("Synced docs here: %s", table.concat(counts, " "))
+
     local missing = {}
     for _, p in ipairs(PROBES) do
         if not has(p[1]) then missing[#missing + 1] = p[1] .. " (" .. p[2] .. ")" end

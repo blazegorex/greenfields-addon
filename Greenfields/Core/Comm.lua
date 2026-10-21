@@ -30,6 +30,7 @@ local REFILL = 0.45            -- seconds per message token
 local REASSEMBLY_TTL = 90
 
 Comm.handlers = {}
+Comm.senders, Comm.senderCount = {}, 0   -- raw sender -> {key, channel} (diagnostics)
 Comm.peers = {}                -- key -> { version=, proto=, seen= }
 Comm.stats = { sent = 0, recv = 0, bytesOut = 0, dropped = 0, throttled = 0 }
 
@@ -224,6 +225,11 @@ local function onAddonMessage(_, prefix, text, channel, sender)
     if not API.Readable(text) or not API.Readable(sender) or type(text) ~= "string" then return end
     local key = API.Key(sender)
     if not key then return end
+    -- diagnostics for /gf doctor: the raw sender format Forever uses, and what we keyed it as
+    if not Comm.senders[sender] and Comm.senderCount < 20 then
+        Comm.senderCount = Comm.senderCount + 1
+        Comm.senders[sender] = { key = key, channel = tostring(channel) }
+    end
     local h, body = sub(text, 1, 1), sub(text, 2)
     local bkey = key .. "\031" .. tostring(channel)
     if h == "1" then

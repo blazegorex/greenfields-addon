@@ -4,6 +4,9 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.0.2 - 2026-10-21
+
+- /gf doctor now reports guild and sync details (how the game names addon senders, which guildies' data arrived or was ignored) to track down profession sync.
 
 ## 1.0.1 - 2026-10-21
 

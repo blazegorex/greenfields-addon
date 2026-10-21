@@ -5,6 +5,9 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.0.2", date = "2026-10-21", notes = {
+        "/gf doctor now reports guild and sync details (how the game names addon senders, which guildies' data arrived or was ignored) to track down profession sync.",
+    } },
     { v = "1.0.1", date = "2026-10-21", notes = {
         "Built-in update checks: a yellow UPDATE pill and toast when a guildie runs a newer version, /gf update, and a \"What's new\" popup after updating.",
         "Wider sidebar so long page names no longer clip.",

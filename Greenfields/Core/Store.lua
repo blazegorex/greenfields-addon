@@ -37,6 +37,7 @@ local API, U, Ser, Comm = GF.API, GF.Util, GF.Serialize, GF.Comm
 local type, pairs, ipairs, tostring, max = type, pairs, ipairs, tostring, math.max
 
 Store.defs = {}
+Store.rejected = {}   -- sender -> messages ignored because they weren't a guildie (diagnostics)
 Store.byCode = {}
 local digestCache = {}
 local dirty = {}            -- name -> { [id]=true } pending broadcast
@@ -273,7 +274,9 @@ end
 local function trusted(sender)
     local R = GF.Roster
     if R and R.Count and R:Count() > 0 then
-        return R:IsMember(sender) or R:InGroup(sender)
+        local ok = R:IsMember(sender) or R:InGroup(sender)
+        if not ok then Store.rejected[sender] = (Store.rejected[sender] or 0) + 1 end
+        return ok
     end
     return true
 end
