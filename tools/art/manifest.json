@@ -1,0 +1,621 @@
+{
+ "model": "model_openai-gpt-image-2-5-sunburst",
+ "quality": "high",
+ "note": "Generate the style anchors first (hero_home, title_loot_raid, crest), approve them, then pass them as referenceImages for the rest.",
+ "items": [
+  {
+   "id": "hero_home",
+   "kind": "hero",
+   "page": "home",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a scruffy, humble fantasy village street at dusk on the edge of a coastal estuary: crooked timber cottages with patched roofs, warm lantern-lit windows, a wonky fence, an overflowing wooden rubbish bin with a white ibis bird perched on it, a tall blank green wooden signpost by the road, purple-orange sky over calm water"
+  },
+  {
+   "id": "hero_feed",
+   "kind": "hero",
+   "page": "feed",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. the same scruffy fantasy village street late at night: a single glowing lamp post, curtains twitching in lit windows, a cat on a fence, long shadows, moonlight"
+  },
+  {
+   "id": "hero_raids",
+   "kind": "hero",
+   "page": "raids",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a raid camp at night before a colossal ancient root-covered gate in a mountain forest: tents, banners, a big campfire, adventurers' silhouettes, glowing runes on the gate"
+  },
+  {
+   "id": "hero_softres",
+   "kind": "hero",
+   "page": "softres",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a torch-lit treasure vault: chests overflowing with gold and gear, a pair of bone dice resting on a wooden table, parchment lists pinned to a beam"
+  },
+  {
+   "id": "hero_loot",
+   "kind": "hero",
+   "page": "loot",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a dragon's hoard spilling out of chests in a cavern: piles of gold coins, glowing purple weapons, gem-studded helms, warm torchlight"
+  },
+  {
+   "id": "hero_attendance",
+   "kind": "hero",
+   "page": "attendance",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a cosy tavern interior with a wooden noticeboard covered in pinned parchment roll calls, candles, ale tankards, a quill and ink pot"
+  },
+  {
+   "id": "hero_fame",
+   "kind": "hero",
+   "page": "fame",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a grand hall of heroes: golden trophies on pedestals, hanging guild banners, marble statues, shafts of warm light"
+  },
+  {
+   "id": "hero_roster",
+   "kind": "hero",
+   "page": "roster",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a busy village square on market day: stalls, townsfolk silhouettes, bunting, cobblestones, a fountain"
+  },
+  {
+   "id": "hero_tradies",
+   "kind": "hero",
+   "page": "tradies",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a busy craftsman's workshop: a blacksmith anvil throwing sparks, leatherworking racks, an alchemy table with bubbling potions, tools on the wall"
+  },
+  {
+   "id": "hero_buffs",
+   "kind": "hero",
+   "page": "buffs",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. an adventurers' campsite at dusk at the foot of misty mountains: a crackling campfire, a canvas tent, a folding camp chair, a fish bowl on a crate, a lute leaning on a log, a banner on a pole"
+  },
+  {
+   "id": "hero_settings",
+   "kind": "hero",
+   "page": "settings",
+   "size": [
+    2048,
+    512
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a tinkerer's cosy workbench: brass gears, maps, a lantern, scattered tools and parchment"
+  },
+  {
+   "id": "header",
+   "kind": "header",
+   "size": [
+    3072,
+    384
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted digital fantasy illustration in the style of classic early-2000s high-fantasy MMO concept art: chunky stylized proportions, saturated warm-and-cool lighting, visible painterly brushwork, rich hand-painted textures, slightly exaggerated shapes. Wide panoramic establishing shot, important details along the middle band, darker quieter areas at the far left and right. No text, no letters, no logos, no UI. a scruffy, humble fantasy village street at dusk on the edge of a coastal estuary: crooked timber cottages with patched roofs, warm lantern-lit windows, a wonky fence, an overflowing wooden rubbish bin with a white ibis bird perched on it, a tall blank green wooden signpost by the road, purple-orange sky over calm water, very wide letterbox framing"
+  },
+  {
+   "id": "crest",
+   "kind": "crest",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "transparent",
+   "prompt": "Hand-painted heraldic fantasy guild crest in the style of classic early-2000s high-fantasy MMO art, isolated object: a kite-shaped shield in deep road-sign green with a thick polished gold rim and riveted bronze trim, in the centre a proud stylized white ibis with a long curved black beak standing on a small stack of gold coins, two crossed wooden torches behind the shield, a blank cream ribbon banner across the bottom, weathered metal textures, strong silhouette, centred and symmetrical. No text, no letters."
+  },
+  {
+   "id": "title_deaths_raid",
+   "kind": "title",
+   "stat": "deaths_raid",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a cartoonish armored adventurer standing obliviously in a roaring pool of green-and-orange fire, grinning."
+  },
+  {
+   "id": "title_deaths_total",
+   "kind": "title",
+   "stat": "deaths_total",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a glowing winged spirit healer beckoning a translucent ghost in a misty graveyard."
+  },
+  {
+   "id": "title_deaths_falling",
+   "kind": "title",
+   "stat": "deaths_falling",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a dwarf tumbling off a cliff edge, arms flailing, helmet flying off."
+  },
+  {
+   "id": "title_deaths_drowning",
+   "kind": "title",
+   "stat": "deaths_drowning",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a helmet sinking in murky green water with bubbles rising and a small inflatable ring floating above."
+  },
+  {
+   "id": "title_first_death_wipe",
+   "kind": "title",
+   "stat": "first_death_wipe",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a lone skull under a single stage spotlight."
+  },
+  {
+   "id": "title_deaths_pvp",
+   "kind": "title",
+   "stat": "deaths_pvp",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a hooded ambusher leaping from a dark lantern-lit alley."
+  },
+  {
+   "id": "title_afk_minutes",
+   "kind": "title",
+   "stat": "afk_minutes",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a weary adventurer sitting on a crate taking a pipe break, smoke curling, an hourglass beside him."
+  },
+  {
+   "id": "title_flakes",
+   "kind": "title",
+   "stat": "flakes",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: an empty chair at a feast table with a dusty unopened invitation scroll."
+  },
+  {
+   "id": "title_late",
+   "kind": "title",
+   "stat": "late",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a melting brass pocket watch on a sunset beach."
+  },
+  {
+   "id": "title_jumps",
+   "kind": "title",
+   "stat": "jumps",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a kangaroo mid-leap wearing a tiny iron helmet."
+  },
+  {
+   "id": "title_emotes",
+   "kind": "title",
+   "stat": "emotes",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a goblin dancing wildly with a lute that blasts shockwaves of music."
+  },
+  {
+   "id": "title_repair_gold",
+   "kind": "title",
+   "stat": "repair_gold",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a badly dented breastplate on an anvil with sparks and gold coins."
+  },
+  {
+   "id": "title_duel_losses",
+   "kind": "title",
+   "stat": "duel_losses",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a dizzy adventurer with a black eye and stars circling his head."
+  },
+  {
+   "id": "title_wipes",
+   "kind": "title",
+   "stat": "wipes",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a pile of fallen helmets and broken swords beneath a tattered banner."
+  },
+  {
+   "id": "title_drunk",
+   "kind": "title",
+   "stat": "drunk",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a foaming tankard of ale tipping over with dizzy swirling bubbles."
+  },
+  {
+   "id": "title_hearths",
+   "kind": "title",
+   "stat": "hearths",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a glowing hearthstone with a blue rune beside a cosy cottage fireplace."
+  },
+  {
+   "id": "title_wealth_low",
+   "kind": "title",
+   "stat": "wealth_low",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: an empty coin purse with moths fluttering out of it."
+  },
+  {
+   "id": "title_pvp_kills",
+   "kind": "title",
+   "stat": "pvp_kills",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a menacing hooded rogue with crossed daggers and a smug grin, dramatic red rim light."
+  },
+  {
+   "id": "title_loot_raid",
+   "kind": "title",
+   "stat": "loot_raid",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a cheeky white ibis bird with a long curved black beak diving into an overflowing treasure barrel, flinging gold coins and gems."
+  },
+  {
+   "id": "title_loot_epics",
+   "kind": "title",
+   "stat": "loot_epics",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: glowing purple gems and enchanted items raining down."
+  },
+  {
+   "id": "title_wealth",
+   "kind": "title",
+   "stat": "wealth",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a towering pile of gold coins with a jewelled crown on top, sparkling."
+  },
+  {
+   "id": "title_attendance",
+   "kind": "title",
+   "stat": "attendance",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a loyal armoured war horse beside a raised battle standard at sunrise."
+  },
+  {
+   "id": "title_consumables",
+   "kind": "title",
+   "stat": "consumables",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: rows of colourful bubbling potion bottles and flasks on a shelf."
+  },
+  {
+   "id": "title_rezzes",
+   "kind": "title",
+   "stat": "rezzes",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: glowing golden hands of holy light raising a fallen hero."
+  },
+  {
+   "id": "title_fish",
+   "kind": "title",
+   "stat": "fish",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a vivid blue crab caught in a rope net with a fishing rod."
+  },
+  {
+   "id": "title_camps",
+   "kind": "title",
+   "stat": "camps",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a cosy campfire with a small tent and a folding camp chair under the stars."
+  },
+  {
+   "id": "title_quests",
+   "kind": "title",
+   "stat": "quests",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a tall stack of quest scrolls tied with ribbon and a wax seal."
+  },
+  {
+   "id": "title_duel_wins",
+   "kind": "title",
+   "stat": "duel_wins",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: two crossed swords wreathed in a victory laurel with sparks."
+  },
+  {
+   "id": "title_flights",
+   "kind": "title",
+   "stat": "flights",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a gryphon carrying a delivery satchel soaring over clouds."
+  },
+  {
+   "id": "title_rezzed",
+   "kind": "title",
+   "stat": "rezzed",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a skeletal hand rising from a grave bathed in holy light."
+  },
+  {
+   "id": "title_honor_kills",
+   "kind": "title",
+   "stat": "honor_kills",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a war banner with a skull and crossed axes before roaring flames."
+  },
+  {
+   "id": "title_sr_wins",
+   "kind": "title",
+   "stat": "sr_wins",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a pair of glowing loaded dice both showing six, with a mischievous aura."
+  },
+  {
+   "id": "nav_home",
+   "kind": "nav",
+   "page": "home",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a lantern-lit cobbled village street at dusk."
+  },
+  {
+   "id": "nav_feed",
+   "kind": "nav",
+   "page": "feed",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a watchful glowing eye behind a curtained window."
+  },
+  {
+   "id": "nav_raids",
+   "kind": "nav",
+   "page": "raids",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a war banner planted before a dungeon gate."
+  },
+  {
+   "id": "nav_softres",
+   "kind": "nav",
+   "page": "softres",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a pair of bone dice on a small treasure chest."
+  },
+  {
+   "id": "nav_loot",
+   "kind": "nav",
+   "page": "loot",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: an overflowing loot sack with gold coins."
+  },
+  {
+   "id": "nav_attendance",
+   "kind": "nav",
+   "page": "attendance",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a parchment roll call scroll with a quill."
+  },
+  {
+   "id": "nav_buffs",
+   "kind": "nav",
+   "page": "buffs",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a crackling campfire with sparks."
+  },
+  {
+   "id": "nav_roster",
+   "kind": "nav",
+   "page": "roster",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: three hooded villager silhouettes by a lamp post."
+  },
+  {
+   "id": "nav_fame",
+   "kind": "nav",
+   "page": "fame",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a golden trophy goblet wreathed in laurel."
+  },
+  {
+   "id": "nav_tradies",
+   "kind": "nav",
+   "page": "tradies",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a blacksmith hammer striking an anvil with sparks."
+  },
+  {
+   "id": "nav_settings",
+   "kind": "nav",
+   "page": "settings",
+   "size": [
+    1024,
+    1024
+   ],
+   "background": "opaque",
+   "prompt": "Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: interlocking brass cogs and gears."
+  }
+ ]
+}

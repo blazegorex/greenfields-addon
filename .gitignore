@@ -1,0 +1,11 @@
+# local tooling and build output - never committed
+tools/.venv/
+__pycache__/
+*.pyc
+dist/
+tools/harness/out*/
+tools/art/downloads/
+tools/media_preview.png
+tools/chrome_preview.png
+docs/build_reports.md
+docs/review_summary.txt

@@ -1,0 +1,52 @@
+## Interface: 16001
+## Title: |cff3ddb78Greenfields|r
+## Notes: The Greenfields guild addon for WoW Forever: rostering, soft reserves, attendance, a Hall of Fame (and Shame), guild profession browser, raid buff + camp planner, and the Neighbourhood Watch. Est. Mandurah, WA.
+## Author: Greenfields
+## Version: 1.0.1
+## SavedVariables: GreenfieldsDB
+## SavedVariablesPerCharacter: GreenfieldsCharDB
+## IconTexture: Interface\AddOns\Greenfields\Media\minimap
+## AddonCompartmentFunc: Greenfields_OnCompartmentClick
+## AddonCompartmentFuncOnEnter: Greenfields_OnCompartmentEnter
+## AddonCompartmentFuncOnLeave: Greenfields_OnCompartmentLeave
+## Category: Guild
+
+Core\Init.lua
+Core\Serialize.lua
+Core\Util.lua
+Core\Compat.lua
+Core\DB.lua
+Core\Comm.lua
+Core\Store.lua
+Data\Flavor.lua
+Data\Art.lua
+Data\Titles.lua
+Data\Buffs.lua
+Data\Changelog.lua
+Core\Roster.lua
+Core\Profile.lua
+Core\Doctor.lua
+Core\Update.lua
+UI\Theme.lua
+UI\Widgets.lua
+UI\MainFrame.lua
+UI\Toast.lua
+UI\Minimap.lua
+UI\Settings.lua
+Modules\Feed.lua
+Modules\Fun.lua
+Modules\Raids.lua
+Modules\RaidsUI.lua
+Modules\SoftRes.lua
+Modules\SoftResUI.lua
+Modules\Loot.lua
+Modules\Attendance.lua
+Modules\Stats.lua
+Modules\HallOfFame.lua
+Modules\Professions.lua
+Modules\ProfessionsUI.lua
+Modules\Buffs.lua
+Modules\BuffsUI.lua
+Modules\Residents.lua
+Modules\Profile.lua
+Modules\Home.lua
