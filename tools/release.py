@@ -538,7 +538,12 @@ def preflight(version, repo, rebuild):
 def publish(version, out, notes, repo, st, progress):
     token, tag = st["token"], st["tag"]
     progress["staged"] = True
-    git("add", "-A", "--", *COMMIT_PATHSPEC)
+    # git refuses to "add" paths that are both named and gitignored, so only name the
+    # excludes that .gitignore doesn't already cover
+    ignored = subprocess.run(["git", "check-ignore", "--no-index"] + [p.split(")", 1)[1] for p in COMMIT_PATHSPEC[1:] if "*" not in p],
+                             cwd=ROOT, capture_output=True, text=True).stdout.split()
+    spec = [p for p in COMMIT_PATHSPEC if p == "." or ("*" not in p and p.split(")", 1)[1] not in ignored)]
+    git("add", "-A", "--", *spec)
     staged = git("diff", "--cached", "--name-only").splitlines()
     if staged and st["tag_exists"]:
         die("rebuilding %s changed %s - that wouldn't match the existing tag; bump to a new version instead"
