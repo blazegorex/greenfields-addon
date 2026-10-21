@@ -119,8 +119,43 @@ function Comm:Guild(op, payload, prio) return self:Send(op, payload, "GUILD", ni
 function Comm:Group(op, payload, prio) return self:Send(op, payload, "GROUP", nil, prio) end
 function Comm:Whisper(target, op, payload, prio)
     if target == API.MyKey() then return false end
-    return self:Send(op, payload, "WHISPER", target, prio)
+    -- don't knock on doors we know are empty: offline guildies just bounce
+    local R = GF.Roster
+    if R and R.Get and R:Get(target) and not R:IsOnline(target) then return false end
+    return self:Send(op, payload, "WHISPER", API.WhisperName(target), prio)
 end
+
+-------------------------------------------------------------------------------
+-- Whispers the addon sends can bounce (the player logged off a moment ago). Hide the
+-- resulting "No player named '%s' is currently playing." lines for those names only.
+-------------------------------------------------------------------------------
+local recentWhispers = {}
+
+function Comm:NoteWhisper(target)
+    if type(target) == "string" then recentWhispers[target] = API.Time() end
+end
+
+local notFoundPattern
+do
+    local fmt = rawget(_G, "ERR_CHAT_PLAYER_NOT_FOUND_S")
+    if type(fmt) == "string" and fmt:find("%s", 1, true) then
+        notFoundPattern = "^" .. fmt:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1"):gsub("%%s", "(.+)") .. "$"
+    end
+end
+
+local function bounceFilter(_, _, msg, ...)
+    if not notFoundPattern or type(msg) ~= "string" or not API.Readable(msg) then return false end
+    local who = msg:match(notFoundPattern)
+    local t = who and recentWhispers[who]
+    if t and API.Time() - t < 15 then return true end
+    return false
+end
+
+GF:On("GF_LOGIN", function()
+    local CFU = rawget(_G, "ChatFrameUtil")
+    local add = (CFU and CFU.AddMessageEventFilter) or rawget(_G, "ChatFrame_AddMessageEventFilter")
+    if add then pcall(add, "CHAT_MSG_SYSTEM", bounceFilter) end
+end)
 
 function Comm:QueueSize()
     local n = 0
@@ -170,6 +205,7 @@ function Comm:Pump()
             break
         end
         local part = m.parts[m.idx]
+        if m.channel == "WHISPER" then Comm:NoteWhisper(m.target) end
         local ok, why = API.SendAddon(Comm.PREFIX, part, m.channel, m.target)
         if ok then
             tokens = tokens - 1

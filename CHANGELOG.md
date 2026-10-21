@@ -4,6 +4,10 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.0.4 - 2026-10-21
+
+- Fixed "No player named ... is currently playing" spam in chat: Forever needs the full "Name Surname" to whisper someone, so the addon's whispers (sync, `!sr` replies, camp pings and the Whisper buttons) now use it, skip offline guildies, and quietly hide any bounce from the addon's own whispers.
+
 ## 1.0.3 - 2026-10-21
 
 - Fixed guild syncing on WoW Forever: the guild roster names people with their surname ("Kaghul Doomskull") but addon messages don't ("Kaghul"), so guildies' professions, stats and profiles were being ignored.

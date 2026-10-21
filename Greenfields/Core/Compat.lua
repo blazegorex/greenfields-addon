@@ -742,8 +742,24 @@ function API.ChatLockdown()
 end
 
 --- SendChat(text, chatType, target) -> ok. Only call from user actions for SAY/YELL.
+--- WhisperName(key) -> the name the server accepts for a whisper. Forever wants the full
+-- "Name Surname" the guild roster shows; a bare first name gets "No player named ...".
+function API.WhisperName(key)
+    if type(key) ~= "string" then return key end
+    local R = GF.Roster
+    local m = R and R.Get and R:Get(key)
+    if m and type(m.name) == "string" then return m.name end
+    local g = R and R.GroupEntry and R:GroupEntry(key)
+    if g and type(g.name) == "string" then return g.name end
+    return key
+end
+
 function API.SendChat(text, chatType, target)
     if type(text) ~= "string" or text == "" or type(chatType) ~= "string" then return false end
+    if chatType == "WHISPER" then
+        target = API.WhisperName(target)
+        if GF.Comm and GF.Comm.NoteWhisper then GF.Comm:NoteWhisper(target) end
+    end
     if API.ChatLockdown() then return false, "lockdown" end
     local CC = G("C_ChatInfo")
     local f = (CC and CC.SendChatMessage) or G("SendChatMessage")

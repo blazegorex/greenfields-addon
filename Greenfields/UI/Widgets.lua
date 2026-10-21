@@ -1118,6 +1118,7 @@ end
 --- Opens the chat box with a whisper to `name` ready to type.
 function UI:Whisper(name)
     if type(name) ~= "string" or name == "" then return end
+    name = API.WhisperName(name)
     local CFU = rawget(_G, "ChatFrameUtil")
     if CFU and CFU.SendTell and pcall(CFU.SendTell, name) then return end
     local st = rawget(_G, "ChatFrame_SendTell")

@@ -5,6 +5,9 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.0.4", date = "2026-10-21", notes = {
+        "Fixed \"No player named ... is currently playing\" spam in chat: Forever needs the full \"Name Surname\" to whisper someone, so the addon's whispers (sync, !sr replies, camp pings and the Whisper buttons) now use it, skip offline guildies, and quietly hide any bounce from the addon's own whispers.",
+    } },
     { v = "1.0.3", date = "2026-10-21", notes = {
         "Fixed guild syncing on WoW Forever: the guild roster names people with their surname (\"Kaghul Doomskull\") but addon messages don't (\"Kaghul\"), so guildies' professions, stats and profiles were being ignored.",
     } },
