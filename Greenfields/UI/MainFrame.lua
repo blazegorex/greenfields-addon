@@ -340,7 +340,17 @@ function UI:BuildMain()
     local logo = header:CreateTexture(nil, "ARTWORK")
     logo:SetTexture(T.tex.logo)
     logo:SetSize(256, 64)
-    logo:SetPoint("LEFT", 8, -1)
+    if GF.Art and GF.Art.crest then
+        -- painted guild crest hanging off the left of the sign
+        local crest = header:CreateTexture(nil, "ARTWORK", nil, 1)
+        crest:SetTexture(GF.Art.crest)
+        crest:SetSize(72, 72)
+        crest:SetPoint("LEFT", 4, -1)
+        logo:SetPoint("LEFT", crest, "RIGHT", 0, 0)
+        f.crest = crest
+    else
+        logo:SetPoint("LEFT", 8, -1)
+    end
     f.logo = logo
 
     f.pageTitle = UI:Text(header, 24, "wowGold", "title")

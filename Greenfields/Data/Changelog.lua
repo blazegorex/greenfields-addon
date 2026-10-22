@@ -5,6 +5,9 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.1.0", date = "2026-10-22", notes = {
+        "Painted art everywhere: a hand-painted banner for every page, a Mandurah-at-dusk header, 32 custom Hall of Fame/Shame title portraits (Stands In Fire, Durry Break Champion, the Loot Whore ibis and the rest), new sidebar icons, and the Greenfields crest on the window, minimap button and addon list.",
+    } },
     { v = "1.0.4", date = "2026-10-21", notes = {
         "Fixed \"No player named ... is currently playing\" spam in chat: Forever needs the full \"Name Surname\" to whisper someone, so the addon's whispers (sync, !sr replies, camp pings and the Whisper buttons) now use it, skip offline guildies, and quietly hide any bounce from the addon's own whispers.",
     } },

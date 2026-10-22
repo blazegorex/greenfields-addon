@@ -79,8 +79,13 @@ function UI:BuildMinimap()
     b.ring:SetPoint("CENTER")
     b.ring:SetVertexColor(0, 0, 0, 0.7)
     b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetTexture(T.tex.minimap)
-    b.icon:SetSize(26, 26)
+    if GF.Art and GF.Art.crest then
+        b.icon:SetTexture(GF.Art.crest)   -- painted guild crest (Data/Art.lua)
+        b.icon:SetSize(30, 30)
+    else
+        b.icon:SetTexture(T.tex.minimap)
+        b.icon:SetSize(26, 26)
+    end
     b.icon:SetPoint("CENTER")
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetTexture(T.tex.glow)
