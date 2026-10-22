@@ -28,7 +28,10 @@ local GROUPS = {
 }
 
 local main
-local NAV_H = 28
+-- sidebar rows grow to fill the spare height (icon = row - 8) so the painted icons read
+local NAV_H_MIN, NAV_H_MAX = 30, 42
+local NAV_TOP, NAV_HEAD, NAV_GAP = 12, 16, 6
+local ME_H = 64
 local SIDEBAR_W = 220
 local HEADER_H = 76
 
@@ -47,7 +50,7 @@ end
 -------------------------------------------------------------------------------
 local function navButton(parent)
     local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(NAV_H)
+    b:SetHeight(NAV_H_MIN)
     b.hl = b:CreateTexture(nil, "BACKGROUND")
     b.hl:SetAllPoints()
     b.hl:SetColorTexture(1, 1, 1, 0.04)
@@ -67,10 +70,10 @@ local function navButton(parent)
     b.bar:SetWidth(3)
     b.bar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
     b.bar:Hide()
-    b.art = UI:FramedIcon(b, 22)
-    b.art:SetPoint("LEFT", 14, 0)
+    b.art = UI:FramedIcon(b, NAV_H_MAX - 8)   -- resized by LayoutNav
+    b.art:SetPoint("LEFT", 12, 0)
     b.icon = b.art.icon
-    b.label = UI:Text(b, 12, "dim", "ui")
+    b.label = UI:Text(b, 13, "dim", "ui")
     b.label:SetPoint("LEFT", b.art, "RIGHT", 10, 0)
     -- bounded on the right so a long name truncates instead of spilling into the page
     b.label:SetPoint("RIGHT", b, "RIGHT", -10, 0)
@@ -105,7 +108,7 @@ function UI:BuildNav()
     nav.headers = nav.headers or {}
     for _, b in pairs(nav.buttons) do b:Hide() end
     for _, h in pairs(nav.headers) do h:Hide() end
-    local y = -14
+    local order = {}
     for _, g in ipairs(GROUPS) do
         local any = false
         for _, def in ipairs(self.pageList) do
@@ -117,11 +120,9 @@ function UI:BuildNav()
                 h = UI:Text(nav, 10, "bronze", "ui")
                 nav.headers[g.key] = h
             end
-            h:ClearAllPoints()
-            h:SetPoint("TOPLEFT", 18, y)
             h:SetText(g.label)
             h:Show()
-            y = y - 16
+            order[#order + 1] = { head = h }
             for _, def in ipairs(self.pageList) do
                 if def.group == g.key and not (def.hidden and def.hidden()) then
                     local b = nav.buttons[def.key]
@@ -133,19 +134,48 @@ function UI:BuildNav()
                     local custom = GF.Art and GF.Art.nav and GF.Art.nav[def.key]
                     b.art:SetIcon(custom or T.navArt[def.key] or def.icon or "dot")
                     b.label:SetText(def.title)
-                    b:ClearAllPoints()
-                    b:SetPoint("TOPLEFT", 0, y)
-                    b:SetPoint("TOPRIGHT", 0, y)
                     local cur = main.current and self.pages[main.current]
                     b:SetSelected((cur and (cur.navParent or cur.key)) == def.key)
                     b:Show()
-                    y = y - NAV_H
+                    order[#order + 1] = { button = b }
                 end
             end
-            y = y - 8
         end
     end
+    nav.order = order
+    self:LayoutNav()
     self:RefreshNav()
+end
+
+--- Places the sidebar rows, sizing them to the window: as tall as fits between the header
+-- and the me card, within NAV_H_MIN..NAV_H_MAX. Re-run whenever the window is resized.
+function UI:LayoutNav()
+    local order = main and main.nav.order
+    if not order then return end
+    local rows, heads = 0, 0
+    for _, e in ipairs(order) do
+        if e.button then rows = rows + 1 else heads = heads + 1 end
+    end
+    if rows == 0 then return end
+    local room = (main:GetHeight() or 0) - HEADER_H - 3 - ME_H - NAV_TOP - 8 - heads * (NAV_HEAD + NAV_GAP)
+    local rowH = U.Clamp(math.floor(room / rows), NAV_H_MIN, NAV_H_MAX)
+    local y = -NAV_TOP
+    for i, e in ipairs(order) do
+        if e.button then
+            local b = e.button
+            b:SetHeight(rowH)
+            b.art:SetSize(rowH - 8, rowH - 8)
+            b:ClearAllPoints()
+            b:SetPoint("TOPLEFT", 0, y)
+            b:SetPoint("TOPRIGHT", 0, y)
+            y = y - rowH
+        else
+            if i > 1 then y = y - NAV_GAP end
+            e.head:ClearAllPoints()
+            e.head:SetPoint("TOPLEFT", 18, y)
+            y = y - NAV_HEAD
+        end
+    end
 end
 
 function UI:RefreshNav()
@@ -420,12 +450,13 @@ function UI:BuildMain()
     navLine:SetWidth(1)
     navLine:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.8)
     f.nav = nav
+    f:HookScript("OnSizeChanged", function() UI:LayoutNav() end)
 
     -- me card at the bottom of the sidebar
     local me = CreateFrame("Button", nil, nav)
     me:SetPoint("BOTTOMLEFT", 0, 0)
     me:SetPoint("BOTTOMRIGHT", -1, 0)
-    me:SetHeight(64)
+    me:SetHeight(ME_H)
     me.bg = me:CreateTexture(nil, "BACKGROUND")
     me.bg:SetAllPoints()
     me.bg:SetColorTexture(0, 0, 0, 0.18)

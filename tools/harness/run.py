@@ -1161,6 +1161,17 @@ def scenario_pages(sim, res, render_dir, sizes=True, name="pages", clients=None,
         e1 = error_count(c)
         stats["newErrors"] = {"harness": e1[0] - e0[0], "addon": e1[1] - e0[1]}
         sc["pages"]["%s/(chrome)" % c.name] = stats
+        # the changelog popup: long wrapped notes must size the dialog (rendered for the first client)
+        if scene_dir and c is (clients or sim.clients)[0]:
+            c.set_scenario(name + ":changelog")
+            c.lua_hw("SlashCmdList.GREENFIELDS('changelog')")
+            sim.advance(0.5)
+            c.MOCK.CheckLayout()
+            sp = os.path.join(scene_dir, "%s-changelog%s.json" % (c.name, suffix))
+            queue_render(res, c, export_scene(c, sp), sp, os.path.join(render_dir, "%s-changelog%s.png" % (c.name, suffix)),
+                         crop_frame="GreenfieldsModal")
+            c.lua_hw("Greenfields.UI:CloseModal()")
+            sim.advance(0.2)
         if combat:
             c.Game.SetCombat(False)
         c.MOCK.HideSpecials(None)

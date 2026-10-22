@@ -1401,12 +1401,13 @@ local function buildModal()
     d.stripe:SetPoint("TOPLEFT", 1, -1)
     d.stripe:SetPoint("TOPRIGHT", -1, -1)
     d.stripe:SetHeight(3)
+    -- title and body get explicit widths (set per modal): measuring a wrapped string whose
+    -- width only comes from anchors reads short before the dialog has been laid out
     d.title = UI:Text(d, 20, "wowGold", "title")
     d.title:SetPoint("TOPLEFT", 18, -16)
-    d.title:SetPoint("TOPRIGHT", -18, -18)
+    d.title:SetWordWrap(true)
     d.text = UI:Text(d, 12, "dim")
     d.text:SetPoint("TOPLEFT", d.title, "BOTTOMLEFT", 0, -10)
-    d.text:SetPoint("TOPRIGHT", d.title, "BOTTOMRIGHT", 0, -10)
     d.text:SetWordWrap(true)
     d.text:SetJustifyV("TOP")
     d.input = UI:Input(d, { height = 28 })
@@ -1442,29 +1443,23 @@ function UI:Modal(opts)
     local d = modal.dialog
     local w = opts.width or 420
     d:SetWidth(w)
+    d.title:SetWidth(w - 36)
+    d.text:SetWidth(w - 36)
     local stripe = col(opts.style or "green")
     d.stripe:SetColorTexture(stripe[1], stripe[2], stripe[3], 1)
     d.title:SetText(tostring(opts.title or ""))
+    local hasText = opts.text ~= nil and opts.text ~= ""
     d.text:SetText(opts.text or "")
-    local textH = (opts.text and opts.text ~= "") and max(14, d.text:GetStringHeight() or 14) or 0
-    local y = 18 + 20 + 10 + textH + 14
     d.input:Hide()
     d.scroll:Hide()
+    local mh = opts.multiline and (opts.multiline.height or 220) or 0
     if opts.input then
         d.input:Show()
-        d.input:ClearAllPoints()
-        d.input:SetPoint("TOPLEFT", 18, -y)
-        d.input:SetPoint("TOPRIGHT", -18, -y)
         d.input:SetText(opts.input.default or "")
         d.input.placeholder:SetText(opts.input.placeholder or "")
         d.input:RefreshPlaceholder()
-        y = y + 28 + 14
     elseif opts.multiline then
         d.scroll:Show()
-        d.scroll:ClearAllPoints()
-        d.scroll:SetPoint("TOPLEFT", 18, -y)
-        d.scroll:SetPoint("TOPRIGHT", -18, -y)
-        local mh = opts.multiline.height or 220
         d.scroll:SetHeight(mh)
         d.edit:SetWidth(w - 40)
         d.edit:SetText(opts.multiline.text or "")
@@ -1473,8 +1468,27 @@ function UI:Modal(opts)
         if opts.multiline.text and opts.multiline.text ~= "" then
             d.edit:HighlightText()
         end
-        y = y + mh + 14
     end
+    -- size the dialog to its text; run again a frame after showing in case the client
+    -- only wrapped the strings properly once they were on screen
+    local function fit()
+        local titleH = max(20, d.title:GetStringHeight() or 20)
+        local textH = hasText and max(14, d.text:GetStringHeight() or 14) or 0
+        local y = 16 + titleH + 10 + textH + 14
+        if opts.input then
+            d.input:ClearAllPoints()
+            d.input:SetPoint("TOPLEFT", 18, -y)
+            d.input:SetPoint("TOPRIGHT", -18, -y)
+            y = y + 28 + 14
+        elseif opts.multiline then
+            d.scroll:ClearAllPoints()
+            d.scroll:SetPoint("TOPLEFT", 18, -y)
+            d.scroll:SetPoint("TOPRIGHT", -18, -y)
+            y = y + mh + 14
+        end
+        d:SetHeight(y + 28 + 16 + 4)
+    end
+    d.fit = fit
     for _, b in ipairs(d.buttons) do b:Hide() end
     local prev
     local defs = opts.buttons or { { text = "OK", style = "primary" } }
@@ -1498,8 +1512,9 @@ function UI:Modal(opts)
         b:Show()
         prev = b
     end
-    d:SetHeight(y + 28 + 16 + 4)
+    fit()
     modal:Show()
+    GF:After(0, function() if d.fit == fit and modal:IsShown() then fit() end end)
     UI:FadeIn(d, 0.12)
     if opts.input then d.input:SetFocus() end
     return d

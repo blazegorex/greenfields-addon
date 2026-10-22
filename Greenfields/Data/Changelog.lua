@@ -5,6 +5,10 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.1.1", date = "2026-10-22", notes = {
+        "Bigger sidebar icons: the menu rows now grow to fill the sidebar (icons up to 34px, sharper textures), shrinking only when the window is small.",
+        "Fixed the changelog / What's New box not fitting its text (it measured the text before the box had a width, so the words could spill out past the edges).",
+    } },
     { v = "1.1.0", date = "2026-10-22", notes = {
         "Painted art everywhere: a hand-painted banner for every page, a Mandurah-at-dusk header, 32 custom Hall of Fame/Shame title portraits (Stands In Fire, Durry Break Champion, the Loot Whore ibis and the rest), new sidebar icons, and the Greenfields crest on the window, minimap button and addon list.",
     } },

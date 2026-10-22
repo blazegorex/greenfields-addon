@@ -24,7 +24,7 @@ OUT_DIR = os.path.join(ROOT, "Greenfields", "Media", "art")
 ART_LUA = os.path.join(ROOT, "Greenfields", "Data", "Art.lua")
 GAME_PATH = "Interface\\\\AddOns\\\\Greenfields\\\\Media\\\\art\\\\"
 
-SIZES = {"hero": (1024, 256), "header": (1024, 128), "crest": (256, 256), "title": (128, 128), "nav": (64, 64)}
+SIZES = {"hero": (1024, 256), "header": (1024, 128), "crest": (256, 256), "title": (128, 128), "nav": (128, 128)}
 
 
 def crop_to(img, w, h):
