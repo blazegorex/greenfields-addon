@@ -5,6 +5,9 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.1.2", date = "2026-10-22", notes = {
+        "Sidebar back to the clean line icons (gold for the page you're on): the painted pictures were too loud for a menu. The painted art stays on the page banners, header, crest and Hall of Fame.",
+    } },
     { v = "1.1.1", date = "2026-10-22", notes = {
         "Bigger sidebar icons: the menu rows now grow to fill the sidebar (icons up to 34px, sharper textures), shrinking only when the window is small.",
         "Fixed the changelog / What's New box not fitting its text (it measured the text before the box had a width, so the words could spill out past the edges).",

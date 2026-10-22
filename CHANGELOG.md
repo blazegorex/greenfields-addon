@@ -4,6 +4,10 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.1.2 - 2026-10-22
+
+- Sidebar back to the clean line icons (gold for the page you're on): the painted pictures were too loud for a menu. The painted art stays on the page banners, header, crest and Hall of Fame.
+
 ## 1.1.1 - 2026-10-22
 
 - Bigger sidebar icons: the menu rows now grow to fill the sidebar (icons up to 34px, sharper textures), shrinking only when the window is small.

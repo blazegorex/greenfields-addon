@@ -60,17 +60,5 @@ GF.Art = {
         wealth_low = "Interface\\AddOns\\Greenfields\\Media\\art\\title_wealth_low",
         wipes = "Interface\\AddOns\\Greenfields\\Media\\art\\title_wipes",
     },
-    nav = {
-        attendance = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_attendance",
-        buffs = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_buffs",
-        fame = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_fame",
-        feed = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_feed",
-        home = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_home",
-        loot = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_loot",
-        raids = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_raids",
-        roster = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_roster",
-        settings = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_settings",
-        softres = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_softres",
-        tradies = "Interface\\AddOns\\Greenfields\\Media\\art\\nav_tradies",
-    },
+    nav = {},
 }

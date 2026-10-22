@@ -25,6 +25,8 @@ ART_LUA = os.path.join(ROOT, "Greenfields", "Data", "Art.lua")
 GAME_PATH = "Interface\\\\AddOns\\\\Greenfields\\\\Media\\\\art\\\\"
 
 SIZES = {"hero": (1024, 256), "header": (1024, 128), "crest": (256, 256), "title": (128, 128), "nav": (128, 128)}
+# painted sidebar icons are generated but not shipped: the sidebar reads better with the line icons
+SKIP_KINDS = {"nav"}
 
 
 def crop_to(img, w, h):
@@ -60,6 +62,8 @@ def main():
         if not os.path.exists(src):
             continue
         kind = item["kind"]
+        if kind in SKIP_KINDS:
+            continue
         img = Image.open(src).convert("RGBA")
         w, h = SIZES[kind]
         out = crop_to(img, w, h)

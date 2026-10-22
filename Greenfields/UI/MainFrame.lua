@@ -28,8 +28,9 @@ local GROUPS = {
 }
 
 local main
--- sidebar rows grow to fill the spare height (icon = row - 8) so the painted icons read
-local NAV_H_MIN, NAV_H_MAX = 30, 42
+-- sidebar rows grow a little to fill the spare height; plain line icons, no frames
+local NAV_H_MIN, NAV_H_MAX = 30, 36
+local NAV_ICON = 20
 local NAV_TOP, NAV_HEAD, NAV_GAP = 12, 16, 6
 local ME_H = 64
 local SIDEBAR_W = 220
@@ -70,22 +71,26 @@ local function navButton(parent)
     b.bar:SetWidth(3)
     b.bar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
     b.bar:Hide()
-    b.art = UI:FramedIcon(b, NAV_H_MAX - 8)   -- resized by LayoutNav
-    b.art:SetPoint("LEFT", 12, 0)
-    b.icon = b.art.icon
+    b.icon = UI:Icon(b, NAV_ICON)
+    b.icon:SetPoint("LEFT", 16, 0)
+    function b:Tint(name)
+        local c = C[name]
+        self.icon:SetVertexColor(c[1], c[2], c[3], 1)
+        UI:SetTextColor(self.label, name)
+    end
     b.label = UI:Text(b, 13, "dim", "ui")
-    b.label:SetPoint("LEFT", b.art, "RIGHT", 10, 0)
+    b.label:SetPoint("LEFT", b.icon, "RIGHT", 10, 0)
     -- bounded on the right so a long name truncates instead of spilling into the page
     b.label:SetPoint("RIGHT", b, "RIGHT", -10, 0)
     b.badge = UI:Pill(b, "", "green", { height = 16, size = 10 })
     b.badge:SetPoint("RIGHT", -12, 0)
     b.badge:Hide()
     b:SetScript("OnEnter", function(self)
-        if not self.selected then self.hl:Show(); UI:SetTextColor(self.label, "text") end
+        if not self.selected then self.hl:Show(); self:Tint("text") end
     end)
     b:SetScript("OnLeave", function(self)
         self.hl:Hide()
-        if not self.selected then UI:SetTextColor(self.label, "dim") end
+        if not self.selected then self:Tint("dim") end
     end)
     b:SetScript("OnClick", function(self)
         UI.Sound(841)
@@ -95,8 +100,7 @@ local function navButton(parent)
         self.selected = on
         self.sel:SetShown(on)
         self.bar:SetShown(on)
-        UI:SetTextColor(self.label, on and "wowGold" or "dim")
-        self.art:SetAlpha(on and 1 or 0.82)
+        self:Tint(on and "wowGold" or "dim")
     end
     return b
 end
@@ -131,8 +135,8 @@ function UI:BuildNav()
                         b.key = def.key
                         nav.buttons[def.key] = b
                     end
-                    local custom = GF.Art and GF.Art.nav and GF.Art.nav[def.key]
-                    b.art:SetIcon(custom or T.navArt[def.key] or def.icon or "dot")
+                    -- plain line icons: pictures here made the sidebar too busy
+                    UI:SetIcon(b.icon, def.icon or "dot")
                     b.label:SetText(def.title)
                     local cur = main.current and self.pages[main.current]
                     b:SetSelected((cur and (cur.navParent or cur.key)) == def.key)
@@ -164,7 +168,6 @@ function UI:LayoutNav()
         if e.button then
             local b = e.button
             b:SetHeight(rowH)
-            b.art:SetSize(rowH - 8, rowH - 8)
             b:ClearAllPoints()
             b:SetPoint("TOPLEFT", 0, y)
             b:SetPoint("TOPRIGHT", 0, y)
