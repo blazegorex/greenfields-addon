@@ -201,11 +201,73 @@ function U.SortBy(list, keyFn, desc)
     return list
 end
 
---- Picks a random element; `seed` (optional number) makes it deterministic.
+-- Where each pile of jokes is up to. Lines of text are remembered across logins, by the pile's size and
+-- first line, so the login greeting gets through its pile too, and a new pile just starts fresh.
+-- Anything else (a list of tables) is only remembered for the session.
+local PILES_MAX = 64
+local sessionPiles = setmetatable({}, { __mode = "k" })
+
+local function pileOf(list)
+    local first = list[1]
+    if type(first) ~= "string" then
+        sessionPiles[list] = sessionPiles[list] or {}
+        return sessionPiles[list]
+    end
+    local key = #list .. ":" .. first:sub(1, 24)
+    local db = GF.db
+    local piles = type(db) == "table" and db.piles
+    if type(db) == "table" and type(piles) ~= "table" then
+        piles = {}
+        db.piles = piles
+    end
+    if not piles then
+        sessionPiles[key] = sessionPiles[key] or {}
+        return sessionPiles[key]
+    end
+    if type(piles[key]) ~= "table" then
+        -- rewritten lines leave old piles behind. Losing our place in the rest is no drama
+        if U.Count(piles) >= PILES_MAX then
+            piles = {}
+            db.piles = piles
+        end
+        piles[key] = {}
+    end
+    return piles[key]
+end
+
+--- The pile's order: the same seed always deals the same shuffle, so saving the seed saves the order.
+local function dealt(n, seed)
+    local order = {}
+    for i = 1, n do order[i] = i end
+    local x = seed
+    for i = n, 2, -1 do
+        x = (x * 16807) % 2147483647
+        local j = (x % i) + 1
+        order[i], order[j] = order[j], order[i]
+    end
+    return order
+end
+
+--- Picks an element. With `seed` (a number) it's deterministic and touches nothing. Without, it goes
+-- through the whole pile before repeating, and never deals the same one twice running over the join.
 function U.Pick(list, seed)
     if type(list) ~= "table" or #list == 0 then return nil end
     if seed then return list[(floor(seed) % #list) + 1] end
-    return list[math.random(1, #list)]
+    local n = #list
+    if n == 1 then return list[1] end
+    local pile = pileOf(list)
+    local at = tonumber(pile.at)
+    if type(pile.seed) ~= "number" or pile.seed ~= floor(pile.seed) or not at or at ~= floor(at) or at < 0 or at >= n then
+        at = 0
+        -- a pile that starts on the line it just finished on would read as a repeat, so deal again
+        for _ = 1, 16 do
+            pile.seed = math.random(1, 2147483646)
+            if dealt(n, pile.seed)[1] ~= pile.last then break end
+        end
+    end
+    local pick = dealt(n, pile.seed)[at + 1]
+    pile.at, pile.last = at + 1, pick
+    return list[pick]
 end
 
 -------------------------------------------------------------------------------
@@ -256,14 +318,23 @@ function U.DateShort(ts)
     return format("%d %s", t.day, MONTHS[t.month] or "?")
 end
 
---- Week key used for weekly leaderboards: the Wednesday (Oceanic/EU reset day) on or
--- before ts, as YYYYMMDD. Weekly stats bucket on this.
-function U.WeekKey(ts)
+-- The week turns over at one moment for everyone, whatever their PC's clock says: Tuesday 16:00 UTC,
+-- which is Wednesday midnight in Mandurah. Move it to the real reset once that's known.
+local WEEK = 7 * 86400
+local WEEK_ANCHOR = 5 * 86400 + 16 * 3600   -- 16:00 UTC on Tuesday 6 Jan 1970
+local MANDURAH = 8 * 3600                   -- no daylight saving in WA
+
+--- Server time this week started, the same number on every client.
+function U.WeekStart(ts)
     ts = ts or U.Now()
-    local t = date("*t", ts)
-    if type(t) ~= "table" then return 0 end
-    local back = (t.wday - 4) % 7 -- days since Wednesday
-    local w = date("*t", ts - back * 86400)
+    return floor((ts - WEEK_ANCHOR) / WEEK) * WEEK + WEEK_ANCHOR
+end
+
+--- Week key used for weekly leaderboards: the date in Mandurah that the week starts on, a Wednesday,
+-- as YYYYMMDD. Weekly stats bucket on this.
+function U.WeekKey(ts)
+    local w = date("!*t", U.WeekStart(ts) + MANDURAH)
+    if type(w) ~= "table" then return 0 end
     return w.year * 10000 + w.month * 100 + w.day
 end
 
@@ -280,7 +351,11 @@ function U.Color(text, r, g, b)
     return "|cff" .. U.Hex(r, g, b) .. tostring(text) .. "|r"
 end
 
+-- shaman blue is too dark to read as text on our midnight panels: names get a lifted shade
+local TEXT_CLASS_HEX = { SHAMAN = "3d8fff" }
+
 function U.ClassColorHex(classFile)
+    if TEXT_CLASS_HEX[classFile] then return TEXT_CLASS_HEX[classFile] end
     local c = GF.API and GF.API.ClassColor(classFile)
     if c then return U.Hex(c.r, c.g, c.b) end
     return "c8d2cc"

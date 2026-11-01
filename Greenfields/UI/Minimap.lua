@@ -38,6 +38,12 @@ local function place()
 end
 
 local function tooltip(owner)
+    if GF.gateShut then
+        local checking = GF.Gate:Why() == "checking"
+        UI:Tip(owner, T:Wrap("green", "GREENFIELDS"), { checking and "Checking the guild list" or "Residents only",
+            T:Wrap("dim", checking and "Won't be long" or "Click to see why") }, "ANCHOR_LEFT")
+        return
+    end
     local lines = {}
     lines[#lines + 1] = { "Online", tostring(GF.Roster:OnlineCount()) }
     lines[#lines + 1] = { "Running Greenfields", tostring(GF.Comm:OnlinePeers()) }
@@ -69,33 +75,51 @@ end
 function UI:BuildMinimap()
     if button or not Minimap then return end
     local b = CreateFrame("Button", "GreenfieldsMinimapButton", Minimap)
-    b:SetSize(32, 32)
+    b:SetSize(31, 31)
     b:SetFrameStrata("MEDIUM")
     b:SetFrameLevel(8)
-    -- dark rim behind the sign-green disc so it reads on any minimap skin
-    b.ring = b:CreateTexture(nil, "BACKGROUND")
-    b.ring:SetTexture(T.tex.circle)
-    b.ring:SetSize(30, 30)
-    b.ring:SetPoint("CENTER")
-    b.ring:SetVertexColor(0, 0, 0, 0.7)
+    -- the game's own tracking-button look, so it sits with every other minimap button. Clients with
+    -- the addon compartment draw the ring smaller and the hole bigger (same numbers as LibDBIcon).
+    local compact = rawget(_G, "AddonCompartmentFrame") ~= nil
+    b.bg = b:CreateTexture(nil, "BACKGROUND")
+    b.bg:SetTexture("Interface\\Minimap\\UI-Minimap-Background")
+    b.bg:SetSize(compact and 24 or 20, compact and 24 or 20)
     b.icon = b:CreateTexture(nil, "ARTWORK")
-    if GF.Art and GF.Art.crest then
-        b.icon:SetTexture(GF.Art.crest)   -- painted guild crest (Data/Art.lua)
-        b.icon:SetSize(30, 30)
-    else
-        b.icon:SetTexture(T.tex.minimap)
-        b.icon:SetSize(26, 26)
+    b.icon:SetTexture(T.tex.minimap)
+    b.icon:SetSize(compact and 20 or 18, compact and 20 or 18)
+    b.mask = b:CreateMaskTexture()
+    b.mask:SetTexture(T.tex.circleMask, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+    b.mask:SetAllPoints(b.icon)
+    b.icon:AddMaskTexture(b.mask)
+    b.border = b:CreateTexture(nil, "OVERLAY")
+    b.border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
+    b.border:SetSize(compact and 50 or 53, compact and 50 or 53)
+    b.border:SetPoint("TOPLEFT", 0, 0)
+    local function seat(pressed)
+        local d = pressed and 1 or 0
+        b.icon:ClearAllPoints()
+        b.bg:ClearAllPoints()
+        if compact then
+            b.icon:SetPoint("CENTER", d, -d)
+            b.bg:SetPoint("CENTER", 0, 0)
+        else
+            b.icon:SetPoint("TOPLEFT", 7 + d, -6 - d)
+            b.bg:SetPoint("TOPLEFT", 7, -5)
+        end
     end
-    b.icon:SetPoint("CENTER")
+    seat(false)
     b.hl = b:CreateTexture(nil, "HIGHLIGHT")
     b.hl:SetTexture(T.tex.glow)
-    b.hl:SetSize(44, 44)
-    b.hl:SetPoint("CENTER")
-    b.hl:SetVertexColor(0.24, 0.86, 0.47, 0.6)
+    b.hl:SetSize(32, 32)
+    b.hl:SetPoint("CENTER", b.icon, "CENTER", 0, 0)
+    b.hl:SetVertexColor(1, 0.82, 0.42, 0.55)
+    b.hl:SetBlendMode("ADD")
+    b:SetScript("OnMouseDown", function() seat(true) end)
+    b:SetScript("OnMouseUp", function() seat(false) end)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b:RegisterForDrag("LeftButton")
     b:SetScript("OnClick", function(self, btn)
-        if btn == "RightButton" then quickMenu(self) else UI:ToggleMain() end
+        if btn == "RightButton" and not GF.gateShut then quickMenu(self) else UI:ToggleMain() end
     end)
     b:SetScript("OnEnter", function(self) tooltip(self) end)
     b:SetScript("OnLeave", function() UI:HideTip() end)
@@ -109,7 +133,10 @@ function UI:BuildMinimap()
             place()
         end)
     end)
-    b:SetScript("OnDragStop", function(self) self:SetScript("OnUpdate", nil) end)
+    b:SetScript("OnDragStop", function(self)
+        self:SetScript("OnUpdate", nil)
+        seat(false)   -- mouse up doesn't always fire once a drag has started
+    end)
     button = b
     place()
     b:SetShown(not GF.db.settings.minimap.hide)

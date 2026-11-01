@@ -2,13 +2,13 @@
      Soft reserves: sessions, reserves, the "+N" plus rule, whisper intake for raiders
      without the addon, and CSV import/export in softres.it's format.
 
-     Two replicated datasets, both mirrored to the current group so PUG raiders running
-     Greenfields see them as well:
+     Two replicated datasets, both sent to the current group as well as the guild:
        srsessions/ss  {title, instance, eventId, host, limit, locked, plus, created, closed}
        reserves/sr    id = sessionId.."|"..playerKey
                       {session, player, class, items = {itemIDs}, t, note?, pb? = {[itemID] = plus}}
-     Raiders outside the guild also hand their picks to the host (op "SR") so the host
-     republishes them to the guild. Raiders without the addon whisper "!sr <link or id>".
+     Raiders without the addon whisper "!sr <link or id>". Since the guild lock (Core/Gate.lua)
+     that goes for raiders outside the guild too: their copies are shut once Forever is live, so
+     op "SR", where they hand their picks to the host, only does anything before launch.
 
      Public:   GF.SR:ActiveSession()  :ReservesFor(itemID)  :MyReserves()
      Internal: Sessions, Session, Reserves, Index, Limit, IsOpen, CanHost, CanControl,
@@ -585,7 +585,7 @@ function SR:Announce(s)
     local ch = groupChat()
     if not ch then return false, "You're not in a group or a guild. Who are we telling?" end
     local limit = self:Limit(s)
-    local msg = ("SR open: %s%s. %d %s each%s. Greenfields users: /gf sr. No addon? Whisper %s: !sr <item link>")
+    local msg = ("SR open: %s%s. %d %s each%s. Guildies with the addon: /gf sr. Everyone else whisper %s: !sr <item link>")
         :format(U.ChatSafe(s.title or "Raid"), s.instance and (" (" .. U.ChatSafe(s.instance) .. ")") or "",
             limit, limit == 1 and "reserve" or "reserves", s.plus and ", plus mode on" or "",
             U.ShortName(s.host))

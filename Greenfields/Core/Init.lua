@@ -47,7 +47,43 @@ end
 -- Error isolation
 -------------------------------------------------------------------------------
 GF.errors = {}
+GF.failedEvents = {}    -- events the client wouldn't register (/gf report)
 local errorCounts = {}
+
+-- The Black Box: errors kept in the saved variables, so the /reload that writes them to disk doesn't
+-- wipe them. Same error again in a later session bumps its count instead of filling the box.
+local BOX_MAX, BOX_TEXT = 30, 900
+
+local function remember(e)
+    if type(GF.db) ~= "table" then return end     -- too early: boot catches these up
+    local box = GF.db.blackBox
+    if type(box) ~= "table" then box = {}; GF.db.blackBox = box end
+    local first = e.err:match("^[^\n]*") or e.err
+    local entry
+    for i = #box, 1, -1 do
+        local b = box[i]
+        if type(b) ~= "table" or type(b.err) ~= "string" then
+            table.remove(box, i)          -- left over from who knows what
+        elseif b.label == e.label and (b.err:match("^[^\n]*") or b.err) == first:sub(1, BOX_TEXT) then
+            entry = table.remove(box, i)
+        end
+    end
+    entry = entry or { label = e.label, err = e.err:sub(1, BOX_TEXT), n = 0 }
+    entry.t, entry.v, entry.n = e.time, GF.VERSION, (tonumber(entry.n) or 0) + 1
+    box[#box + 1] = entry
+    while #box > BOX_MAX do table.remove(box, 1) end
+end
+
+--- BlackBox() -> the kept errors that are still readable, oldest first: {label, err, t, v, n}.
+function GF:BlackBox()
+    local out = {}
+    local box = type(self.db) == "table" and self.db.blackBox
+    if type(box) ~= "table" then return out end
+    for _, b in ipairs(box) do
+        if type(b) == "table" and type(b.err) == "string" then out[#out + 1] = b end
+    end
+    return out
+end
 
 local function handler(err)
     local trace = debugstack and debugstack(3, 12, 0) or ""
@@ -69,8 +105,10 @@ function GF:Safe(label, fn, ...)
     errorCounts[key] = (errorCounts[key] or 0) + 1
     if errorCounts[key] == 1 then
         local list = GF.errors
-        list[#list + 1] = { label = label, err = err, time = time and time() or 0 }
+        local entry = { label = label, err = err, time = time and time() or 0 }
+        list[#list + 1] = entry
         if #list > 50 then table.remove(list, 1) end
+        pcall(remember, entry)
         if GF.db and GF.db.settings and GF.db.settings.debug then
             GF:Print("|cffff5555error in %s:|r %s", label, err:match("^[^\n]*") or err)
         end
@@ -120,6 +158,7 @@ function GF:RegisterEvent(event, fn, owner)
     local list = eventHandlers[event]
     if not list then
         if not tryRegister(eventFrame, event) then
+            self.failedEvents[event] = true
             self:Debug("event %s is not available on this client", event)
             return false
         end
@@ -152,7 +191,10 @@ function GF:RegisterUnitEvent(event, unit, fn)
     if not f then
         f = CreateFrame("Frame")
         f.handlers = {}
-        if not tryRegister(f, event, unit) then return false end
+        if not tryRegister(f, event, unit) then
+            self.failedEvents[key] = true
+            return false
+        end
         f:SetScript("OnEvent", function(_, ev, ...)
             for i = 1, #f.handlers do GF:Safe(ev, f.handlers[i], ev, ...) end
         end)
@@ -270,20 +312,30 @@ end
 -------------------------------------------------------------------------------
 GF.slash = {}
 
---- GF:RegisterSlash("cmd", fn(args), "help text")
-function GF:RegisterSlash(cmd, fn, help)
-    self.slash[cmd:lower()] = { fn = fn, help = help }
+--- GF:RegisterSlash("cmd", fn(args), "help text" [, open [, now]]). open: still works with the guild
+-- lock shut (Core/Gate.lua), which is only for the commands that help work out what's wrong. now: runs
+-- straight away instead of a tick later, for anything the client wants a keypress behind. It must
+-- leave the chat box's focus alone (see below).
+function GF:RegisterSlash(cmd, fn, help, open, now)
+    self.slash[cmd:lower()] = { fn = fn, help = help, open = open, now = now }
 end
 
 local function slashHandler(msg)
     msg = msg or ""
     local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
     cmd = (cmd or ""):lower()
+    local direct = GF.slash[cmd]
+    if direct and direct.now and not GF.gateShut then
+        GF:Safe("slash " .. cmd, direct.fn, rest)
+        return
+    end
     -- The handler runs inside the chat edit box's send path; defer real work a tick
     -- (Forever's gamepad navigation otherwise trips on focus changes).
     GF:After(0, function()
         local entry = GF.slash[cmd]
-        if entry then
+        if GF.gateShut and not (entry and entry.open) then
+            if GF.UI and GF.UI.ShowGate then GF.UI:ShowGate() end
+        elseif entry then
             entry.fn(rest)
         elseif cmd == "" then
             if GF.UI and GF.UI.ToggleMain then GF.UI:ToggleMain() end
@@ -305,20 +357,25 @@ SLASH_GREENFIELDS2 = "/greenfields"
 SlashCmdList.GREENFIELDS = slashHandler
 
 GF:RegisterSlash("errors", function()
-    if #GF.errors == 0 then GF:Print("No errors recorded. She's running sweet.") return end
-    for i, e in ipairs(GF.errors) do
-        GF:Print("%d. [%s] %s", i, e.label, e.err:match("^[^\n]*") or e.err)
+    if #GF.errors == 0 then
+        GF:Print("No errors recorded. She's running sweet.")
+    else
+        for i, e in ipairs(GF.errors) do
+            GF:Print("%d. [%s] %s", i, e.label, e.err:match("^[^\n]*") or e.err)
+        end
     end
-end, "list captured Lua errors")
+    local kept = #GF:BlackBox()
+    if kept > 0 then GF:Print("%d in the Black Box, counting earlier sessions: /gf report", kept) end
+end, "list captured Lua errors", true)
 
 GF:RegisterSlash("debug", function()
     GF.db.settings.debug = not GF.db.settings.debug
     GF:Print("Debug %s.", GF.db.settings.debug and "on" or "off")
-end, "toggle debug output")
+end, "toggle debug output", true)
 
 GF:RegisterSlash("version", function()
     GF:Print("Version %s (protocol %d).", GF.VERSION, GF.PROTOCOL)
-end, "show version")
+end, "show version", true)
 
 -------------------------------------------------------------------------------
 -- Boot
@@ -327,12 +384,15 @@ GF:RegisterEvent("ADDON_LOADED", function(_, name)
     if name ~= ADDON then return end
     GF:UnregisterEvent("ADDON_LOADED", "core-boot")
     if GF.DB and GF.DB.Init then GF:Safe("DB:Init", GF.DB.Init, GF.DB) end
+    for _, e in ipairs(GF.errors) do pcall(remember, e) end
     runAll("OnInit")
     GF:Fire("GF_INIT")
 end, "core-boot")
 
 GF:RegisterEvent("PLAYER_LOGIN", function()
     GF.loggedIn = true
+    -- settled before anything gets a chance to start talking
+    if GF.Gate then GF:Safe("gate", GF.Gate.Check, GF.Gate) end
     runAll("OnLogin")
     GF:Fire("GF_LOGIN")
 end)

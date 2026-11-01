@@ -8,8 +8,10 @@
          ws = wealth score (only while shareWealth is on), t = published at }
      Readers keep only current guild members' docs, roll alts up to their mains (sum for
      "sum" stats, max for "max"/"rank") and crown the leader of every stat in GF.Titles.
-     Wealth is only ever a log-scale score and the UI only ever shows the ordering.
-     Only the new holder's own client announces a title changing hands.
+     Wealth is only ever a doubling band (GF.WealthScore): the UI only ever shows the ordering, but
+     anyone reading the shared score could see your gold to within about double.
+     Only the new holder's own client announces a title changing hands, as a feed row with no sign.
+     A crown can't be claimed until the leader clears CROWN_MIN; the board still lists them.
 
      First death on a wipe: every Greenfields client in the raid sends op "DW"
      {e = encounterID, d = myDeathTime or nil} to the group on a wipe; 6 s later the client
@@ -22,6 +24,8 @@
      Extras for Modules/HallOfFame.lua (read-only helpers):
        Stats:Board(statKey, scope)  Stats:Format(statKey, value, rank)  Stats:MyValue(statKey, scope)
        Stats:NextMilestone(statKey) Stats:HasWeekly(statKey)            Stats:TopBadge(key)
+       Stats:Crown(statKey, scope)
+     For /gf doctor: Stats:EmoteHook().
      Fires GF_STATS_CHANGED (throttled) whenever boards may have moved. ]]
 
 local _, GF = ...
@@ -48,6 +52,17 @@ local CAST_WINDOW = 2          -- consumable bag drop <-> spellcast pairing wind
 local LOOT_DEDUPE = 5
 local FISH_WINDOW = 3
 local JUMP_GAP = 0.55
+local DEATH_REPEAT = 2         -- one beta report has PLAYER_DEAD firing twice for one death
+
+-- What it takes to claim a crown, so the first hours of launch night don't hand them round for one
+-- jump. Anything not listed needs CROWN_MIN_DEFAULT. The wealth pair goes by score, in steps of 6
+-- (GF.WealthScore): 36 is about 63g. Nobody's the poorest until somebody's got something.
+local CROWN_MIN_DEFAULT = 3
+local CROWN_MIN = {
+    deaths_total = 5, afk_minutes = 30, jumps = 500, emotes = 25, repair_gold = 5, hearths = 5,
+    pvp_kills = 5, honor_kills = 10, consumables = 5, rezzes = 5, fish = 20, quests = 25, flights = 10,
+    attendance = 50, wealth = 36, wealth_low = 36,
+}
 
 local HEARTHSTONE = 8690
 local REZ_IDS = {}
@@ -77,6 +92,7 @@ local state = {
     lastFalling = -100, fallStart = nil, fallDur = 0, mirror = {},
     encounter = nil, wipes = {},
     afkSince = nil, money = nil, lastWs = nil, lastShare = nil, lastWeek = nil,
+    emoteHook = { counted = 0, ignored = 0 },
     merchant = false, busy = {}, repairPending = 0,
     drunk = 0, onTaxi = false, honorMode = nil, lifetimeHK = nil,
     lastCast = -100, castPending = {}, bagSnap = nil,
@@ -242,7 +258,7 @@ local function sane(v)
     return v
 end
 
---- Wealth score (GF.WealthScore: 0 for broke, ~120 for a million gold) or nil.
+--- Wealth score (GF.WealthScore: 0 for broke, 114 for a million gold) or nil.
 local function saneScore(v)
     v = tonumber(v)
     if not v or v ~= v or v < 0 or v > 400 then return nil end
@@ -425,8 +441,15 @@ local function buildBoard(def, scope)
             if asc then return a.score < b.score end
             return a.score > b.score
         end
+        -- ties go by name, so every client agrees. The other way round on the poorest board, or a
+        -- street all in one wealth band has the same person richest and poorest.
+        if asc then return a.key > b.key end
         return a.key < b.key
     end)
+    -- the richest has to clear the bar for the poorest to be crowned too, and it takes two to be poorest
+    local need = CROWN_MIN[def.key] or CROWN_MIN_DEFAULT
+    local best = asc and list[#list] or list[1]
+    local crowned = best ~= nil and best.score >= need and (not asc or #list >= 2)
     local map = {}
     for i, e in ipairs(list) do
         e.rank = i
@@ -435,7 +458,7 @@ local function buildBoard(def, scope)
         e.score = nil
         map[e.key] = e
     end
-    return { list = list, map = map, t = API.Time() }
+    return { list = list, map = map, crowned = crowned, t = API.Time() }
 end
 
 local EMPTY_BOARD = { list = {}, map = {} }
@@ -452,6 +475,12 @@ local function board(stat, scope)
         cache[ck] = b
     end
     return b
+end
+
+--- The board row wearing this crown, or nil while it's up for grabs.
+local function crownRow(stat, scope)
+    local b = board(stat, scope)
+    return b.crowned and b.list[1] or nil
 end
 
 -------------------------------------------------------------------------------
@@ -476,14 +505,23 @@ function Stats:Value(key, statKey, scope)
     end)
 end
 
---- Leader(statKey, scope) -> key, value (value is nil for rank stats).
+--- Leader(statKey, scope) -> key, value of whoever wears the crown (value is nil for rank stats),
+-- or nil while nobody's cleared the minimum.
 function Stats:Leader(statKey, scope)
     return guarded("stats:leader", nil, function()
         local def = type(statKey) == "string" and GF.TitlesByKey[statKey]
         if not def then return nil end
-        local e = board(statKey, scope).list[1]
+        local e = crownRow(statKey, scope)
         if not e then return nil end
         return e.key, e.value
+    end)
+end
+
+--- Crown(statKey, scope) -> the board row {key, rank, value} wearing the crown, or nil.
+function Stats:Crown(statKey, scope)
+    return guarded("stats:crown", nil, function()
+        if type(statKey) ~= "string" then return nil end
+        return crownRow(statKey, scope)
     end)
 end
 
@@ -494,7 +532,7 @@ function Stats:TitlesOf(key)
         if type(key) ~= "string" then return out end
         local m = mainOf(key)
         for _, def in ipairs(GF.Titles) do
-            local e = board(def.key, "all").list[1]
+            local e = crownRow(def.key, "all")
             if e and e.key == m then out[#out + 1] = def end
         end
         return out
@@ -750,6 +788,8 @@ end
 
 local function onPlayerDead()
     local now = API.Time()
+    if now - (state.lastDeath or -100) <= DEATH_REPEAT then return end
+    state.lastDeath = now
     state.dead, state.released = true, false
     add("deaths_total")
     local itype = API.InstanceInfo().type
@@ -947,12 +987,21 @@ local function onJump()
 end
 
 --- DoEmote may be a Lua wrapper around C_ChatInfo.PerformEmote: same token, same frame = one.
-local function onEmote(token)
+-- The third argument (suppressMoveError in the forever-branch docs) is true when the UI does it for
+-- you: the world map plays READ as it opens, and that's nobody's idea of an emote.
+local function onEmote(fn, token, unit, third)
+    local seen = state.emoteHook
+    seen.fn, seen.token, seen.unit, seen.third = fn, token, unit, third
+    if Clean(third) == true then
+        seen.ignored = seen.ignored + 1
+        return
+    end
     token = CleanString(token)
     local now = API.Time()
     local last = state.lastEmote
     if last and last.t == now and last.token == token then return end
     state.lastEmote = { t = now, token = token }
+    seen.counted = seen.counted + 1
     add("emotes")
 end
 
@@ -963,13 +1012,16 @@ local function hookInputs()
         pcall(hsf, "JumpOrAscendStart", function() GF:Safe("stats:jump", onJump) end)
     end
     if type(G("DoEmote")) == "function" then
-        pcall(hsf, "DoEmote", function(token) GF:Safe("stats:emote", onEmote, token) end)
+        pcall(hsf, "DoEmote", function(token, unit, third) GF:Safe("stats:emote", onEmote, "DoEmote", token, unit, third) end)
     end
     local CC = G("C_ChatInfo")
     if type(CC) == "table" and type(CC.PerformEmote) == "function" then
-        pcall(hsf, CC, "PerformEmote", function(token) GF:Safe("stats:emote", onEmote, token) end)
+        pcall(hsf, CC, "PerformEmote", function(token, unit, third) GF:Safe("stats:emote", onEmote, "PerformEmote", token, unit, third) end)
     end
 end
+
+--- EmoteHook() -> what the emote hook last heard, for /gf doctor. The arguments can be secret.
+function Stats:EmoteHook() return state.emoteHook end
 
 -------------------------------------------------------------------------------
 -- Vendors, banks, mail, trade, AH: "busy" windows where bag/money changes aren't stats
@@ -1387,7 +1439,7 @@ local function postTitle(def, holder, old)
         text = format("%s is the new %s (%s). First name on the board.", colored(holder), def.title, def.label)
     end
     GF:Safe("stats:title", GF.Feed.Post, GF.Feed, "title", text,
-        { key = "title:" .. def.key .. ":" .. holder, toast = true, icon = "crown" })
+        { key = "title:" .. def.key .. ":" .. holder, toast = false, icon = "crown" })
 end
 
 --- Remembers every all-time holder (per guild) and announces a change only from the new
@@ -1402,7 +1454,7 @@ local function detectTitles()
     local me = API.MyKey()
     local myMain = me and mainOf(me)
     for _, def in ipairs(GF.Titles) do
-        local top = board(def.key, "all").list[1]
+        local top = crownRow(def.key, "all")
         local cur = top and top.key or false
         local old = loc.holders[def.key]
         if announce and cur and cur ~= old and cur == myMain then

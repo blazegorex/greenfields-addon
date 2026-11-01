@@ -11,7 +11,8 @@
        Roster:IsOfficer(key)   rankIndex <= officer threshold (config dataset)
        Roster:IsGM(key)
        Roster:CanManage()      officer, or leader/assist of the current group
-       Roster:Count()
+       Roster:Count()          people on the roster; namesakes count as two
+       Roster:Clash(key)       full names sharing this first name, or nil (see scanGuild)
      Fires GF_ROSTER_UPDATED and GF_GROUP_UPDATED. Member joins/leaves fire
      GF_MEMBER_JOINED(key) / GF_MEMBER_LEFT(key). ]]
 
@@ -24,7 +25,13 @@ local API, U = GF.API, GF.Util
 local pairs, ipairs, type = pairs, ipairs, type
 
 local members = {}      -- key -> member
+local everMember = {}   -- first name -> true: on the roster at some point this session
+local readAll = false   -- a scan has read every row
+local hiddenRows = 0    -- rows the last scan couldn't read
 local count = 0
+local onlineCount = 0
+local clashes = {}      -- first name -> sorted full names: two or more people, one key
+local toldClash = {}    -- first name -> the GM's been told
 local group = {}        -- key -> group entry (from API.GroupMembers)
 local groupList = {}
 local firstScan = true
@@ -51,20 +58,50 @@ end
 -------------------------------------------------------------------------------
 -- Scans
 -------------------------------------------------------------------------------
+local function firstName(key) return key:match("^[^%s%-]+") or key end
+
+-- One line to the GM, once a clash. The rank comes from the client, since a GM in the clash has no
+-- rights on the roster. Held back while the gate's shut, so it's said once it opens.
+local function tellGM()
+    if GF.gateShut or select(3, API.GuildInfo()) ~= 0 then return end
+    for key, names in pairs(clashes) do
+        if not toldClash[key] then
+            toldClash[key] = true
+            GF:Print("%d residents answer to %s (%s), and the addon can't pick the right one out of a lineup. No officer rights, whispers or invites on that name till one of them's gone.",
+                #names, key, table.concat(names, ", "))
+        end
+    end
+end
+
 local function scanGuild()
-    if not API.InGuild() then
+    if API.NoGuild() then
         if count > 0 then
-            members, count = {}, 0
+            members, count, onlineCount, clashes, toldClash = {}, 0, 0, {}, {}
+            -- that roster's no use for telling who's a guildie in the next one (see hears() in Comm.lua).
+            -- Behind the count, so a false "no guild" this early at login has nothing to wipe.
+            everMember, readAll, hiddenRows = {}, false, 0
             GF:Fire("GF_ROSTER_UPDATED")
         end
         return
     end
-    local list = API.GuildMembers()
+    local list, hidden = API.GuildMembers()
     if #list == 0 then return end -- the client answers empty very early; keep what we had
-    local fresh, n = {}, 0
+    hiddenRows = hidden
+    if hidden == 0 then readAll = true end
+    local fresh, n, online, rows, found = {}, 0, 0, {}, {}
     for _, m in ipairs(list) do
-        if m.key then
+        -- a full name only ever belongs to one person, so the same one twice is one row read twice
+        if m.key and not rows[m.name] then
+            rows[m.name] = true
+            if m.online then online = online + 1 end
+            local other = fresh[m.key]
+            if other then
+                found[m.key] = found[m.key] or { other.name }
+                table.insert(found[m.key], m.name)
+                m.online = m.online or other.online
+            end
             fresh[m.key] = m
+            everMember[firstName(m.key)] = true
             n = n + 1
         end
     end
@@ -79,7 +116,23 @@ local function scanGuild()
         end
     end
     firstScan = false
-    members, count = fresh, n
+    -- Blizzard lets first names repeat and a key is only a first name, so namesakes are one row with
+    -- nobody's rank on it. A hidden row or a partial roster can hide half a pair, which is no reason to
+    -- hand the other half the rights back: a clash only ends on a full read that hasn't jumped. A recruit
+    -- with the GM's first name switches off GM rights until they leave. That's recoverable, and handing
+    -- them to the wrong one isn't. Stats still merge; only the full name fix can stop that.
+    if hidden > 0 or math.abs(n - count) > 3 then
+        for key, names in pairs(clashes) do found[key] = found[key] or names end
+    end
+    for key, names in pairs(found) do
+        table.sort(names)
+        if fresh[key] then fresh[key].rankIndex, fresh[key].rankName = 99, "" end
+    end
+    for key in pairs(toldClash) do
+        if not found[key] then toldClash[key] = nil end
+    end
+    members, count, onlineCount, clashes = fresh, n, online, found
+    tellGM()
     GF:Fire("GF_ROSTER_UPDATED")
 end
 
@@ -118,7 +171,16 @@ end)
 function Roster:Get(key) return key and members[key] or nil end
 function Roster:All() return members end
 function Roster:Count() return count end
+function Roster:Clash(key) return key and clashes[key] or nil end
+function Roster:Clashes() return clashes end
 function Roster:IsMember(key) return key ~= nil and members[key] ~= nil end
+--- A row that drops out mid-raid (the client can hide roster fields in combat) doesn't stop someone
+-- being a guildie, so this is what decides whose addon messages count (Core/Comm.lua). It goes by
+-- first name alone, so it holds up even if the client's surnames stop being stripped from keys.
+function Roster:WasMember(key) return key ~= nil and everMember[firstName(key)] == true end
+--- A scan has read every row, so someone missing from WasMember really isn't a guildie.
+function Roster:ReadAll() return readAll end
+function Roster:HiddenRows() return hiddenRows end
 function Roster:InGroup(key) return key ~= nil and group[key] ~= nil end
 function Roster:Group() return groupList end
 function Roster:GroupEntry(key) return key and group[key] or nil end
@@ -168,6 +230,7 @@ end
 function Roster:CanManage(key)
     key = key or API.MyKey()
     if self:IsOfficer(key) then return true end
+    if clashes[key] then return false end -- group lead goes by the same name, so that's a guess too
     local g = group[key]
     return g ~= nil and (g.rank or 0) >= 1
 end
@@ -189,11 +252,7 @@ function Roster:List(filterFn, sortKey)
     return out
 end
 
-function Roster:OnlineCount()
-    local n = 0
-    for _, m in pairs(members) do if m.online then n = n + 1 end end
-    return n
-end
+function Roster:OnlineCount() return onlineCount end
 
 -------------------------------------------------------------------------------
 -- Mains & alts. Sources, in priority order:

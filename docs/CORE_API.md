@@ -2,7 +2,7 @@
 
 Greenfields is a guild addon for **World of Warcraft: Forever** (client 1.60.1, TOC Interface 16001, a Classic-content game on a Midnight-era API).
 The guild is *Greenfields*, named after a rough suburb of Mandurah, WA 6210, where the members met.
-The voice is edgy, larrikin Aussie humour (servo, bin chicken, Centrelink, Bunnings snag, "yeah nah"): cheeky, never hateful. No slurs and no jokes about real private people.
+The voice is rough-suburb gallows humour, dry and fond, about where the guild came from and the lives it got out of: the servo at 4am, the pipe, foil windows, burnt-out Commodores, the pawn shop, Centrelink, "yeah nah". Less of the Australia meme page (bin chickens, snags). The guild is adults only, mostly in their mid-thirties to mid-forties, and what's too far is the guild lead's call, not the code's: write the joke and let them cut it. It's never hateful: nobody's race or culture is the punchline.
 
 **Required reading before writing code:**
 - this file
@@ -84,7 +84,8 @@ The load order is the TOC order. Core, Data and UI load before every module. Mod
 | `GF:On(msg, fn)` → token, `GF:Off(msg, token)`, `GF:Fire(msg, ...)` | Internal messages. |
 | `GF:After(sec, fn)`, `GF:Ticker(sec, fn)` → handle with `:Cancel()`, `GF:Debounce(key, sec, fn)` | Timers. |
 | `GF:NewModule(name)`, `GF:GetModule(name)` | |
-| `GF:RegisterSlash(cmd, fn(args), help)` | Adds `/gf <cmd>`. Work is already deferred a tick. |
+| `GF:RegisterSlash(cmd, fn(args), help [, open])` | Adds `/gf <cmd>`. Work is already deferred a tick. `open` keeps it working with the guild lock shut (`Core/Gate.lua`); that's only for commands that help work out what's wrong. `now` (fifth argument) skips the deferral for anything that needs the keypress behind it, like posting in chat; it must leave the chat box's focus alone. |
+| `GF:BlackBox()` → list of `{label, err, t, v, n}` | Errors kept across sessions in `GreenfieldsDB.blackBox`, oldest first. `GF.failedEvents` holds events the client wouldn't register. Both show in `/gf report`. |
 | `GF.VERSION`, `GF.PROTOCOL` | |
 
 `GF.db`, `GF.gdb` and `GF.cdb` are the SavedVariables partitions; see §2.4.
@@ -111,7 +112,7 @@ The load order is the TOC order. Core, Data and UI load before every module. Mod
 
 **Numbers:** `Round`, `Clamp`, `Commas`, `Short` (1.2k, 34k), `Pct(part, whole)`.
 
-**Tables:** `Copy`, `Defaults(dst, src)`, `Count`, `Keys(t, cmp)`, `Values`, `Contains`, `Filter`, `Map`, `Wipe`, `CapList(list, n)`, `SortBy(list, keyFn, desc)`, `Pick(list)`.
+**Tables:** `Copy`, `Defaults(dst, src)`, `Count`, `Keys(t, cmp)`, `Values`, `Contains`, `Filter`, `Map`, `Wipe`, `CapList(list, n)`, `SortBy(list, keyFn, desc)`, `Pick(list[, seed])` (no seed: the whole pile before a repeat, remembered across logins for lines of text; seed: plain arithmetic, touches nothing).
 
 **Time** (server epoch seconds):
 
@@ -122,7 +123,8 @@ The load order is the TOC order. Core, Data and UI load before every module. Mod
 | `U.Duration(sec)` | "2h 05m" |
 | `U.DateTime(ts)` | "Wed 13 Nov, 7:30pm" |
 | `U.DateShort(ts)` | |
-| `U.WeekKey(ts)` | YYYYMMDD of the Wednesday the week starts on. Use it for all "this week" buckets. |
+| `U.WeekKey(ts)` | YYYYMMDD of the Wednesday (Mandurah date) the week starts on, the same on every client. Use it for all "this week" buckets. |
+| `U.WeekStart(ts)` | Server time this week started: Tuesday 16:00 UTC. |
 
 **Colour:** `U.Hex(r, g, b)`, `U.Color(text, hexOrRGB)`, `U.ClassColorHex(class)`, `U.ClassName(key, classFile)` (class-coloured short name), `U.Plural`.
 
@@ -142,7 +144,7 @@ Read the file; every function is documented there. The most used:
 | Items | `ItemInfo`, `ItemInfoInstant`, `ItemName`, `ItemIcon`, `ItemQuality`, `ItemLink`, `ItemID(linkOrId)`, `RequestItem(id)`, `QualityColor(q)`, `ItemCount(id)`, `ItemCooldownLeft(id)`, `ItemSpell(item)` |
 | Spells | `SpellName(id)`, `SpellIcon(id)`, `Knows(spellId)` (IsPlayerSpell chain; works for recipe spells with the window shut) |
 | Auras | `AurasSecret()`, `ForEachBuff(unit, fn(spellId, name, aura) -> stop?)`, `PlayerHasAura(id)` |
-| Group and instance | `InstanceInfo()` → `{name, type, difficulty, maxPlayers, id}`, `InRaidInstance()`, `InRaid()`, `InGroup()`, `GroupChannel()`, `NumGroupMembers()`, `GroupMembers()` (list of `{unit, name, key, class, level, subgroup, rank, online, dead, isML, role}`), `CanLeadGroup()`, `Invite(name)`, `ConvertToRaid()`, `SetRaidSubgroup(i, g)`, `SwapRaidSubgroup(a, b)` |
+| Group and instance | `InstanceInfo()` → `{name, type, difficulty, maxPlayers, id}`, `InRaidInstance()`, `InRaid()`, `InGroup()`, `GroupChannel()`, `NumGroupMembers()`, `GroupMembers()` (list of `{unit, name, key, class, level, subgroup, rank, online, dead, isML, role}`), `CanLeadGroup()`, `LootMethodNow()`, `RestrictionActive(kind)` (true, false, or nil when the client won't say), `Invite(key)` (goes to the full name; false, "clash" on a shared first name), `ConvertToRaid()`, `SetRaidSubgroup(i, g)`, `SwapRaidSubgroup(a, b)` |
 | Guild | `InGuild()`, `GuildInfo()` → `name, rankName, rankIndex`, `RequestGuildRoster()`, `GuildMembers()` |
 | Other | `Professions()` → `{skillLine, name, rank, max, icon}`, `Money()`, `ChatLockdown()`, `SendChat(text, chatType, target)`, `PlaySound(kit)`, `TooltipPostCall("Item" or "Unit", fn(tooltip, data))`, `IsShiftKeyDown()`, `IsControlKeyDown()` |
 
@@ -164,8 +166,9 @@ Read the file; every function is documented there. The most used:
 |---|---|
 | `Comm:Register(op, fn(payload, senderKey, channel), {self = bool})` | Your own echoes are ignored unless `self = true`. |
 | `Comm:Send(op, payload, channel, target, prio)` | channel: `GUILD`, `GROUP` (auto RAID/PARTY/INSTANCE_CHAT), `RAID`, `PARTY` or `WHISPER`. prio: `ALERT`, `NORMAL` or `BULK`. |
-| `Comm:Guild(op, payload, prio)`, `Comm:Group(op, payload, prio)`, `Comm:Whisper(targetKey, op, payload, prio)` | Shortcuts. |
+| `Comm:Guild(op, payload, prio)`, `Comm:Group(op, payload, prio)`, `Comm:Whisper(targetKey, op, payload, prio)` | Shortcuts. `Whisper` returns false without sending when it can't name the player in full yet, since a bare name bounces on Forever, or when two guildies share that first name. It also won't whisper someone the roster says is offline, unless we've heard from them in the last 60 s. |
 | `Comm:HasAddon(key)` → version or nil | |
+| `Comm:OnlineUsers()` → number | Online roster rows we know run the addon, us included. |
 | `Comm:OnlinePeers()` → number | |
 
 - Payloads can be any Lua table, string, number or boolean; they are serialized, deflated when worth it, chunked and throttled for you.
@@ -224,7 +227,8 @@ GF.Store:Mine(name)  GF.Store:PutMine(name, data)  GF.Store:CanWrite(name, id, d
 | Call | Notes |
 |---|---|
 | `Get(key)` | Member table: `{name, key, rankName, rankIndex, level, class, zone, note, officerNote, online, guid, mobile}` |
-| `All()`, `List(filterFn, sortKey)`, `Count()`, `OnlineCount()` | sortKey: name, rank, level, online or class |
+| `All()`, `List(filterFn, sortKey)`, `Count()`, `OnlineCount()` | sortKey: name, rank, level, online or class. The counts are people, so namesakes count as two though they're one key. |
+| `Clash(key)`, `Clashes()` | The full names sharing a first name, or nil; `Clashes()` is all of them by key. A clashing key has no rank, no `CanManage`, and `API.WhisperName` gives nil for it. |
 | `IsMember(key)`, `InGroup(key)`, `Group()` | `Group()` is the `API.GroupMembers()` list |
 | `GroupEntry(key)`, `IsOnline(key)`, `Class(key)`, `Level(key)` | |
 | `RankIndex(key)`, `IsGM(key)`, `IsOfficer(key)` | |
@@ -250,7 +254,7 @@ GF.Store:Mine(name)  GF.Store:PutMine(name, data)  GF.Store:CanWrite(name, id, d
 
 ### 2.9 Data
 
-- `GF.Titles`, `GF.TitlesByKey`, `GF.WealthScore(copper)`: Data/Titles.lua, the Hall of Fame catalogue.
+- `GF.Titles`, `GF.TitlesByKey`, `GF.WealthScore(copper)`: Data/Titles.lua, the Hall of Fame catalogue. The wealth score is a doubling band times 6, so it gives gold away to within about double.
 - `GF.BuffData` (Data/Buffs.lua):
   - `categories` / `byKey`: buff categories with spell IDs, class providers, camp substitutes and `who`.
   - `camp` / `campByKey` / `campByBuff`: camp objects with profession, recipe spells, kit items and hidden aura.
@@ -268,7 +272,7 @@ The window is a dark charcoal panel under a green Australian road sign. Pages li
 ### 3.1 Pages
 
 ```lua
-UI:RegisterPage({ key = "softres", title = "Soft Res", subtitle = "Call dibs before the bin chickens do.",
+UI:RegisterPage({ key = "softres", title = "Soft Res", subtitle = "Call dibs. Leave a bag to hold your spot.",
                   icon = "dice", group = "raid", order = 20,
                   build = function(page) ... end,     -- once, lazily
                   onShow = function(page, arg) ... end,
@@ -291,6 +295,7 @@ Read the header of UI/Widgets.lua. Summary:
 - **Lists:** `UI:List(parent, {rowHeight, createRow, updateRow, onClick, isSelected})` (virtual), `UI:Scroll(parent)` → `scroll, content` (call `scroll:SetContentHeight(h)`).
 - **Small parts:** `UI:Pill(parent, text, color, {icon})`, `UI:Bar(parent, {height, color, text})`, `UI:ItemButton(parent, size)` (`:SetItem(idOrLink)`; tooltip and shift-link built in), `UI:ClassIcon`, `UI:Avatar(parent, size)` (`:SetClass`), `UI:Tabs(parent, items, onSelect)`, `UI:Empty(parent, text, icon)`, `UI:Divider`.
 - **Chat:** `UI:Whisper(name)` opens a whisper to that player, ready to type.
+- **People:** `UI:ResidentMenu(e)` opens the right-click menu for a roster member (profile, whisper, invite, copy name).
 - **Modals:** `UI:Modal`, `UI:Confirm(title, text, onYes, yesText, style)`, `UI:Prompt(title, text, default, onAccept)`, `UI:CopyBox(title, text[, onImport])`.
 - **Feedback:** `UI:Toast{title, text, icon, style = green|yellow|red|blue, duration, onClick, key}`, `UI:Tip(owner, title, lines)`, `UI:FadeIn`, `UI:Pulse`, `UI:Shadow`, `UI:EnableLinks(frame)`, `UI:InsertLink(link)`.
 
@@ -371,7 +376,8 @@ Every function must return safe defaults (an empty table, nil or 0) when there i
 
 ### GF.Stats (Modules/Stats.lua, Modules/HallOfFame.lua)
 - `GF.Stats:Value(key, statKey, scope)` → number. scope is `"all"` (default) or `"week"`.
-- `GF.Stats:Leader(statKey, scope)` → `key, value`. For `rank` stats, the value is nil (amounts are never exposed).
+- `GF.Stats:Leader(statKey, scope)` → `key, value` of whoever wears the crown, or nil until the leader clears its minimum (`CROWN_MIN` in Stats.lua). For `rank` stats, the value is nil (amounts are never exposed).
+- `GF.Stats:Crown(statKey, scope)` → the board row wearing the crown, or nil. `Board` still lists everyone, so its first row may not have a crown yet.
 - `GF.Stats:TitlesOf(key)` → array of title defs from GF.Titles that `key` currently holds (all-time), in catalogue order.
 - `GF.Stats:Badges(key)` → array of `{stat, n, name}` milestone badges earned.
 

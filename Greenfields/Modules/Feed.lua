@@ -17,7 +17,7 @@
        raid boss kills            the raid leader, or the alphabetically-first officer in the
                                   group running Greenfields when the leader isn't
        members joining/leaving    the alphabetically-first online officer running it
-     Funny deaths, titles and badges come from Stats, loot awards from Loot, raid posts from
+     Crowns and badges come from Stats, loot awards from Loot, raid posts from
      Raids/Attendance and 300-skill tradies from Professions.
 
      Public API (CORE_API section 5): Feed:Post(kind, text, opts), Feed:Recent(n).
@@ -59,7 +59,7 @@ local KINDS = {
     loot = { label = "Loot", icon = "bag", color = "purple" },
     kill = { label = "Boss down", icon = "trophy", color = "green", toast = true, headline = "Boss down" },
     wipe = { label = "Wipe", icon = "skull", color = "yellow", warn = true, headline = "Wipe report" },
-    title = { label = "New crown", icon = "crown", color = "gold", toast = true, headline = "New crown in town" },
+    title = { label = "New crown", icon = "crown", color = "gold", toast = false, headline = "New crown in town" },
     badge = { label = "Badge", icon = "star", color = "gold", toast = true, headline = "Badge earned" },
     join = { label = "New local", icon = "home", color = "green", toast = true, headline = "New neighbour" },
     leave = { label = "Moved out", icon = "export", color = "dim", headline = "Moving truck spotted" },
@@ -96,7 +96,7 @@ local LEVEL_LINES = {
     [30] = {
         "{name} hit 30. Halfway to a real job.",
         "{name} made 30. Too old for the skate park, too young for lawn bowls.",
-        "{name} hit 30. The bin chickens have started showing some respect.",
+        "{name} hit 30. The staffy's started showing some respect.",
     },
     [40] = {
         "{name} hit 40. Mount money sorted? Yeah nah, didn't think so.",
@@ -111,14 +111,38 @@ local LEVEL_LINES = {
     [60] = {
         "{name} hit 60. Time to get a real job: raiding.",
         "{name} hit 60. Welcome to the endgame. Bring your own floor mat.",
-        "{name} dinged 60. Someone fire up the Bunnings snags.",
+        "{name} dinged 60. Someone light the drum.",
     },
 }
 
-local EPIC_LINE = "{name} looted {item}. Absolute bin chicken behaviour."
-local LEGENDARY_LINE = "{name} looted {item}. LEGENDARY. Somebody ring the Mandurah Mail."
-local JOIN_LINE = "Welcome to the street, {name}. Lock ya bikes."
-local LEAVE_LINE = "{name} moved out of Greenfields. Probably to Halls Head."
+local EPIC_LINES = {
+    "{name} looted {item}. It'll be at the pawn shop by Friday.",
+    "{name} looted {item}. Nobody saw nothing.",
+    "{name} looted {item}. Already got a bloke out the back asking what they want for it.",
+    "{name} looted {item}. Serial number's been filed off.",
+    "{name} looted {item}. That's worth at least two points.",
+}
+local LEGENDARY_LINES = {
+    "{name} looted {item}. LEGENDARY. Worth more than every car on the street, even the ones with wheels.",
+    "{name} looted {item}. LEGENDARY. Don't leave it on the front seat.",
+    "{name} looted {item}. LEGENDARY. Whole street's suddenly their best mate.",
+    "{name} looted {item}. LEGENDARY. Somebody ring the Mandurah Mail.",
+    "{name} looted {item}. LEGENDARY. That's a lot of points.",
+}
+local JOIN_LINES = {
+    "Welcome to the street, {name}. Lock ya bikes.",
+    "{name} moved in. The neighbours have already been through the shed.",
+    "{name} moved in. Park the trolley out the front with the others.",
+    "New face on the street: {name}. Curtains are twitching.",
+    "{name} moved in. Already asked who's holding.",
+}
+local LEAVE_LINES = {
+    "{name} moved out of Greenfields. Probably to Halls Head.",
+    "{name} moved out in the night. Bond's gone, so's the oven.",
+    "{name} moved out. Left the couch on the verge and a burnt-out Commodore in the carport.",
+    "{name} did a runner. Whatever they were cooking in there, the smell's staying.",
+    "{name} moved out. Rehab or remand, nobody's saying.",
+}
 
 -------------------------------------------------------------------------------
 -- Small helpers
@@ -397,7 +421,8 @@ local function toast(e, flagged)
     local s = GF.db and GF.db.settings
     if not s or s.feedToasts == false then return end
     local meta = KINDS[e.kind] or KINDS.misc
-    if not (meta.toast or flagged) then return end
+    -- toast = false never signs, even if an old copy of the addon flags it (crowns did)
+    if meta.toast == false or not (meta.toast or flagged) then return end
     -- the report still lands in the feed; nobody needs a sign mid-pull
     if API.InCombat() or not toastBudget() then return end
     local text = e.text
@@ -626,7 +651,7 @@ local function postEpic(link, id, tries)
     if q < 4 then return end
     local name, key = myColored(), API.MyKey()
     if not name then return end
-    Feed:Post("loot", fill(q == 5 and LEGENDARY_LINE or EPIC_LINE, { name = name, item = link }), {
+    Feed:Post("loot", fill(U.Pick(q == 5 and LEGENDARY_LINES or EPIC_LINES), { name = name, item = link }), {
         key = format("epic:%s:%d:%d", key, id, floor(API.ServerTime() / 60)), icon = "bag",
     })
 end
@@ -738,9 +763,9 @@ local function flushMoves()
     for _, mv in ipairs(list) do
         local name = colored(mv.key)
         if mv.kind == "join" then
-            Feed:Post("join", fill(JOIN_LINE, { name = name }), { key = "join:" .. mv.key, icon = "home" })
+            Feed:Post("join", fill(U.Pick(JOIN_LINES), { name = name }), { key = "join:" .. mv.key, icon = "home" })
         else
-            Feed:Post("leave", fill(LEAVE_LINE, { name = name }), { key = "leave:" .. mv.key, icon = "export" })
+            Feed:Post("leave", fill(U.Pick(LEAVE_LINES), { name = name }), { key = "leave:" .. mv.key, icon = "export" })
         end
     end
 end
@@ -757,19 +782,15 @@ end
 -------------------------------------------------------------------------------
 local PAGE = "feed"
 local ROW_H = 44
-local BADGE = 30                -- framed kind icon on each report row
-local SIGN_H = 76
-local SIGN_CAP = 40             -- texture pixels kept unstretched at each end of the sign
-local HAZARD_H = 6
-local HAZARD_TILE = 32          -- on-screen size of one 64px hazard tile
-local INK = { 0.07, 0.07, 0.05, 1 }     -- road-sign black
+local BADGE = 28                -- slot for each report's marker, so text lines up whatever it holds
+local SIGN_W, SIGN_H = 240, 60  -- the art is 512x128, baked lettering and all: never stretch it
 
 local FILTERS = {
     { key = "all", text = "All" },
     { key = "raids", text = "Raids", kinds = { kill = true, wipe = true, raid = true, sr = true, camp = true },
       empty = "No raid news. Either nobody's raiding or nobody's dying. Suspicious either way." },
     { key = "loot", text = "Loot", kinds = { loot = true },
-      empty = "No loot yet. The bin chickens are circling." },
+      empty = "No loot yet. The pawn shop's getting nervous." },
     { key = "titles", text = "Titles", kinds = { title = true, badge = true },
       empty = "No crowns have changed hands. The throne's gathering dust." },
     { key = "levels", text = "Levels", kinds = { level = true, prof = true },
@@ -798,7 +819,7 @@ local function emptyLine(f)
     return (F and F.emptyStates and F.emptyStates.feed) or "Quiet on the street tonight. Too quiet."
 end
 
---- Seconds since local midnight, so the plate can count "today" in the player's own day.
+--- Seconds since local midnight, so the tally can count "today" in the player's own day.
 local function startOfToday(now)
     local d = rawget(_G, "date")
     if type(d) ~= "function" then return now - 86400 end
@@ -808,183 +829,51 @@ local function startOfToday(now)
 end
 
 ---------------------------------------------------------------- the sign
-local function inkText(parent, size, kind)
-    local fs = UI:Text(parent, size, INK, kind)
-    fs:SetShadowColor(0, 0, 0, 0)
-    return fs
+--- The line beside the sign: one line if it fits, else two of about even length, because a plain
+-- wrap leaves the last word alone on its own line. The jokes vary too much for one fixed width.
+local function fitSignLine(b)
+    local room = (b:GetWidth() or 0) - SIGN_W - 16 - 16 - (b.today.label:GetStringWidth() or 0) - 4
+    if room <= 0 then return end
+    b.line:SetWidth(2000)
+    local natural = b.line.GetUnboundedStringWidth and b.line:GetUnboundedStringWidth() or b.line:GetStringWidth()
+    natural = tonumber(natural) or 0
+    b.line:SetWidth(natural <= room and room or min(room, floor(natural * 0.62)))
 end
 
-local function signPiece(parent, l, r)
-    local t = parent:CreateTexture(nil, "ARTWORK")
-    t:SetTexture(T.tex.signYellow)
-    t:SetTexCoord(l, r, 0, 1)
-    return t
-end
-
---- "NEIGHBOURHOOD WATCH AREA": the yellow sign three-sliced across the page so the
--- rounded ends keep their shape, an eye emblem, a black report plate, hazard tape under.
+--- The NEIGHBOURHOOD WATCH AREA sign, an object bolted up at its own proportions and darkened to
+-- sit in the night, with the rotating line and today's tally beside it.
 local function buildBanner(page, anchor)
     local b = CreateFrame("Frame", nil, page)
     -- TOPLEFT + TOPRIGHT (a bare RIGHT would pin the vertical centre to the page's and
-    -- stretch the sign down half the window)
-    b:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -10)
-    b:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -10)
-    b:SetHeight(SIGN_H + 6 + HAZARD_H)
+    -- stretch the band down half the window). 14 under the header clears the night scene.
+    b:SetPoint("TOPLEFT", anchor, "BOTTOMLEFT", 0, -14)
+    b:SetPoint("TOPRIGHT", anchor, "BOTTOMRIGHT", 0, -14)
+    b:SetHeight(SIGN_H)
 
-    local edge = SIGN_CAP / 512
-    local capW = floor(SIGN_CAP * SIGN_H / 128 + 0.5)
-    local left = signPiece(b, 0, edge)
-    left:SetSize(capW, SIGN_H)
-    left:SetPoint("TOPLEFT")
-    local right = signPiece(b, 1 - edge, 1)
-    right:SetSize(capW, SIGN_H)
-    right:SetPoint("TOPRIGHT")
-    local mid = signPiece(b, edge, 1 - edge)
-    mid:SetPoint("TOPLEFT", left, "TOPRIGHT")
-    mid:SetPoint("BOTTOMRIGHT", right, "BOTTOMLEFT")
+    b.sign = b:CreateTexture(nil, "ARTWORK")
+    b.sign:SetTexture(T.MEDIA .. "sign_watch")
+    b.sign:SetSize(SIGN_W, SIGN_H)
+    b.sign:SetPoint("TOPLEFT", 0, 0)
+    b.sign:SetVertexColor(0.82, 0.76, 0.62, 1)
 
-    local faceY = -(SIGN_H / 2) + 1     -- the sign's face sits a touch above its shadow
-    for _, side in ipairs({ { "LEFT", 11 }, { "RIGHT", -11 } }) do
-        local bolt = b:CreateTexture(nil, "ARTWORK", nil, 2)
-        bolt:SetTexture(T.tex.circle)
-        bolt:SetSize(5, 5)
-        bolt:SetVertexColor(0.32, 0.27, 0.10, 0.9)
-        bolt:SetPoint("CENTER", b, "TOP" .. side[1], side[2], faceY)
-    end
+    b.today = UI:Stat(b, { value = "0", label = "reports today", size = 20 })
+    -- numbers right-align
+    b.today.value:ClearAllPoints()
+    b.today.value:SetPoint("TOPRIGHT", 0, 0)
+    b.today.label:ClearAllPoints()
+    b.today.label:SetPoint("TOPRIGHT", b.today.value, "BOTTOMRIGHT", 0, -2)
+    b.today:SetPoint("RIGHT", b, "RIGHT", -4, 0)
+    b.today:EnableMouse(true)
+    UI.AttachTip(b.today, { "Reports today", { "Everything this client has seen since midnight.",
+        T:Wrap("dim", "The Watch keeps the last " .. CAP .. " reports.") } })
 
-    local emblem = b:CreateTexture(nil, "ARTWORK", nil, 2)
-    emblem:SetTexture(T.tex.circle)
-    emblem:SetSize(46, 46)
-    emblem:SetVertexColor(INK[1], INK[2], INK[3], 1)
-    emblem:SetPoint("CENTER", b, "TOPLEFT", 46, faceY)
-    local eye = UI:Icon(b, 28, "eye", "OVERLAY", "yellow")
-    eye:SetPoint("CENTER", emblem, "CENTER", 0, 0)
-
-    local plate = CreateFrame("Frame", nil, b)
-    plate:SetSize(112, 46)
-    plate:SetPoint("RIGHT", b, "TOPRIGHT", -24, faceY)
-    plate.bg = plate:CreateTexture(nil, "BACKGROUND")
-    plate.bg:SetAllPoints()
-    UI.Sliced(plate.bg, T.tex.round6, 6)
-    plate.bg:SetVertexColor(INK[1], INK[2], INK[3], 1)
-    plate.num = UI:Text(plate, 20, "yellow", "num")
-    plate.num:SetPoint("TOP", 0, -5)
-    plate.num:SetJustifyH("CENTER")
-    plate.label = UI:Text(plate, 9, "yellow", "head")
-    plate.label:SetPoint("BOTTOM", 0, 7)
-    plate.label:SetJustifyH("CENTER")
-    plate.label:SetText("REPORTS TODAY")
-    plate:EnableMouse(true)
-    plate:SetScript("OnEnter", function(self)
-        UI:Tip(self, "Reports today", { "Everything this client has seen since midnight.",
-            T:Wrap("dim", "The Watch keeps the last " .. CAP .. " reports.") })
-    end)
-    plate:SetScript("OnLeave", function() UI:HideTip() end)
-    b.plate = plate
-
-    -- emblem and plate share a centre line, so their tops line up for the title's corners
-    b.title = inkText(b, 24, "head")
-    b.title:SetPoint("TOPLEFT", emblem, "TOPRIGHT", 14, -2)
-    b.title:SetPoint("TOPRIGHT", plate, "TOPLEFT", -12, -2)
-    b.title:SetText("NEIGHBOURHOOD WATCH AREA")
-    b.line = inkText(b, 11, "body")
-    b.line:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -5)
-    b.line:SetPoint("TOPRIGHT", b.title, "BOTTOMRIGHT", 0, -5)
-
-    -- hazard tape: Blizzard's backdrop recipe (REPEAT wrap + tiling + explicit repeat count)
-    local hz = b:CreateTexture(nil, "ARTWORK")
-    hz:SetTexture(T.tex.hazard, "REPEAT", "REPEAT")
-    if hz.SetHorizTile then hz:SetHorizTile(true) end
-    hz:SetPoint("BOTTOMLEFT", b, "BOTTOMLEFT", 8, 0)
-    hz:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -8, 0)
-    hz:SetHeight(HAZARD_H)
-    for _, point in ipairs({ "TOP", "BOTTOM" }) do
-        local edgeLine = b:CreateTexture(nil, "OVERLAY")
-        edgeLine:SetColorTexture(0, 0, 0, 0.55)
-        edgeLine:SetHeight(1)
-        edgeLine:SetPoint(point .. "LEFT", hz, point .. "LEFT")
-        edgeLine:SetPoint(point .. "RIGHT", hz, point .. "RIGHT")
-    end
-    b:SetScript("OnSizeChanged", function(_, w)
-        w = tonumber(w) or 0
-        hz:SetTexCoord(0, max(1, (w - 16) / HAZARD_TILE), 0, HAZARD_H / HAZARD_TILE)
-    end)
-    hz:SetTexCoord(0, 20, 0, HAZARD_H / HAZARD_TILE)
+    b.line = UI:Para(b, 12, "dim")
+    b.line:SetPoint("LEFT", b.sign, "RIGHT", 16, 0)
+    b:SetScript("OnSizeChanged", function() fitSignLine(b) end)
     return b
 end
 
----------------------------------------------------------------- filter chips
--- Gold-rimmed filter buttons from the kit's button art: dark when idle, green when picked.
-local CHIP_IDLE_LABEL = { C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.85 }
-local CHIP_IDLE_COUNT = { 0.75, 0.66, 0.45, 1 }
-
-local function paintChip(chip)
-    local label, count
-    if chip.selected then
-        UI.Sliced(chip.bg, T.tex.btnGreen, 10)
-        label, count = { 1, 1, 1, 1 }, { 0.85, 1, 0.9, 0.85 }
-    else
-        UI.Sliced(chip.bg, T.tex.btnDark, 10)
-        if chip.hover then
-            label, count = C.wowGold, { 0.95, 0.85, 0.6, 1 }
-        else
-            label, count = CHIP_IDLE_LABEL, CHIP_IDLE_COUNT
-        end
-    end
-    chip.hl:SetAlpha(chip.hover and 1 or 0)
-    chip.label:SetTextColor(label[1], label[2], label[3], label[4] or 1)
-    chip.count:SetTextColor(count[1], count[2], count[3], count[4] or 1)
-end
-
-local function makeChip(parent, def, onPick)
-    local chip = CreateFrame("Button", nil, parent)
-    chip:SetHeight(22)
-    chip.def = def
-    chip.bg = chip:CreateTexture(nil, "BACKGROUND")
-    chip.bg:SetAllPoints()
-    UI.Sliced(chip.bg, T.tex.btnDark, 10)
-    chip.hl = chip:CreateTexture(nil, "ARTWORK", nil, -1)
-    chip.hl:SetPoint("TOPLEFT", 3, -3)
-    chip.hl:SetPoint("BOTTOMRIGHT", -3, 3)
-    chip.hl:SetColorTexture(1, 1, 1, 0.10)
-    chip.hl:SetBlendMode("ADD")
-    chip.hl:SetAlpha(0)
-    chip.label = UI:Text(chip, 11, "wowGold", "ui")
-    chip.label:SetPoint("LEFT", 10, 0)
-    chip.label:SetText(def.text)
-    chip.count = UI:Text(chip, 10, "faint", "num")
-    chip.count:SetPoint("LEFT", chip.label, "RIGHT", 5, 0)
-    function chip:SetCount(n)
-        self.count:SetText(tostring(n or 0))
-        self:SetWidth((self.label:GetStringWidth() or 30) + (self.count:GetStringWidth() or 8) + 25)
-    end
-    chip:SetScript("OnEnter", function(self)
-        self.hover = true
-        paintChip(self)
-    end)
-    chip:SetScript("OnLeave", function(self)
-        self.hover = false
-        paintChip(self)
-    end)
-    chip:SetScript("OnClick", function(self)
-        if UI.Sound then UI.Sound(841) end
-        onPick(self.def.key)
-    end)
-    chip:SetCount(0)
-    paintChip(chip)
-    return chip
-end
-
-local function layoutChips(page)
-    local x = 0
-    for _, chip in ipairs(page.chips) do
-        chip:ClearAllPoints()
-        chip:SetPoint("LEFT", page.chipBar, "LEFT", x, 0)
-        x = x + chip:GetWidth() + 4
-    end
-    page.chipBar:SetWidth(max(1, x - 4))
-end
-
+---------------------------------------------------------------- filter tabs
 ---------------------------------------------------------------- report rows
 local function whoText(from)
     if type(from) ~= "string" then return T:Wrap("faint", "Someone") end
@@ -992,44 +881,53 @@ local function whoText(from)
 end
 
 local function createRow(row)
-    -- the kind's icon in a gold action-button frame (game icons sit in it as they are)
+    -- a report's marker: real game art earns a bevelled frame, a line icon draws bare in the kind's
+    -- colour. Both sit in one slot so the text keeps its column
     row.badge = UI:FramedIcon(row, BADGE, "dot")
-    row.badge:SetPoint("LEFT", 10, 0)
-    row.icon = row.badge.icon
-    row.new = row:CreateTexture(nil, "ARTWORK", nil, 1)
-    row.new:SetColorTexture(C.green[1], C.green[2], C.green[3], 1)
-    row.new:SetPoint("TOPLEFT", 0, -6)
-    row.new:SetPoint("BOTTOMLEFT", 0, 6)
-    row.new:SetWidth(2)
-    row.ago = UI:Text(row, 10, "faint", "num")
-    row.ago:SetPoint("TOPRIGHT", -10, -8)
-    row.ago:SetJustifyH("RIGHT")
+    row.badge:SetPoint("LEFT", 8, 0)
+    row.kind = UI:Icon(row, 18, "dot")
+    row.kind:SetPoint("CENTER", row.badge, "CENTER", 0, 0)
     -- corner pairs only: TOPLEFT + RIGHT would pin each line's centre to the row's
     row.text = UI:Text(row, 12, "text")
-    row.text:SetPoint("TOPLEFT", row.badge, "TOPRIGHT", 10, 1)
-    row.text:SetPoint("TOPRIGHT", row.ago, "TOPLEFT", -12, 2)
-    row.meta = UI:Text(row, 10, "faint", "head")
-    row.meta:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -5)
-    row.meta:SetPoint("TOPRIGHT", row.text, "BOTTOMRIGHT", 0, -5)
+    row.text:SetPoint("TOPLEFT", row, "TOPLEFT", BADGE + 18, -7)
+    row.text:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -7)
+    row.meta = UI:Text(row, 11, "dim", "ui")
+    row.meta:SetPoint("TOPLEFT", row.text, "BOTTOMLEFT", 0, -4)
+    row.meta:SetPoint("TOPRIGHT", row.text, "BOTTOMRIGHT", 0, -4)
     UI:EnableLinks(row)
     if row.GetScript and row:GetScript("OnHyperlinkClick") then
         row:HookScript("OnHyperlinkClick", function(self) self.linkAt = API.Time() end)
     end
 end
 
+--- "New crown · 6m ago". Reports nearly always start with the player's name, so the sender only
+-- joins the line when the text doesn't already say who.
+local function metaLine(e, meta)
+    local dot = T:Wrap("faint", "  \194\183  ")
+    local line = T:Wrap(meta.color, meta.label) .. dot .. T:Wrap("dim", U.Ago(e.t))
+    if type(e.from) == "string" and not find(plain(e.text), U.ShortName(e.from), 1, true) then
+        line = whoText(e.from) .. dot .. line
+    end
+    return line
+end
+
 local function updateRow(page, row, e)
     local meta = KINDS[e.kind] or KINDS.misc
-    row.badge:SetIcon(e.icon or meta.icon)
-    -- line icons take the kind's colour on the dark well; grey kinds keep the frame's gold
-    if not row.icon.isGameIcon and meta.color ~= "dim" then
+    local icon = e.icon or meta.icon
+    UI:SetIcon(row.kind, icon)
+    local game = row.kind.isGameIcon and true or false
+    row.kind:SetShown(not game)
+    row.badge:SetShown(game)
+    if game then
+        row.badge:SetIcon(icon)
+    else
         local c = UI.col(meta.color)
-        row.icon:SetVertexColor(c[1], c[2], c[3], 1)
+        row.kind:SetVertexColor(c[1], c[2], c[3], 1)
     end
     row.text:SetText(e.text)
-    row.meta:SetText(whoText(e.from) .. T:Wrap("faint", "   \194\183   ") .. T:Wrap("dim", upper(meta.label)))
-    row.ago:SetText(U.Ago(e.t))
+    row.meta:SetText(metaLine(e, meta))
     local fresh = (tonumber(e.n) or 0) > (page.prevSeen or 0) and e.from ~= API.MyKey()
-    row.new:SetShown(fresh)
+    row:SetEdge(fresh and "green" or nil)
     -- a fresh ding, crown or kill gets one achievement-style sweep, the first time it's drawn
     local n = tonumber(e.n)
     if fresh and n and CELEBRATE[e.kind] and not page.shone[n] then
@@ -1099,13 +997,10 @@ local function render(page)
             if not active.kinds or active.kinds[e.kind] then items[#items + 1] = e end
         end
     end
-    for _, chip in ipairs(page.chips) do
-        chip.selected = chip.def.key == active.key
-        chip:SetCount(counts[chip.def.key])
-        paintChip(chip)
-    end
-    layoutChips(page)
-    page.banner.plate.num:SetText(tostring(todayCount))
+    page.tabs:Select(active.key, true)
+    -- no count at zero: a row of zeroes on an empty street only reads as dead
+    for _, f in ipairs(FILTERS) do page.tabs:SetCount(f.key, (counts[f.key] or 0) > 0 and counts[f.key] or nil) end
+    page.banner.today:Set(todayCount)
     local keep = page.renderedFilter == active.key
     page.renderedFilter = active.key
     page.list:SetItems(items, keep)
@@ -1115,11 +1010,15 @@ local function render(page)
     if empty then page.empty.text:SetText(emptyLine(active)) end
 end
 
+local function toastsOn()
+    return not (GF.db and GF.db.settings and GF.db.settings.feedToasts == false)
+end
+
+--- A setting people rarely touch stays a quiet bell, not the page's loudest button.
 local function paintToastButton(btn)
-    local on = not (GF.db and GF.db.settings and GF.db.settings.feedToasts == false)
-    btn:SetText(on and "Toasts on" or "Toasts off")
-    -- a lit green button when the signs are on, the plain gold-rimmed one when they're off
-    btn:SetStyle(on and "primary" or "secondary")
+    local on = toastsOn()
+    btn:SetColor(on and "gold" or "faint")
+    btn.off:SetShown(not on)
 end
 
 local function stopClock(page)
@@ -1137,65 +1036,59 @@ local function startClock(page)
     end)
 end
 
-local function cardEmpty(parent)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetPoint("TOPLEFT", 0, -10)
-    f:SetPoint("BOTTOMRIGHT", 0, 10)
-    f.icon = UI:Icon(f, 40, "eye", "ARTWORK", { 1, 1, 1, 0.12 })
-    f.icon:SetPoint("BOTTOM", f, "CENTER", 0, 8)
-    f.text = UI:Text(f, 13, "faint")
-    f.text:SetPoint("TOPLEFT", f, "LEFT", 24, -6)
-    f.text:SetPoint("TOPRIGHT", f, "RIGHT", -24, -6)
-    f.text:SetJustifyH("CENTER")
-    f.text:SetWordWrap(true)
-    return f
-end
 
 local function build(page)
     page.filter = "all"
     page.shone = {}
     local header = UI:PageHeader(page, pageDef.title, pageDef.subtitle)
     page.header = header
-    page.toastBtn = header:AddAction(UI:Button(header, "Toasts on", {
-        icon = "bell",
-        tooltip = { "Watch toasts", { "Pop a road sign when the street has news: level 60s, new crowns, boss kills, new locals.",
-            T:Wrap("dim", "Everything still lands in the feed either way.") } },
-        onClick = function(self)
-            local s = GF.db and GF.db.settings
-            if not s then return end
-            s.feedToasts = s.feedToasts == false
-            paintToastButton(self)
-        end,
-    }))
+    page.toastBtn = header:AddAction(UI:IconButton(header, "bell", 26, function()
+        return { toastsOn() and "Watch toasts: on" or "Watch toasts: off",
+            { "Pop a road sign when the street has news: milestone dings, badges, boss kills, 300 tradies and new locals. Crowns and loot stay in the Watch.",
+              T:Wrap("dim", "Everything still lands in the feed either way.") } }
+    end, function(self)
+        local s = GF.db and GF.db.settings
+        if not s then return end
+        s.feedToasts = s.feedToasts == false
+        paintToastButton(self)
+    end, "gold"))
+    page.toastBtn.off = UI:Icon(page.toastBtn, 10, "close", "OVERLAY", "red")
+    page.toastBtn.off:SetPoint("BOTTOMRIGHT", -2, 2)
     paintToastButton(page.toastBtn)
 
     page.banner = buildBanner(page, header)
 
-    local card = UI:Card(page, { title = "Latest reports", icon = "eye" })
-    card:SetPoint("TOPLEFT", page.banner, "BOTTOMLEFT", 0, -14)
+    -- no title: the sidebar, the page header and the sign have all said what this is by now
+    local card = UI:Card(page)
+    card:SetPoint("TOPLEFT", page.banner, "BOTTOMLEFT", 0, -16)
     card:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     page.card = card
 
-    page.chipBar = CreateFrame("Frame", nil, card)
-    page.chipBar:SetHeight(22)
-    page.chipBar:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -8)
-    page.chips = {}
-    for _, f in ipairs(FILTERS) do
-        page.chips[#page.chips + 1] = makeChip(page.chipBar, f, function(key)
-            page.filter = key
-            render(page)
-        end)
-    end
+    local tabItems = {}
+    for _, f in ipairs(FILTERS) do tabItems[#tabItems + 1] = { key = f.key, text = f.text, count = 0 } end
+    page.tabs = UI:Tabs(card.body, tabItems, function(key)
+        page.filter = key
+        render(page)
+    end)
+    page.tabs:SetPoint("TOPLEFT", card.body, "TOPLEFT", 0, 0)
+    page.tabs:SetPoint("TOPRIGHT", card.body, "TOPRIGHT", 0, 0)
+    for _, b in ipairs(page.tabs.buttons) do UI:SetTextColor(b.countText, "dim") end
 
-    page.list = UI:List(card.body, {
-        rowHeight = ROW_H, spacing = 2,
+    page.listArea = CreateFrame("Frame", nil, card.body)
+    page.listArea:SetPoint("TOPLEFT", page.tabs, "BOTTOMLEFT", 0, -4)
+    page.listArea:SetPoint("BOTTOMRIGHT", card.body, "BOTTOMRIGHT", 0, 0)
+    page.list = UI:List(page.listArea, {
+        rowHeight = ROW_H, spacing = 0,
         createRow = createRow,
         updateRow = function(row, e) updateRow(page, row, e) end,
         onEnter = rowTip,
         onClick = onRowClick,
     })
-    page.list:SetAllPoints(card.body)
-    page.empty = cardEmpty(card.body)
+    -- the kit keeps 10 spare on a row's right for a scrollbar: hang that in the card's margin
+    page.list:SetPoint("TOPLEFT", page.listArea, "TOPLEFT")
+    page.list:SetPoint("BOTTOMRIGHT", page.listArea, "BOTTOMRIGHT", 10, 0)
+    -- wide enough that the longer lines don't end on one lonely word
+    page.empty = UI:Empty(page.listArea, "", "bubble", { width = 480 })
     page.empty:Hide()
     -- closing the whole window hides the page without an onHide; stop the clock either way
     page:HookScript("OnHide", function() GF:Safe("feed:hide", stopClock, page) end)
@@ -1206,6 +1099,7 @@ local function onShow(page)
     page.prevSeen = l and l.seen or 0
     markSeen()
     page.banner.line:SetText(U.Pick(SIGN_LINES) or SIGN_LINES[1])
+    fitSignLine(page.banner)
     paintToastButton(page.toastBtn)
     render(page)
     startClock(page)

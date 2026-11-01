@@ -1,5 +1,7 @@
 # Greenfields art prompts (for ChatGPT image generation)
 
+Only the title icons still come from these. Page banners and the crest are procedural now: `tools/make_scenes.py` and `tools/make_media.py`.
+
 How to use:
 1. Generate the three style anchors first, in one ChatGPT chat.
 2. Stay in that same chat for the rest, starting each request with "Same style as the previous images." That keeps the set consistent.
@@ -21,7 +23,7 @@ Hand-painted digital fantasy illustration in the style of classic early-2000s hi
 Square (1024x1024).
 
 ```
-Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a cheeky white ibis bird with a long curved black beak diving into an overflowing treasure barrel, flinging gold coins and gems.
+Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Match the painting style of the reference images. Subject: a scrawny wild-eyed green goblin in a torn grey hoodie, crouched in a dark back alley at night, hugging an overflowing sack of glowing gold coins, gems and a purple sword to its chest as if it will never let go, huge bulging bloodshot eyes, jittery and paranoid, teeth clenched in a mad grin, the side of a wire shopping trolley behind it.
 ```
 
 ### `crest.png`
@@ -181,7 +183,7 @@ Hand-painted square spell/ability icon for a classic fantasy MMO, in the style o
 Square (1024x1024).
 
 ```
-Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a kangaroo mid-leap wearing a tiny iron helmet.
+Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Match the painting style of the reference images. Subject: a wiry little adult gnome with a scraggly beard, in a scruffy grey hoodie, frozen mid-leap in the air with arms and legs flung out, huge sleepless bulging eyes with dark circles under them, a manic grin, hair standing on end, bouncing off a brick wall in a dark alley under a flickering street lamp. He has clearly been awake for days.
 ```
 
 ### `title_emotes.png`
@@ -265,7 +267,7 @@ Hand-painted square spell/ability icon for a classic fantasy MMO, in the style o
 Square (1024x1024).
 
 ```
-Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: rows of colourful bubbling potion bottles and flasks on a shelf.
+Hand-painted square spell/ability icon for a classic fantasy MMO, in the style of early-2000s high-fantasy game icons, matching the painting style of the reference image: bold readable central subject filling most of the frame, chunky stylized shapes, saturated colours, strong dramatic rim lighting, painterly brushwork, dark moody vignette toward the edges, full-bleed square composition with no border and no frame. No text, no letters, no UI. Subject: a scrawny adult goblin alchemist in a torn hood, sitting among shelves of glowing red, blue and green potion bottles, taking a long hit from a slim glass pipe with a round glass bulb, a small flame under the bulb, eyes wide and bulging, thick pale smoke curling up around his head. Adult fantasy comedy, gritty alley-apothecary feel.
 ```
 
 ### `title_rezzes.png`

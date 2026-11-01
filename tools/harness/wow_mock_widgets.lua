@@ -1368,10 +1368,30 @@ end
 function M_Frame:GetFrameStrata() ST(self) return strataOf(self) end
 function M_Frame:SetFixedFrameStrata(on) ST(self).fixedStrata = on end
 function M_Frame:HasFixedFrameStrata() return ST(self).fixedStrata == true end
+-- Moving a frame carries its whole subtree by the same amount unless a child has a fixed level, as
+-- the client does (SetFixedFrameLevel exists to opt out). Only explicit child levels need it: the
+-- rest are derived from the parent anyway.
+local function shiftChildLevels(obj, delta)
+    if delta == 0 then return end
+    for o, ost in pairs(S) do
+        if ost.isFrame and ost.level and not ost.fixedLevel and o ~= obj then
+            local p = ost.parent
+            while p do
+                if p == obj then
+                    ost.level = max(0, min(10000, ost.level + delta))
+                    break
+                end
+                p = S[p] and S[p].parent
+            end
+        end
+    end
+end
 function M_Frame:SetFrameLevel(n)
     local st = ST(self)
     if not isNum(n) then argErr("SetFrameLevel", 1, "number", n) end
+    local old = levelOf(self)
     st.level = max(0, min(10000, floor(n)))
+    shiftChildLevels(self, st.level - old)
 end
 function M_Frame:GetFrameLevel() ST(self) return levelOf(self) end
 function M_Frame:SetFixedFrameLevel(on) ST(self).fixedLevel = on end
@@ -1384,7 +1404,9 @@ local function raise(obj)
         if ost.isFrame and o ~= obj and ost.shown and strataOf(o) == strata then top = max(top, levelOf(o)) end
     end
     local st = S[obj]
-    st.level = min(10000, max(levelOf(obj), top + 1))
+    local was = levelOf(obj)
+    st.level = min(10000, max(was, top + 1))
+    shiftChildLevels(obj, st.level - was)
 end
 MOCK.Raise = raise
 function M_Frame:Raise() ST(self) raise(self) end

@@ -26,7 +26,7 @@ any Lua error was recorded (addon-captured or harness-caught) or the harness its
 | `wow_mock_game.lua` | Game state (per client, from `CFG`): identity, guild roster, group/raid and unit tokens, `Unit*`, instances, professions/spellbook, `C_Spell`, `C_Item`, `C_Container`, `C_UnitAuras`, `C_Secrets`, `C_TradeSkillUI`, loot and rolls, money/merchant, `C_ChatInfo` (addon messages + chat), `C_PartyInfo`, modifiers, cursor, sounds, `ChatFrameUtil`; combat / encounter / chat-lockdown state; harness entry points `MOCK.Game.*`; `MOCK.Setup()`. |
 | `wow_mock_scene.lua` | `MOCK.ExportScene()`, `MOCK.CheckLayout()`, `MOCK.SerializeSV()`, `MOCK.Report()`. |
 | `render.py` | Scene JSON -> PNG (system Python + PIL). |
-| `fonts.py`, `font_metrics.json` | WoW font -> Windows stand-in mapping, shared by the mock's text measurement and the renderer (`render.py --metrics` regenerates the metrics). |
+| `fonts.py`, `font_metrics.json` | WoW font -> real game font (when extracted) or Windows stand-in mapping, shared by the mock's text measurement and the renderer (`render.py --metrics` regenerates the metrics). |
 | `luabc.py` | Static global scanner over Lua 5.1 bytecode (`python luabc.py file.lua ...`). |
 
 ## The world
@@ -53,7 +53,9 @@ any Lua error was recorded (addon-captured or harness-caught) or the harness its
   `CHAT_MSG_ADDON(prefix, text, channel, "Name-Realm", target, 0, 0, "", 0)` (or `_LOGGED`)
   to every client whose prefix is registered: GUILD -> all online guild clients incl. the
   sender (self echo), OFFICER -> officers, RAID/PARTY/INSTANCE_CHAT -> group clients incl.
-  the sender, WHISPER -> the target (dropped if offline or not a client).
+  the sender, WHISPER -> the target, found by the first word of the full "Name Surname". A bare first
+  name, an unknown name or someone offline gets the `No player named` system line back, the way the real
+  client does it. Someone online without the addon just never hears it.
 * `C_ChatInfo.SendChatMessage` is captured (`chatLog`) and echoed as `CHAT_MSG_GUILD`,
   `CHAT_MSG_RAID(_LEADER)`, `CHAT_MSG_PARTY(_LEADER)`, `CHAT_MSG_WHISPER` +
   `CHAT_MSG_WHISPER_INFORM`, ... SAY/YELL/CHANNEL without a hardware event are blocked
@@ -77,6 +79,14 @@ any Lua error was recorded (addon-captured or harness-caught) or the harness its
 | `raid` | Raid-night prep through the addon's public APIs (Spencer creates a Hyjal event 10 minutes out, everyone signs up, Spencer opens an SR session, Bazza and Shazza reserve drops), then party -> raid of the clients + fillers, buffs on everyone, enter Hyjal Summit (raid, 20), ready check, pull 1 (Shazza dies, wipe `ENCOUNTER_END(...,0)`), release/resurrect, pull 2 (kill + `BOSS_KILL`), loot window on Spencer (3 rare/epic items + coin), `START_LOOT_ROLL` x3, roll lines (`RANDOM_ROLL_RESULT`), `CHAT_MSG_LOOT` lines, `ENCOUNTER_LOOT_RECEIVED`, `!sr` whispers to the host, leave, camp kit cast (`UNIT_SPELLCAST_SUCCEEDED` 1307227) + Camp Benefits auras, Hearthstone (8690), Bazza's Tailoring window (`TRADE_SKILL_SHOW`/`LIST_UPDATE`, a new recipe), money, level-up, merchant with repair, quest turn-in; then 360 s and every dataset is compared across clients. |
 | `misc` | Duel, AFK, mirror timer, honor, party kill, fishing loot, falling death, emote/jump hooks, every `/gf` slash command, compartment callbacks, minimap button (click, right-click, drag), Settings, item/unit tooltips, combat + chat lockdown with the window open, and a logout -> SavedVariables round trip -> login of the last client. |
 | `secrets` | Fresh clients; after boot every secret category is switched on (unit names, GUIDs, roster fields, aura fields, chat text, encounter arguments, spell cooldowns) and the raid scenario runs again, followed by a UI fuzz of the first client in combat (`secrets-ui`). Any Lua error fails the scenario. |
+| `gate` | The guild lock (`Core/Gate.lua`), on its own 7 clients: guildies with a slow or missing guild name, people in no guild and in another guild, joining, leaving and being reinvited mid-session, false alarms, which guild names count, the second before and after launch, secret guild names, `/gf gate test`, and who gets listened to and answered (`Core/Comm.lua`, `Core/Store.lua`). A failed check fails the run. |
+| `whispers` | On its own clients: a late login catches up over whispers (SQ, SX and SG have to arrive), bare names and people who've gone bounce, full names get there, for addon messages and for chat, and the addon's filter hides only its own bounces. It also logs someone in on rosters that still say they're offline, because nothing proves the real client updates them at login: the hello still gets answered and sync still runs. A failed check fails the run. So does the addon whispering or inviting a bare name in any scenario at all: that guard goes over every Sim a run builds, and only a test sending one on purpose (`sim.bare_on_purpose`) is let off. |
+| `doctor` | The Black Box (errors survive a reload, capped, junk saved data doesn't throw), `/gf report`, `/gf doctor` (a dead probe says untested, and the rest still run) and `/gf mic` (one line, sent inside the keypress, one roll read back, nothing for the Loot Desk), on its own clients because it breaks things on purpose. Anything caught throwing besides its own deliberate errors fails it, under whatever label, and so does taint. A failed check fails the run. |
+
+| `rules` | Launch-week rules on their own clients: the week key at four PC clocks and over new year, world map emotes, repeat deaths, the wealth score's bands, crown minimums and no crown signs, ties settling the same on every client, parties under 60 not being marked (Home and Buff Check, with raids and booked lineups keeping their score), and the first-login lines waiting for the guild lock. A failed check fails the run. |
+
+| `release` | `tools/release.py` with its git and network calls swapped out, so it can't touch either: the version guard from `main()` and preflight, the stable zip, the WowUp flavour, upload order, resuming a half-finished release, a push origin refuses, the commit message, and what `docs/RELEASING.md` says. It also holds CHANGELOG's Unreleased notes to what What's new can show, and stops any real process that gets past the fakes. A failed check fails the run. |
+| `upgrades` | On its own clients: `/gf install` (also with the gate shut, and that its links match `tools/release_config.json`), the books (`Core/Books.lua`: dings, the floor, the gate, other guilds, junk saved data, caps), Your Mob (the order, secret levels and zones, the right-click menu and invite) and no repeat jokes (`U.Pick`, seeded and not, across a reload; the Watch's variants). A failed check fails the run. |
 
 ## Report (`--json`)
 
@@ -111,7 +121,10 @@ Slider thumbs are resolved; EditBox text becomes a font item.
 
 `render.py` (system Python, `C:\Python313\python.exe -I`) draws it at 2x and downsamples.
 Greenfields media come from `Greenfields\Media\*.tga`; WHITE8X8 is white; game icons, atlases
-and fileIDs are tinted placeholder squares. With `--render OUT`, `run.py` writes
+and fileIDs are tinted placeholder squares unless this PC has the extracted game files (below).
+`--scale N` (or the `GF_RENDER_SCALE` environment variable, which a `run.py` batch inherits)
+gives N output pixels per scene pixel by drawing everything larger; 1.33 matches the owner's
+screen. With `--render OUT`, `run.py` writes
 `OUT\<client>-<page>.png` (cropped to the main window + 30 px), `OUT\<client>-home-WxH.png` for
 the two resize passes, `OUT\<client>-<page>-screen.png` (full screen) whenever a toast is up,
 `OUT\<host>-<page>-data.png` for the host's second page pass (after the raid, with data),
@@ -120,6 +133,26 @@ and keeps the scene JSON in `OUT\scenes`.
 ```
 C:\Python313\python.exe -I tools\harness\render.py OUT\scenes\Spencer-home.json home.png --crop 410,140,1100,740
 ```
+
+### Real game fonts and icons (preview only)
+
+`tools\harness\gamefiles\` is gitignored and stays on this PC: Blizzard's files are never
+committed or shipped. `python -P -B tools\harness\gamefiles\extract.py` reads the local WoW
+install read-only (no network) and writes `fonts\*.ttf`, `icons\*.png` and `icons\index.json`.
+Run it again after a game patch or when the addon starts using a new icon. `render.py` and
+`fonts.py` use those files when they exist and otherwise fall back to placeholders and Windows
+stand-in fonts, so a machine without them still renders. `font_metrics.json` is generated from
+the real fonts (`render.py --metrics`), so text widths on such a machine are slightly off.
+
+The mock invents spell icons as `136000 + id % 3000`. `index.json` maps those back to the
+spell's real icon for the spells in `Data\Buffs.lua` (read from SpellMisc.db2), and classicon
+atlases map to `Interface\Icons\ClassIcon_*`, which is near but not the exact atlas art. Other
+made-up item and spell ids land on whichever real icon has that fileID, so such a picture is
+real art but not necessarily the right item.
+
+## Looking at it
+
+`gallery.py OUTDIR [--addon DIR]` renders every page clean, with no fuzzer and no stray toasts, empty and after a raid night. `--addon` renders another copy of the addon, such as an old version from `git archive`, for a before and after. `contrast.py scene.json ...` reports text that's hard to read against what's actually behind it. Game-set item and class colours and toasts left by the fuzzer are its usual false alarms.
 
 ## Strictness model (and its limits)
 

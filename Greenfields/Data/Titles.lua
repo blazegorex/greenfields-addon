@@ -77,8 +77,8 @@ GF.Titles = {
       milestones = { { 5, "Fashionably Late" } } },
 
     { key = "jumps", kind = "sum", group = "shame", source = "self",
-      title = "Skippy", label = "Times jumped",
-      blurb = "Bounces around like a roo on the Forrest Highway.",
+      title = "Been Up Since Tuesday", label = "Times jumped",
+      blurb = "Bouncing off the walls. Hasn't slept. Won't say why.",
       icon = "chevron_left",
       milestones = { { 10000, "Pogo Stick" }, { 100000, "Can't Stop, Won't Stop" } } },
 
@@ -119,7 +119,7 @@ GF.Titles = {
       milestones = { { 100, "Homebody" }, { 500, "Never Left The Nest" } } },
 
     { key = "wealth_low", kind = "rank", group = "shame", source = "self",
-      title = "Centrelink's Favourite", label = "Poorest (amount hidden)",
+      title = "Centrelink's Favourite", label = "Poorest, amount hidden",
       blurb = "Gold? Never heard of her.",
       icon = "coin", inverse = true },
 
@@ -131,10 +131,10 @@ GF.Titles = {
       milestones = { { 10, "Corner Lurker" }, { 100, "Servo Menace" }, { 500, "Most Wanted In Mandurah" } } },
 
     { key = "loot_raid", kind = "sum", group = "fame", source = "self",
-      title = "Bin Chicken", label = "Biggest Loot Whore (rare+ items from raids)",
-      blurb = "Beak first into every bin. Leaves nothing for anyone.",
+      title = "Loot Fiend", label = "Biggest Loot Whore (rare+ items from raids)",
+      blurb = "Three days awake and still rolling need. Leaves nothing for anyone.",
       icon = "bag",
-      milestones = { { 10, "Five-Finger Discount" }, { 50, "Dumpster Diver" }, { 150, "Certified Bin Chicken" } } },
+      milestones = { { 10, "Five-Finger Discount" }, { 50, "Dumpster Diver" }, { 150, "Certified Fiend" } } },
 
     { key = "loot_epics", kind = "sum", group = "fame", source = "self",
       title = "Purple Rain", label = "Epics looted, anywhere",
@@ -143,7 +143,7 @@ GF.Titles = {
       milestones = { { 5, "Ooh, Shiny" }, { 25, "Purple Patch" } } },
 
     { key = "wealth", kind = "rank", group = "fame", source = "self",
-      title = "Mandurah Millionaire", label = "Richest (amount hidden)",
+      title = "Mandurah Millionaire", label = "Richest, amount hidden",
       blurb = "Rich. How rich? Wouldn't you like to know.",
       icon = "coin" },
 
@@ -153,14 +153,14 @@ GF.Titles = {
       icon = "check", unit = "%" },
 
     { key = "consumables", kind = "sum", group = "fame", source = "self",
-      title = "Chemist Warehouse Loyalty Card", label = "Potions, elixirs & flasks consumed",
+      title = "On The Gear", label = "Potions, elixirs & flasks consumed",
       blurb = "Prescription: everything. Twice.",
       icon = "heart",
-      milestones = { { 50, "Regular Customer" }, { 500, "Pharmacy Platinum" } } },
+      milestones = { { 50, "Regular Customer" }, { 200, "Chemist Warehouse Loyalty Card" }, { 500, "Pharmacy Platinum" } } },
 
     { key = "rezzes", kind = "sum", group = "fame", source = "self",
       title = "Paramedic", label = "Resurrections cast",
-      blurb = "Back from the dead faster than a cheap servo pie.",
+      blurb = "Brings more back up than a dodgy servo pie.",
       icon = "heart",
       milestones = { { 50, "Defibrillator" }, { 250, "Lazarus Pit Crew" } } },
 
@@ -239,9 +239,15 @@ for i, t in ipairs(GF.Titles) do
     GF.TitlesByKey[t.key] = t
 end
 
---- Wealth is never broadcast as an amount. Each client sends only this log-scale score
--- (about 12% wide steps), and the UI only ever shows the resulting ordering.
+--- Wealth is never broadcast as an amount. Each client sends only this score, which says which
+-- doubling you're in: under 1g, 1-3g, 3-7g, 7-15g and so on. The UI only ever shows the resulting
+-- ordering, but anyone reading the shared score can see your gold to within about double. People in
+-- the same band tie, and ties settle by name (Stats' buildBoard), the same on every client. It goes
+-- up in sixes so a copy of the addon still on the old, finer score ranks alongside it.
 function GF.WealthScore(copper)
-    local gold = math.max(0, (tonumber(copper) or 0) / 10000)
-    return math.floor(20 * math.log10(gold + 1))
+    local gold = (tonumber(copper) or 0) / 10000
+    if not (gold > 0) then return 0 end
+    local band = 0
+    while band < 40 and gold + 1 >= 2 ^ (band + 1) do band = band + 1 end
+    return band * 6
 end

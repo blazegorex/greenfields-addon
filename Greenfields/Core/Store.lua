@@ -42,6 +42,7 @@ Store.byCode = {}
 local digestCache = {}
 local dirty = {}            -- name -> { [id]=true } pending broadcast
 local lastSync = {}         -- code -> time we last pulled an index
+local pulledBlind = false   -- asked for data before our own roster was in
 local SYNC_COOLDOWN = 45
 
 -------------------------------------------------------------------------------
@@ -270,7 +271,8 @@ end
 -------------------------------------------------------------------------------
 -- Handlers
 -------------------------------------------------------------------------------
--- Only guildies (or people in our group) may feed us data, once the roster is known.
+-- Only guildies (or people in our group) may feed us data, once the roster is known. Core/Comm.lua
+-- has already turned away anyone who's never been on the roster, once Forever is live.
 local function trusted(sender)
     local R = GF.Roster
     if R and R.Count and R:Count() > 0 then
@@ -279,6 +281,15 @@ local function trusted(sender)
         return ok
     end
     return true
+end
+
+-- Anything that hands our data over is for guildies only. Being in someone's party isn't enough, or
+-- an edited copy outside the guild could join a pug and ask for the lot.
+local function guildie(sender)
+    local R = GF.Roster
+    local ok = R and R.IsMember and R:IsMember(sender)
+    if not ok then Store.rejected[sender] = (Store.rejected[sender] or 0) + 1 end
+    return ok
 end
 
 Comm:Register("SU", function(p, sender)
@@ -320,7 +331,11 @@ Comm:Register("SD", function(p, sender, channel)
         end
     end
     if #want > 0 then
-        GF:After(0.5 + math.random() * 3, function() Comm:Whisper(sender, "SQ", { c = want }, "BULK") end)
+        if GF.Roster:Count() == 0 then pulledBlind = true end
+        GF:After(0.5 + math.random() * 3, function()
+            -- can't name them in full yet, so it never went: ask again once the roster's caught up
+            if not Comm:Whisper(sender, "SQ", { c = want }, "BULK") and not GF.Roster:Get(sender) then pulledBlind = true end
+        end)
     end
     -- A broadcast digest from someone who is behind: a few of us answer with our own
     -- digest so they can pull from us. Probability keeps the guild from dog-piling.
@@ -335,7 +350,7 @@ Comm:Register("SD", function(p, sender, channel)
 end)
 
 Comm:Register("SQ", function(p, sender)
-    if not trusted(sender) then return end
+    if not guildie(sender) then return end
     if type(p) ~= "table" or type(p.c) ~= "table" then return end
     for _, code in ipairs(p.c) do
         local def = Store.byCode[code]
@@ -348,7 +363,7 @@ Comm:Register("SQ", function(p, sender)
 end)
 
 Comm:Register("SX", function(p, sender)
-    if not trusted(sender) then return end
+    if not guildie(sender) then return end
     if type(p) ~= "table" or type(p.x) ~= "table" then return end
     local def = Store.byCode[p.c]
     if not def then return end
@@ -376,7 +391,7 @@ Comm:Register("SX", function(p, sender)
 end)
 
 Comm:Register("SG", function(p, sender)
-    if not trusted(sender) then return end
+    if not guildie(sender) then return end
     if type(p) ~= "table" or type(p.i) ~= "table" then return end
     local def = Store.byCode[p.c]
     if not def then return end
@@ -392,6 +407,15 @@ Comm:Register("SG", function(p, sender)
         for j = i, math.min(#list, i + per - 1) do batch[#batch + 1] = list[j] end
         Comm:Whisper(sender, "SU", { c = p.c, l = batch }, "BULK")
     end
+end)
+
+-- Asked for data before our own roster was in: the answers got refused above, and nothing asks again
+-- for up to 15 minutes. So ask again the moment we know who's who.
+GF:On("GF_ROSTER_UPDATED", function()
+    if not pulledBlind or GF.Roster:Count() == 0 then return end
+    pulledBlind = false
+    for k in pairs(lastSync) do lastSync[k] = nil end
+    GF:After(1 + math.random() * 5, function() Store:SyncNow() end)
 end)
 
 -------------------------------------------------------------------------------

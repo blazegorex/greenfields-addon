@@ -426,6 +426,7 @@ local GS = {
     LOOT_ROLL_ROLLED_GREED = "Greed Roll - %d for %s by %s",
     YOU_LOOT_MONEY = "You loot %s", LOOT_MONEY_SPLIT = "Your share of the loot is %s.",
     RANDOM_ROLL_RESULT = "%s rolls %d (%d-%d)",
+    ERR_CHAT_PLAYER_NOT_FOUND_S = "No player named '%s' is currently playing.",
     DUEL_WINNER_KNOCKOUT = "%1$s has defeated %2$s in a duel", DUEL_WINNER_RETREAT = "%2$s has fled from %1$s in a duel",
     DRUNK_MESSAGE_SELF1 = "You feel sober again.", DRUNK_MESSAGE_SELF2 = "You feel tipsy.  Whee!",
     DRUNK_MESSAGE_SELF3 = "You feel drunk.  Woah!", DRUNK_MESSAGE_SELF4 = "You feel completely smashed.",

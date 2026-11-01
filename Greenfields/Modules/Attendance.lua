@@ -1019,6 +1019,11 @@ GF:On("GF_GUILD_CHANGED", function(key)
     invalidate()
     if key ~= GF.guildReady then
         ready, live, groupLiveId, pendingSnap = false, nil, nil, nil
+    else
+        -- back on the partition we'd already resolved (kicked and reinvited, or one blank guild read)
+        ready = true
+        resume()
+        if live then Store:SyncNow() end   -- so a roll call ended while we were away stays ended
     end
 end)
 
@@ -1072,7 +1077,7 @@ local P = {}          -- page widgets
 local D = {}          -- detail card widgets
 local selectedId      -- raid shown in the detail card
 local clock           -- 1 s ticker for the live elapsed time (only while the page shows)
-local refreshBoard, refreshDetail -- forward
+local refreshBoard, refreshDetail, recTip, onRecClick -- forward
 
 local WINDOWS = {
     { value = 4, text = "Last 4 weeks" },
@@ -1081,20 +1086,19 @@ local WINDOWS = {
     { value = 0, text = "All time" },
 }
 
-local STAT_W = 44
-local COL = {                      -- right-edge offsets inside a leaderboard row
-    flakes = -4, late = -4 - STAT_W, streak = -4 - 2 * STAT_W,
-    xy = -8 - 3 * STAT_W, bar = -54 - 3 * STAT_W,
-}
-local NAME_X = 62                  -- rank (30) + class crest (24) + gap
-local NAME_MIN, NAME_MAX, BAR_PREF = 64, 110, 96
-local RAIDS_MIN, RAIDS_MAX = 132, 236
+-- Leaderboard: how far each number's right edge sits from the row's. Wide enough for its heading
+-- plus the sort chevron, so a sorted column never leans on its neighbour.
+local NUM_RIGHT = { flakes = 4, late = 54, streak = 92, raids = 142, pct = 186, barEdge = 228 }
+local NAME_X = 54                  -- rank (20) + gap + class crest (20) + gap
+local NAME_MIN, NAME_MAX, BAR_PREF, BAR_MIN = 64, 110, 72, 36
+local RAID_ROW, RAIDS_SHOWN, RAIDS_MIN = 44, 4, 92
+local NAME_CELL_W = 104            -- raid detail: Present's name columns
+local LIVE_STAT_W = { elapsed = 88, snaps = 66, heads = 70 }
+local ZERO_DASH = "\226\128\147"
 local DOT = " \194\183 "
 local PILL_ORDER = { "present", "bench", "flakes", "kills", "wipes" }
 local SECTION_ORDER = { "present", "bench", "flakes", "bosses" }
 
--- Warcraft chrome for this page
-local REST_GOLD = { 0.84, 0.70, 0.36, 1 }      -- quieter gold for labels and idle headers
 local MEDALS = { C.wowGold, { 0.80, 0.82, 0.86, 1 }, { 0.82, 0.54, 0.30, 1 } }   -- 1st, 2nd, 3rd
 --- Quest-log art per raid (classic-era icon files), the same set the dashboard uses.
 local RAID_ART = {
@@ -1118,15 +1122,15 @@ local function setRaidArt(fi, name)
     end
 end
 
---- Name column width for a leaderboard row this wide: the bar keeps ~96px when it can,
--- and never drops under ~54 (room for its "100%").
-local function nameWidth(w)
-    w = w or 0
-    return max(NAME_MIN, min(NAME_MAX, floor(w + COL.bar - NAME_X - 8 - BAR_PREF)))
+--- The bars are muted, so the names stay the first thing you read; only a poor record shouts.
+local function pctBar(p)
+    if p >= 80 then return { 0.22, 0.60, 0.38, 1 } end
+    if p >= 50 then return { 0.80, 0.62, 0.14, 1 } end
+    return { 0.78, 0.28, 0.26, 1 }
 end
 
-local function pctColor(p)
-    if p >= 80 then return "green" end
+local function pctText(p)
+    if p >= 80 then return "text" end
     if p >= 50 then return "yellow" end
     return "red"
 end
@@ -1169,20 +1173,6 @@ end
 local function canBench(d)
     local me = API.MyKey()
     return GF.Roster:IsOfficer(me) or (live ~= nil and d ~= nil and d.l == me)
-end
-
---- Empty state for the narrow right column: at most `width` wide, and never wider than
--- the card it sits in (the column is ~200px at the smallest window).
-local function smallEmpty(parent, text, icon, width)
-    local e = UI:Empty(parent, text, icon)
-    local function fitWidth()
-        local w = min(width, max(100, floor((parent:GetWidth() or width) - 16)))
-        e:SetWidth(w)
-        e.text:SetWidth(w)
-    end
-    fitWidth()
-    parent:HookScript("OnSizeChanged", fitWidth)
-    return e
 end
 
 -------------------------------------------------------------------------------
@@ -1312,6 +1302,38 @@ local function updateClock()
     if d and P.liveElapsed then P.liveElapsed:SetText(U.Duration(API.ServerTime() - d.s)) end
 end
 
+--- The right-hand stats sit against the card's edge, left of whichever buttons are showing, and
+-- the raid's name and facts get everything left over.
+local function layoutLiveStats()
+    local b = P.live and P.live.body
+    if not b then return end
+    local w = b:GetWidth() or 0
+    local x = 0
+    if P.benchBtn:IsShown() then x = x + (P.benchBtn:GetWidth() or 70) end
+    if P.snapBtn:IsShown() then x = x + 24 + (x > 0 and 4 or 0) end
+    if x > 0 then x = x + 16 end
+    -- rarely wanted, and the first thing to give way on a small window
+    P.liveStats.snaps:SetShown(w >= 680)
+    P.liveDividers[2]:SetShown(w >= 680)
+    for i, key in ipairs({ "heads", "snaps", "elapsed" }) do
+        local s = P.liveStats[key]
+        if s:IsShown() then
+            x = x + LIVE_STAT_W[key]
+            s:ClearAllPoints()
+            s:SetPoint("BOTTOMLEFT", b, "BOTTOMRIGHT", -x, 8)
+            local div = P.liveDividers[i]
+            if div then
+                div:ClearAllPoints()
+                div:SetPoint("TOPLEFT", b, "TOPRIGHT", -(x + 10), -10)
+                div:SetPoint("BOTTOMLEFT", b, "BOTTOMRIGHT", -(x + 10), 8)
+            end
+            x = x + 20
+        end
+    end
+    P.liveMeta:SetPoint("TOPRIGHT", -x, -24)
+    P.liveBosses:SetPoint("TOPRIGHT", -x, -40)
+end
+
 local function refreshLive()
     local id, d = liveDoc()
     if not d then
@@ -1334,12 +1356,19 @@ local function refreshLive()
             if b.k == 1 then kills = kills + 1 else wipes = wipes + 1 end
         end
     end
+    local bosses
     if kills + wipes == 0 then
-        P.liveBosses:SetText(T:Wrap("faint", "No pulls yet. Trash is trash."))
+        bosses = "No pulls yet. Trash is trash."
     else
-        P.liveBosses:SetText(glyph("skull", 11, "green") .. " " .. kills .. " down   "
-            .. glyph("warning", 11, "red") .. " " .. wipes .. " " .. U.Plural(wipes, "wipe"))
+        bosses = T:Wrap("green", kills .. " down") .. "   " .. T:Wrap("red", wipes .. " " .. U.Plural(wipes, "wipe"))
     end
+    -- who's on the pine is for everyone to see, not just whoever holds the Bench button
+    if #(d.bn or {}) > 0 then
+        local names = {}
+        for _, k in ipairs(d.bn) do names[#names + 1] = named(k) end
+        bosses = bosses .. T:Wrap("dim", DOT .. "Bench: ") .. concat(names, ", ")
+    end
+    P.liveBosses:SetText(bosses)
     -- a boss just went down on this roll call: the card catches the light
     if P.killsFor == id and kills > (P.kills or 0) then UI:Shine(P.live, 1.0) end
     P.killsFor, P.kills = id, kills
@@ -1350,58 +1379,71 @@ local function refreshLive()
     end
     P.liveHeads:SetText(tostring(heads))
     updateClock()
-    local bench = {}
-    for _, k in ipairs(d.bn or {}) do bench[#bench + 1] = named(k) end
-    P.benchLine:SetText(#bench > 0 and ("Bench: " .. concat(bench, ", ")) or T:Wrap("faint", "Bench is empty."))
+    local benched = #(d.bn or {})
     P.benchBtn:SetShown(canBench(d))
-    P.benchBtn:SetText(#bench > 0 and ("Bench (" .. #bench .. ")") or "Bench")
+    P.benchBtn:SetText(benched > 0 and ("Bench (" .. benched .. ")") or "Bench")
     P.snapBtn:SetShown(live ~= nil and live.id == id)
+    layoutLiveStats()
     if not clock then clock = GF:Ticker(1, updateClock) end
     return true
 end
 
+--- Who's on the pine, for the button's tooltip.
+local function benchTip()
+    local lines = { "Tick online guildies sitting out tonight. Bench counts as attended." }
+    local _, d = liveDoc()
+    if d and #(d.bn or {}) > 0 then
+        local names = {}
+        for _, k in ipairs(d.bn) do names[#names + 1] = named(k) end
+        lines[#lines + 1] = " "
+        lines[#lines + 1] = concat(names, ", ")
+    end
+    return { "Bench", lines }
+end
+
 local function buildLive(page)
-    local card = UI:Card(page, { title = "Roll call live", icon = "check", accent = "red", iconColor = "red" })
-    card:SetHeight(104)
-    card:SetPoint("TOPLEFT", P.header, "BOTTOMLEFT", 0, -12)
-    card:SetPoint("TOPRIGHT", P.header, "BOTTOMRIGHT", 0, -12)
+    -- while a roll call runs it's what the page is about: the one gold rim here, flush with the
+    -- columns below it
+    local card = UI:Card(page, { tier = "hero" })
+    card:SetHeight(84)
+    card:SetPoint("TOPLEFT", P.header, "BOTTOMLEFT", 0, -14)
+    card:SetPoint("TOPRIGHT", P.header, "BOTTOMRIGHT", 0, -14)
     P.live = card
-    -- the hero card while the roll call runs: the gold frame instead of the bronze rim
-    card.rim:SetAlpha(0)
-    card.gold = card:CreateTexture(nil, "OVERLAY", nil, 6)
-    card.gold:SetPoint("TOPLEFT", -4, 4)
-    card.gold:SetPoint("BOTTOMRIGHT", 4, -4)
-    UI.Sliced(card.gold, T.tex.frameGold, 16)
-    P.rec = UI:Pill(card, "REC", "red", { icon = "dot", height = 18 })
-    P.rec:SetPoint("LEFT", card.title, "RIGHT", 10, 0)
 
     local b = card.body
-    -- the raid's art in a gold frame, quest-log style
-    P.liveArt = UI:FramedIcon(b, 46, RAID_ART_DEFAULT)
-    P.liveArt:SetPoint("TOPLEFT", 0, 2)
-    P.liveName = UI:Text(b, 14, "text", "ui")
-    P.liveName:SetPoint("TOPLEFT", 56, 0)
-    P.liveName:SetPoint("TOPRIGHT", b, "TOP", -84, 0)
+    P.liveArt = UI:FramedIcon(b, 48, RAID_ART_DEFAULT, "gold")
+    P.liveArt:SetPoint("LEFT", 0, 0)
+    P.liveName = UI:Text(b, 18, "wowGold", "title")
+    P.liveName:SetPoint("TOPLEFT", 60, -1)
+    P.rec = UI:Pill(b, "REC", "red", { icon = "dot", height = 18 })
+    P.rec:SetPoint("LEFT", P.liveName, "RIGHT", 10, 0)
     P.liveMeta = UI:Text(b, 11, "dim")
-    P.liveMeta:SetPoint("TOPLEFT", 56, -21)
-    P.liveMeta:SetPoint("TOPRIGHT", b, "TOP", -84, -21)
+    P.liveMeta:SetPoint("TOPLEFT", 60, -24)
+    P.liveMeta:SetPoint("TOPRIGHT", 0, -24)
     P.liveBosses = UI:Text(b, 11, "dim")
-    P.liveBosses:SetPoint("TOPLEFT", 56, -38)
-    P.liveBosses:SetPoint("TOPRIGHT", b, "TOP", -84, -38)
+    P.liveBosses:SetPoint("TOPLEFT", 60, -40)
+    P.liveBosses:SetPoint("TOPRIGHT", 0, -40)
 
-    local stats = { { "liveElapsed", "Elapsed" }, { "liveSnaps", "Snapshots" }, { "liveHeads", "Headcount" } }
-    for i, s in ipairs(stats) do
-        local lbl = UI:Text(b, 10, REST_GOLD, "ui")
-        lbl:SetPoint("TOPLEFT", b, "TOP", -76 + (i - 1) * 86, -2)
-        lbl:SetText(s[2])
-        local val = UI:Text(b, 20, "text", "num")
-        val:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -5)
-        P[s[1]] = val
+    P.liveStats = {
+        elapsed = UI:Stat(b, { value = "0s", label = "Elapsed", size = 22 }),
+        snaps = UI:Stat(b, { value = "0", label = "Snapshots" }),
+        heads = UI:Stat(b, { value = "0", label = "Headcount" }),
+    }
+    -- these tick by themselves, so they get fixed columns rather than sizing to their text
+    P.liveStats.elapsed:SetSize(LIVE_STAT_W.elapsed, 38)
+    P.liveStats.snaps:SetSize(LIVE_STAT_W.snaps, 36)
+    P.liveStats.heads:SetSize(LIVE_STAT_W.heads, 36)
+    P.liveElapsed = P.liveStats.elapsed.value
+    P.liveSnaps = P.liveStats.snaps.value
+    P.liveHeads = P.liveStats.heads.value
+    P.liveDividers = {}
+    for i = 1, 2 do
+        P.liveDividers[i] = UI:Tex(b, "ARTWORK", { C.bronze[1], C.bronze[2], C.bronze[3], 0.3 })
+        P.liveDividers[i]:SetWidth(1)
     end
 
-    P.benchBtn = UI:Button(b, "Bench", { icon = "plus", height = 24, onClick = function(self) benchMenu(self) end,
-        tooltip = { "Bench", { "Tick online guildies sitting out tonight. Bench counts as attended." } } })
-    P.benchBtn:SetPoint("TOPRIGHT", 0, 0)
+    P.benchBtn = UI:Button(b, "Bench", { icon = "plus", height = 24, onClick = function(self) benchMenu(self) end, tooltip = benchTip })
+    P.benchBtn:SetPoint("RIGHT", 0, 0)
     P.snapBtn = UI:IconButton(b, "sync", 24, "Take a snapshot now", function()
         if not live then return end
         local since = API.ServerTime() - (live.lastSnap or 0)
@@ -1413,12 +1455,6 @@ local function buildLive(page)
         refreshSoon()
     end)
     P.snapBtn:SetPoint("RIGHT", P.benchBtn, "LEFT", -4, 0)
-    P.benchLine = UI:Text(b, 11, "dim")
-    -- spans from just past the stats to the right edge, so a long bench list truncates
-    -- instead of running over HEADCOUNT on a narrow window
-    P.benchLine:SetPoint("TOPLEFT", b, "TOP", 156, -33)
-    P.benchLine:SetPoint("TOPRIGHT", b, "TOPRIGHT", 0, -33)
-    P.benchLine:SetJustifyH("RIGHT")
     card:Hide()
 end
 
@@ -1452,140 +1488,114 @@ local function rowTip(row, st)
     UI:Tip(row, named(st.key), lines)
 end
 
-local function statCell(row, icon, xRight)
-    local f = CreateFrame("Frame", nil, row)
-    f:SetSize(STAT_W, 20)
-    f:SetPoint("RIGHT", row, "RIGHT", xRight, 0)
-    f.icon = UI:Icon(f, 12, icon, "ARTWORK", "dim")
-    f.icon:SetPoint("LEFT", 4, 0)
-    f.text = UI:Text(f, 12, "text", "num")
-    f.text:SetPoint("LEFT", f.icon, "RIGHT", 4, 0)
-    function f:Set(n, color)
-        local c = UI.col(n > 0 and color or "faint")
-        self.icon:SetVertexColor(c[1], c[2], c[3], 1)
-        self.text:SetTextColor(c[1], c[2], c[3], 1)
-        self.text:SetText(tostring(n))
+--- Where the leaderboard's columns sit in a row this wide. Header and rows read the same numbers.
+-- Numbers keep their column at every size; the name flexes, and the bar is first to go.
+local function boardColumns(w)
+    local room = w - NAME_X - 8 - NUM_RIGHT.barEdge
+    local name = U.Clamp(room - BAR_PREF, NAME_MIN, NAME_MAX)
+    local bar = room - name
+    if bar < BAR_MIN then
+        return { name = min(NAME_MAX, room), bar = 0 }
     end
-    return f
+    return { name = name, bar = bar }
 end
 
---- A reputation-style bar: dark well, bronze edge, shaded fill, notches at each quarter
--- and the percentage on top. :SetColor(c), :SetValue(0..1), :SetLabel(s)
-local function repBar(parent)
-    local b = CreateFrame("Frame", nil, parent, "BackdropTemplate")
-    b:SetHeight(14)
-    UI:SetBackdrop(b, { 0, 0, 0, 0.6 }, { C.bronze[1], C.bronze[2], C.bronze[3], 0.95 })
-    b.fill = b:CreateTexture(nil, "ARTWORK")
-    b.fill:SetTexture(T.tex.bar)
-    b.fill:SetPoint("TOPLEFT", 1, -1)
-    b.fill:SetPoint("BOTTOMLEFT", 1, 1)
-    b.gloss = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.gloss:SetPoint("TOPLEFT", b.fill, "TOPLEFT")
-    b.gloss:SetPoint("TOPRIGHT", b.fill, "TOPRIGHT")
-    b.gloss:SetHeight(5)
-    b.gloss:SetColorTexture(1, 1, 1, 0.12)
-    b.gloss:SetBlendMode("ADD")
-    b.ticks = {}
-    for i = 1, 3 do
-        local t = b:CreateTexture(nil, "ARTWORK", nil, 2)
-        t:SetColorTexture(0, 0, 0, 0.45)
-        t:SetWidth(1)
-        b.ticks[i] = t
+--- A number or a quiet dash: a zero isn't worth reading.
+local function setCount(fs, n, color)
+    if n > 0 then
+        fs:SetText(tostring(n))
+        UI:SetTextColor(fs, color)
+    else
+        fs:SetText(ZERO_DASH)
+        UI:SetTextColor(fs, "faint")
     end
-    b.text = UI:Text(b, 10, "text", "num", "OUTLINE")
-    b.text:SetPoint("CENTER", 0, 0)
-    b.value = 0
-    function b:SetColor(c)
-        c = UI.col(c)
-        -- a shade deeper than the neon accents, so the white number reads on it
-        self.fill:SetVertexColor(c[1] * 0.8, c[2] * 0.8, c[3] * 0.8, 1)
-    end
-    function b:SetValue(v)
-        self.value = U.Clamp(tonumber(v) or 0, 0, 1)
-        local w = max(0, (self:GetWidth() or 0) - 2)
-        self.fill:SetWidth(max(0.001, w * self.value))
-        self.fill:SetShown(self.value > 0)
-        self.gloss:SetShown(self.value > 0)
-        for i, t in ipairs(self.ticks) do
-            t:ClearAllPoints()
-            t:SetPoint("TOP", self, "TOPLEFT", floor(1 + w * i / 4 + 0.5), -1)
-            t:SetPoint("BOTTOM", self, "BOTTOMLEFT", floor(1 + w * i / 4 + 0.5), 1)
-            t:SetShown(w >= 48)
-        end
-        -- a sliver of a bar can't hold its number (the row's raid count still says it)
-        self.text:SetShown(w >= (self.text:GetStringWidth() or 20) + 6)
-    end
-    function b:SetLabel(s)
-        self.text:SetText(s or "")
-        self:SetValue(self.value)
-    end
-    b:SetScript("OnSizeChanged", function(self) self:SetValue(self.value) end)
-    return b
+end
+
+local function numCell(row, key)
+    local fs = UI:Text(row, 12, "text", "num")
+    fs:SetPoint("RIGHT", row, "RIGHT", -NUM_RIGHT[key], 0)
+    fs:SetJustifyH("RIGHT")
+    return fs
 end
 
 local function createBoardRow(row)
     row.rank = UI:Text(row, 12, "faint", "num")
-    row.rank:SetPoint("LEFT", 2, 0)
-    row.rank:SetWidth(22)
+    row.rank:SetPoint("LEFT", 0, 0)
+    row.rank:SetWidth(20)
     row.rank:SetJustifyH("RIGHT")
-    -- class crest in a gold frame, the way the game shows a class
-    row.crest = UI:FramedIcon(row, 24)
-    row.crest:SetPoint("LEFT", 30, 0)
+    row.crest = UI:IconChip(row, 20)
+    row.crest:SetPoint("LEFT", 26, 0)
     row.name = UI:Text(row, 12, "text", "ui")
     row.name:SetPoint("LEFT", row, "LEFT", NAME_X, 0)
-    row.name:SetWidth(nameWidth(row:GetWidth()))
-    row.flakes = statCell(row, "close", COL.flakes)
-    row.late = statCell(row, "clock", COL.late)
-    row.streak = statCell(row, "flame", COL.streak)
-    row.xy = UI:Text(row, 12, "dim", "num")
-    row.xy:SetPoint("RIGHT", row, "RIGHT", COL.xy, 0)
-    row.xy:SetWidth(40)
-    row.xy:SetJustifyH("RIGHT")
-    row.bar = repBar(row)
-    row.bar:SetPoint("LEFT", row.name, "RIGHT", 8, 0)
-    row.bar:SetPoint("RIGHT", row, "RIGHT", COL.bar, 0)
-    -- the podium: a soft gold wash from the left on the top three
+    row.pct = numCell(row, "pct")
+    row.xy = numCell(row, "raids")
+    row.streak = numCell(row, "streak")
+    row.late = numCell(row, "late")
+    row.flakes = numCell(row, "flakes")
+    row.flame = UI:Icon(row, 12, "flame", "ARTWORK", "gold")
+    row.flame:Hide()
+    row.bar = UI:Bar(row, { height = 8 })
+    row.bar:SetPoint("RIGHT", row, "RIGHT", -NUM_RIGHT.barEdge, 0)
+    -- the podium: a soft wash from the left on the top three
     row.podium = row:CreateTexture(nil, "BACKGROUND", nil, 3)
     row.podium:SetAllPoints()
-    row.podium:SetTexture(T.tex.white)
     row.podium:Hide()
-    row:HookScript("OnSizeChanged", function(self, w) self.name:SetWidth(nameWidth(w)) end)
 end
 
 local function updateBoardRow(row, st, idx)
     row.rank:SetText(tostring(idx))
     local medal = MEDALS[idx]
-    UI:SetTextColor(row.rank, medal or "faint")
-    if medal and row.podium.SetGradient and CreateColor then
-        row.podium:SetGradient("HORIZONTAL", CreateColor(medal[1], medal[2], medal[3], 0.10), CreateColor(medal[1], medal[2], medal[3], 0))
+    UI:SetTextColor(row.rank, medal or "dim")
+    if medal then
+        UI:Gradient(row.podium, "HORIZONTAL", medal[1], medal[2], medal[3], 0.09, 0)
         row.podium:Show()
     else
         row.podium:Hide()
     end
     API.SetClassIcon(row.crest.icon, st.class)
-    row.name:SetWidth(nameWidth(row:GetWidth()))
+    local cols = boardColumns(row:GetWidth() or 0)
+    row.name:SetWidth(cols.name)
     row.name:SetText(named(st.key))
-    row.bar:SetColor(pctColor(st.pct))
-    row.bar:SetValue(st.pct / 100)
-    row.bar:SetLabel(st.pct .. "%")
+    row.bar:SetShown(cols.bar > 0)
+    if cols.bar > 0 then
+        row.bar:SetWidth(cols.bar)
+        row.bar:SetColor(pctBar(st.pct))
+        row.bar:SetValue(st.pct / 100)
+    end
+    row.pct:SetText(st.pct .. "%")
+    UI:SetTextColor(row.pct, pctText(st.pct))
     row.xy:SetText(st.attended .. "/" .. st.total)
-    row.streak:Set(st.streak, st.streak >= 3 and "gold" or "text")
-    row.late:Set(st.late, "yellow")
-    row.flakes:Set(st.flakes, "red")
+    UI:SetTextColor(row.xy, "dim")
+    setCount(row.streak, st.streak, st.streak >= 3 and "gold" or "text")
+    -- the flame is earned: when it shows, it means something
+    row.flame:SetShown(st.streak >= 3)
+    if st.streak >= 3 then
+        row.flame:ClearAllPoints()
+        row.flame:SetPoint("RIGHT", row, "RIGHT", -(NUM_RIGHT.streak + (row.streak:GetStringWidth() or 8) + 2), 0)
+    end
+    setCount(row.late, st.late, "yellow")
+    setCount(row.flakes, st.flakes, "red")
 end
 
-local function sortButton(parent, text, key, short)
+--- A sortable column heading. Numeric ones sit flush right over their numbers, with the chevron on
+-- the far side of the label so turning it on doesn't shift anything.
+local function sortButton(parent, text, key, short, left)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(18)
     b.key = key
-    b.label = UI:Text(b, 10, REST_GOLD, "ui")
-    b.label:SetPoint("LEFT", 0, 0)
+    b.label = UI:Text(b, 11, "bronze", "ui")
     b.chev = UI:Icon(b, 9, "chevron_down", "OVERLAY", "wowGold")
-    b.chev:SetPoint("LEFT", b.label, "RIGHT", 3, 0)
+    if left then
+        b.label:SetPoint("LEFT", 0, 0)
+        b.chev:SetPoint("LEFT", b.label, "RIGHT", 3, 0)
+    else
+        b.label:SetPoint("RIGHT", 0, 0)
+        b.chev:SetPoint("RIGHT", b.label, "LEFT", -3, 0)
+    end
     --- narrow: show the short label (the column under it has shrunk)
     function b:Fit(narrow)
         self.label:SetText((narrow and short) or text)
-        self:SetWidth((self.label:GetStringWidth() or 30) + 14)
+        self:SetWidth((self.label:GetStringWidth() or 30) + 12)
     end
     b:Fit(false)
     b:SetScript("OnClick", function(self)
@@ -1603,53 +1613,44 @@ local function sortButton(parent, text, key, short)
         UI:Tip(self, nil, { "Sort by " .. text:lower() .. ". Click again to flip it." })
     end)
     b:SetScript("OnLeave", function(self)
-        if settings().sort ~= self.key then UI:SetTextColor(self.label, REST_GOLD) end
+        if settings().sort ~= self.key then UI:SetTextColor(self.label, "bronze") end
         UI:HideTip()
     end)
     return b
 end
 
 local function buildBoard(page)
-    local card = UI:Card(page, { title = "Leaderboard", icon = "trophy", subtitle = " " })
+    local card = UI:Card(page, { title = "Leaderboard", icon = "trophy" })
     P.board = card
-    -- column headers on a dark strip with a bronze rule, like the game's list headers
     local hdr = CreateFrame("Frame", nil, card.body)
     hdr:SetHeight(18)
     hdr:SetPoint("TOPLEFT", 0, 0)
-    hdr:SetPoint("TOPRIGHT", -10, 0)
-    hdr.bg = hdr:CreateTexture(nil, "BACKGROUND")
-    hdr.bg:SetAllPoints()
-    hdr.bg:SetColorTexture(0, 0, 0, 0.3)
-    hdr.rule = hdr:CreateTexture(nil, "ARTWORK")
-    hdr.rule:SetPoint("BOTTOMLEFT", 0, -1)
-    hdr.rule:SetPoint("BOTTOMRIGHT", 0, -1)
-    hdr.rule:SetHeight(1)
-    hdr.rule:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.8)
+    hdr:SetPoint("TOPRIGHT", 0, 0)
+    hdr.rule = UI:Hairline(hdr, "bronze", 0.4, "none")
+    hdr.rule:SetPoint("BOTTOMLEFT")
+    hdr.rule:SetPoint("BOTTOMRIGHT")
     P.hdr = hdr
-    local function at(b, x, fromRight)
-        if fromRight then b:SetPoint("LEFT", hdr, "RIGHT", x, 0) else b:SetPoint("LEFT", hdr, "LEFT", x, 0) end
+    local function at(b, right)
+        b:SetPoint("RIGHT", hdr, "RIGHT", -right, 0)
         return b
     end
+    local resident = sortButton(hdr, "Resident", "name", nil, true)
+    resident:SetPoint("LEFT", hdr, "LEFT", 26, 0)
     P.sorts = {
-        at(sortButton(hdr, "Resident", "name"), 30),
-        at(sortButton(hdr, "Attendance", "pct", "%"), NAME_X + nameWidth(0) + 8),
-        at(sortButton(hdr, "Raids", "attended"), COL.xy - 40, true),
-        at(sortButton(hdr, "Streak", "streak"), COL.streak - STAT_W + 4, true),
-        at(sortButton(hdr, "Late", "late"), COL.late - STAT_W + 4, true),
-        at(sortButton(hdr, "Flakes", "flakes"), COL.flakes - STAT_W + 4, true),
+        resident,
+        at(sortButton(hdr, "Attendance", "pct", "%"), NUM_RIGHT.pct),
+        at(sortButton(hdr, "Raids", "attended"), NUM_RIGHT.raids),
+        at(sortButton(hdr, "Streak", "streak"), NUM_RIGHT.streak),
+        at(sortButton(hdr, "Late", "late"), NUM_RIGHT.late),
+        at(sortButton(hdr, "Flakes", "flakes"), NUM_RIGHT.flakes),
     }
-    -- the bar column follows the (elastic) name column; on a small window the full
-    -- Attendance label would run into Raids
+    -- without a bar under it, the full Attendance label would run into Resident
     hdr:SetScript("OnSizeChanged", function(self, w)
-        w = w or self:GetWidth() or 0
-        local x = NAME_X + nameWidth(w) + 8
-        local s = P.sorts[2]
-        s:ClearAllPoints()
-        s:SetPoint("LEFT", self, "LEFT", x, 0)
-        s:Fit(w + COL.xy - 40 - x < 80)
+        P.sorts[2]:Fit(boardColumns(w or self:GetWidth() or 0).bar == 0)
     end)
     P.list = UI:List(card.body, {
-        rowHeight = 34,
+        rowHeight = 32,
+        spacing = 0,
         createRow = createBoardRow,
         updateRow = updateBoardRow,
         onEnter = function(row, item)
@@ -1662,24 +1663,55 @@ local function buildBoard(page)
             if UI.OpenProfile then UI:OpenProfile(item.key) end
         end,
     })
-    P.list:SetPoint("TOPLEFT", 0, -22)
-    P.list:SetPoint("BOTTOMRIGHT", 0, 0)
-    P.boardEmpty = UI:Empty(card.body, "", "trophy")
+    -- the kit keeps 10 spare on a row's right for the scrollbar: hang that in the card's margin
+    -- so the numbers finish under their headings
+    P.list:SetPoint("TOPLEFT", 0, -20)
+    P.list:SetPoint("BOTTOMRIGHT", 10, 0)
+    P.boardEmpty = UI:Empty(card.body, "", "trophy", { action = "Start roll call", actionStyle = "primary",
+        onAction = function() onRecClick() end })
+    UI.AttachTip(P.boardEmpty.action, function() return recTip() end)
     P.boardEmpty:Hide()
+    -- launch morning: not two half-dead columns, one block on the page, like Raid Nights
+    local ground = CreateFrame("Frame", nil, page)
+    ground:SetPoint("TOPLEFT", P.header, "BOTTOMLEFT", 0, -14)
+    ground:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+    P.bareEmpty = UI:Empty(ground, "", "trophy", { heading = "The oval's empty", width = 540,
+        action = "Start roll call", actionStyle = "primary", actionIcon = "check",
+        onAction = function() onRecClick() end })
+    UI.AttachTip(P.bareEmpty.action, function() return recTip() end)
+    P.bareEmpty:Hide()
 end
 
 refreshBoard = function()
     if not P.board then return end
     local s = settings()
-    local rows, raids = leaderboard(s.window)
+    local rows = leaderboard(s.window)
     sortRows(rows)
-    P.board.subtitle:SetText(format("%s%s%d %s", windowLabel(s.window), DOT, #raids, U.Plural(#raids, "raid")))
+    -- nothing anywhere and no roll call running: the page says so once, and the cards step aside
+    local bare = #rows == 0 and (P.raidCount or 0) == 0 and not P.live:IsShown()
+    P.bare = bare
+    P.board:SetShown(not bare)
+    P.raids:SetShown(not bare)
+    P.bareEmpty:SetShown(bare)
+    if bare then
+        P.bareEmpty:SetText((#getIndex() == 0 and emptyLine("attendance", "No raids recorded yet.")
+            or "Nobody's raided in this window. Someone's squatting in the instance.")
+            .. "\nNo roll calls on the books. Either nobody raided or nobody was game enough to count."
+            .. "\nNothing to pick apart yet. The first roll call lands here.")
+        P.bareEmpty.action:SetShown(GF.Roster:CanManage())
+        P.bareEmpty.action:SetActive(API.InGroup())
+    end
     if #rows == 0 then
         P.list:SetItems({})
         P.list:Hide()
         P.hdr:Hide()
         P.boardEmpty:SetText(#getIndex() == 0 and emptyLine("attendance", "No raids recorded yet.")
-            or "Nobody's raided in this window. The bin chickens have the instance to themselves.")
+            or "Nobody's raided in this window. Someone's squatting in the instance.")
+        -- the same button as the header's, in the same state, because here's where the eye lands
+        local act = P.boardEmpty.action
+        local on = Attendance:IsRecording()
+        act:SetShown(not on and GF.Roster:CanManage())
+        act:SetActive(API.InGroup())
         P.boardEmpty:Show()
     else
         P.boardEmpty:Hide()
@@ -1689,7 +1721,7 @@ refreshBoard = function()
     end
     for _, b in ipairs(P.sorts) do
         local on = s.sort == b.key
-        UI:SetTextColor(b.label, on and "wowGold" or REST_GOLD)
+        UI:SetTextColor(b.label, on and "wowGold" or "bronze")
         b.chev:SetShown(on)
         if on then b.chev:SetRotation(s.desc and 0 or math.pi) end
     end
@@ -1700,49 +1732,70 @@ end
 -------------------------------------------------------------------------------
 local function createRaidRow(row)
     -- the kit's selection wash and bar, in the game's gold
-    row.sel:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.08)
+    UI:Gradient(row.sel, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.08, 0.08)
     row.selBar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
-    row.art = UI:FramedIcon(row, 30, RAID_ART_DEFAULT)
-    row.art:SetPoint("LEFT", 6, 0)
+    -- a fixed gutter, so a live raid's dot doesn't push its name out of line with the date under it
+    row.dot = UI:Icon(row, 8, "dot", "ARTWORK", "red")
+    row.dot:SetPoint("TOPLEFT", 4, -10)
     row.title = UI:Text(row, 12, "text", "ui")
-    row.title:SetPoint("TOPLEFT", 44, -6)
-    row.title:SetPoint("TOPRIGHT", row, "TOPRIGHT", -74, -6)
+    row.title:SetPoint("TOPLEFT", 16, -7)
+    row.title:SetPoint("TOPRIGHT", row, "TOPRIGHT", -74, -7)
     row.sub = UI:Text(row, 11, "dim")
-    row.sub:SetPoint("BOTTOMLEFT", 44, 6)
-    row.sub:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -74, 6)
-    row.kills = UI:Text(row, 11, "green", "num")
-    row.kills:SetPoint("TOPRIGHT", -8, -7)
-    row.wipes = UI:Text(row, 11, "red", "num")
-    row.wipes:SetPoint("BOTTOMRIGHT", -8, 7)
+    row.sub:SetPoint("TOPLEFT", 16, -24)
+    row.sub:SetPoint("TOPRIGHT", row, "TOPRIGHT", -74, -24)
+    row.kills = UI:Text(row, 12, "green", "num")
+    row.kills:SetPoint("TOPRIGHT", -4, -7)
+    row.wipes = UI:Text(row, 12, "red", "num")
+    row.wipes:SetPoint("TOPRIGHT", -4, -24)
 end
 
 local function updateRaidRow(row, r)
     local d = r.doc
-    setRaidArt(row.art, d.i)
-    -- the narrow column (small window) gives the art's room back to the raid's name
-    local x = (row:GetWidth() or 0) < 230 and 10 or 44
-    row.art:SetShown(x > 10)
-    row.title:SetPoint("TOPLEFT", x, -6)
-    row.sub:SetPoint("BOTTOMLEFT", x, 6)
+    row.dot:SetShown(r.open and true or false)
     UI:SetTextColor(row.title, r.id == selectedId and "wowGold" or "text")
     if r.kills > 0 then
-        row.kills:SetText(glyph("skull", 10, "green") .. " " .. r.kills .. " down")
+        row.kills:SetText(r.kills .. " down")
+        UI:SetTextColor(row.kills, "green")
     else
-        row.kills:SetText(T:Wrap("faint", "no kills"))
+        row.kills:SetText("no kills")
+        UI:SetTextColor(row.kills, "dim")
     end
     row.wipes:SetText(r.wipes > 0 and (r.wipes .. " " .. U.Plural(r.wipes, "wipe")) or "")
     -- the name and date get whatever the counts on the right don't use
-    row.title:SetPoint("TOPRIGHT", row, "TOPRIGHT", -((row.kills:GetStringWidth() or 60) + 16), -6)
-    row.sub:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", r.wipes > 0 and -((row.wipes:GetStringWidth() or 40) + 16) or -8, 6)
-    row.title:SetText((r.open and (glyph("dot", 10, "red") .. " ") or "") .. plain(d.i or "Raid night"))
+    row.title:SetPoint("TOPRIGHT", row, "TOPRIGHT", -((row.kills:GetStringWidth() or 60) + 12), -7)
+    row.sub:SetPoint("TOPRIGHT", row, "TOPRIGHT", r.wipes > 0 and -((row.wipes:GetStringWidth() or 40) + 12) or -4, -24)
+    row.title:SetText(plain(d.i or "Raid night"))
     local when = U.DateTime(d.s)
     if (row:GetWidth() or 0) < 284 then when = when:match("^(.-),") or U.DateShort(d.s) end -- "Thu 3 Dec"
     row.sub:SetText(when .. DOT .. r.mains .. " " .. U.Plural(r.mains, "local"))
 end
 
+--- Present reads as columns of names when there's room; a comma list is hard to scan at 25.
+local function layoutNames(content, names, y, w)
+    local cols = max(1, floor(w / NAME_CELL_W))
+    local cw = floor(w / cols)
+    D.nameCells = D.nameCells or {}
+    for i, text in ipairs(names) do
+        local cell = D.nameCells[i]
+        if not cell then
+            cell = UI:Text(content, 12, "dim")
+            D.nameCells[i] = cell
+        end
+        local col = (i - 1) % cols
+        local line = floor((i - 1) / cols)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", content, "TOPLEFT", col * cw, -(y + line * 18))
+        cell:SetWidth(cw - 6)
+        cell:SetText(text)
+        cell:Show()
+    end
+    return y + math.ceil(#names / cols) * 18
+end
+
 local function layoutDetail()
     local sf, content = P.detailScroll, P.detailContent
     if not sf or not sf:IsShown() then return end
+    -- leave the scrollbar its own lane instead of writing under it
     local w = max(120, (sf:GetWidth() or 0) - 14)
     local y = 0
     local function place(fs, gap, indent)
@@ -1752,20 +1805,26 @@ local function layoutDetail()
         fs:SetWidth(w - indent)
         y = y + max(12, fs:GetStringHeight() or 12) + gap
     end
-    -- quest-log heading: the raid's art in a gold frame, the name and the facts beside it
+    -- quest-log heading: the raid's art, the name and the facts beside it. While the raid's live
+    -- the card up top is already showing its art.
+    local art = D.art:IsShown()
     D.art:ClearAllPoints()
     D.art:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+    local indent = art and ART_INDENT or 0
     if w >= 230 then
-        place(D.title, 3, ART_INDENT)
-        place(D.meta, 10, ART_INDENT)
-        y = max(y, D.art:GetHeight() + 10)
+        place(D.title, 4, indent)
+        place(D.meta, 12, indent)
+        if art then y = max(y, D.art:GetHeight() + 12) end
     else
         -- narrow column: the name beside the art, the facts full width under both
-        y = 8
-        place(D.title, 0, ART_INDENT)
-        y = max(y, D.art:GetHeight() + 8)
-        place(D.meta, 10)
+        y = art and 8 or 0
+        place(D.title, 4, indent)
+        if art then y = max(y, D.art:GetHeight() + 8) end
+        place(D.meta, 12)
     end
+    D.factsTip:ClearAllPoints()
+    D.factsTip:SetPoint("TOPLEFT", D.meta, "TOPLEFT")
+    D.factsTip:SetPoint("BOTTOMRIGHT", D.meta, "BOTTOMRIGHT")
     local x = 0
     for _, key in ipairs(PILL_ORDER) do
         local p = D.pills[key]
@@ -1777,13 +1836,24 @@ local function layoutDetail()
             x = x + pw + 6
         end
     end
-    y = y + 18 + 14
+    if x > 0 then y = y + 18 + 16 else y = y + 4 end
+    local cells = 0
     for _, key in ipairs(SECTION_ORDER) do
         local s = D.sections[key]
         if s.label:IsShown() then
-            place(s.label, 5)
-            place(s.body, 14)
+            place(s.label, 6)
+            if key == "present" and D.presentNames and #D.presentNames > 0 and w >= NAME_CELL_W * 2 then
+                s.body:Hide()
+                cells = #D.presentNames
+                y = layoutNames(content, D.presentNames, y, w) + 14
+            else
+                s.body:Show()
+                place(s.body, 14)
+            end
         end
+    end
+    for i, cell in ipairs(D.nameCells or {}) do
+        if i > cells then cell:Hide() end
     end
     sf:SetContentHeight(y)
 end
@@ -1800,7 +1870,8 @@ end
 
 local function setPill(key, n, text)
     local p = D.pills[key]
-    p:SetShown(n > 0 or key == "present")
+    -- the head count isn't one: "Present (10)" says it straight underneath
+    p:SetShown(n > 0 and key ~= "present")
     p:SetText(n .. " " .. text)
 end
 
@@ -1842,22 +1913,22 @@ refreshDetail = function()
             or "Nothing to pick apart yet. The first roll call lands here.")
         P.detailEmpty:Show()
         P.deleteBtn:Hide()
-        P.detail.subtitle:SetText("")
-        return
+            return
     end
     P.detailEmpty:Hide()
     P.detailScroll:Show()
     local d = r.doc
-    P.detail.subtitle:SetText(r.open and T:Wrap("red", "LIVE") or U.DateShort(d.s))
     P.deleteBtn:SetShown(GF.Roster:IsOfficer(API.MyKey()) and not r.open)
 
     D.title:SetText(plain(d.i or "Raid night"))
     setRaidArt(D.art, d.i)
+    D.art:SetShown(not (r.open and P.live:IsShown()))
     local stop = d.e or (r.open and API.ServerTime()) or r.last
-    local meta = U.DateTime(d.s) .. DOT .. U.Duration(stop - d.s) .. DOT .. "taken by " .. named(d.l)
+    local meta = U.DateTime(d.s) .. DOT .. U.Duration(stop - d.s) .. "\nTaken by " .. named(d.l)
     local ev = d.ev ~= nil and raidsCall("Get", d.ev) or nil
     if type(ev) == "table" and type(ev.title) == "string" then meta = meta .. DOT .. plain(ev.title) end
-    D.meta:SetText(meta .. DOT .. (d.n or 0) .. " " .. U.Plural(d.n or 0, "snapshot"))
+    D.meta:SetText(meta)
+    D.factsText = (d.n or 0) .. " " .. U.Plural(d.n or 0, "snapshot")
 
     -- r.bench / r.flakes are resolved to mains (a benched main who turned up anyway counts
     -- as present), so the pills agree with the leaderboard and Raids()
@@ -1871,6 +1942,7 @@ refreshDetail = function()
     setPill("wipes", r.wipes, U.Plural(r.wipes, "wipe"))
 
     local present = presentList(d)
+    D.presentNames = present
     setSection("present", "Present (" .. #present .. ")", #present > 0 and concat(present, ", ")
         or T:Wrap("faint", "Nobody. Not even the leader. Spooky."))
     setSection("bench", #bench > 0 and ("Bench (" .. #bench .. ")") or nil, concat(bench, ", "))
@@ -1903,10 +1975,11 @@ local function onDelete()
 end
 
 local function buildRaids(page)
-    local card = UI:Card(page, { title = "Recent raids", icon = "calendar", subtitle = " " })
+    local card = UI:Card(page, { title = "Recent raids", icon = "calendar" })
     P.raids = card
     P.raidList = UI:List(card.body, {
-        rowHeight = 40,
+        rowHeight = RAID_ROW,
+        spacing = 0,
         createRow = createRaidRow,
         updateRow = updateRaidRow,
         isSelected = function(r) return r.id == selectedId end,
@@ -1917,24 +1990,30 @@ local function buildRaids(page)
             refreshDetail()
         end,
     })
-    P.raidList:SetAllPoints(card.body)
-    P.raidsEmpty = smallEmpty(card.body, "No roll calls on the books. Either nobody raided or nobody was game enough to count.", "calendar", 240)
+    P.raidList:SetPoint("TOPLEFT")
+    P.raidList:SetPoint("BOTTOMRIGHT", 10, 0)
+    P.raidsEmpty = UI:Empty(card.body, "No roll calls on the books. Either nobody raided or nobody was game enough to count.", "calendar")
     P.raidsEmpty:Hide()
 
-    local det = UI:Card(page, { title = "Raid detail", icon = "clipboard", subtitle = " " })
+    local det = UI:Card(page, { title = "Raid detail", icon = "clipboard" })
     det:SetPoint("TOPLEFT", card, "BOTTOMLEFT", 0, -16)
     det:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     P.detail = det
-    P.deleteBtn = UI:IconButton(det, "trash", 22, "Bin this roll call (officers only)", onDelete, "faint")
-    P.deleteBtn:SetPoint("TOPRIGHT", -8, -8)
+    P.deleteBtn = UI:IconButton(det, "trash", 22, "Bin this roll call (officers only)", onDelete, "dim")
+    P.deleteBtn:SetPoint("TOPRIGHT", -8, -5)
     local sf, content = UI:Scroll(det.body)
     sf:SetAllPoints(det.body)
     sf:HookScript("OnSizeChanged", function() layoutDetail() end)
     P.detailScroll, P.detailContent = sf, content
     D.art = UI:FramedIcon(content, 32, RAID_ART_DEFAULT)
-    D.title = UI:Text(content, 14, "wowGold", "ui")
+    D.title = UI:Text(content, 15, "wowGold", "ui")
     D.meta = UI:Text(content, 11, "dim")
     D.meta:SetWordWrap(true)
+    if D.meta.SetSpacing then D.meta:SetSpacing(2) end
+    -- the snapshot count is for the curious: it lives on hover, off the facts
+    D.factsTip = CreateFrame("Frame", nil, content)
+    D.factsTip:EnableMouse(true)
+    UI.AttachTip(D.factsTip, function() return D.factsText end)
     D.pills = {
         present = UI:Pill(content, "", "green", { icon = "roster" }),
         bench = UI:Pill(content, "", "blue", { icon = "minus" }),
@@ -1946,25 +2025,25 @@ local function buildRaids(page)
     -- section heads in Friz gold (the flakes head stays red: it's a telling-off)
     local accents = { present = "wowGold", bench = "wowGold", flakes = "red", bosses = "wowGold" }
     for _, key in ipairs(SECTION_ORDER) do
-        local label = UI:Text(content, 11, accents[key], "ui")
+        local label = UI:Text(content, 12, accents[key], "ui")
         local body = UI:Text(content, 12, "dim")
         body:SetWordWrap(true)
         body:SetSpacing(3)
         D.sections[key] = { label = label, body = body }
     end
-    P.detailEmpty = smallEmpty(det.body, "Pick a raid up top to see who rocked up and who chucked a sickie.", "clipboard", 240)
+    P.detailEmpty = UI:Empty(det.body, "Pick a raid up top to see who rocked up and who chucked a sickie.", "clipboard")
     P.detailEmpty:Hide()
 end
 
 local function refreshRaids()
     local w = settings().window
     local raids = raidsIn(cutoffFor(w))
-    P.raids.subtitle:SetText(windowLabel(w))
     local found = false
     for _, r in ipairs(raids) do
         if r.id == selectedId then found = true break end
     end
     if not found then selectedId = raids[1] and raids[1].id or nil end
+    P.raidCount = #raids
     P.raidList:SetItems(raids, true)
     P.raidList:SetShown(#raids > 0)
     P.raidsEmpty:SetShown(#raids == 0)
@@ -1973,7 +2052,7 @@ end
 -------------------------------------------------------------------------------
 -- Header + layout
 -------------------------------------------------------------------------------
-local function recTip()
+recTip = function()
     local on, mine = Attendance:IsRecording()
     if on then
         return { "End roll call", { mine and "Takes one last headcount, closes the record and tells the street who flaked."
@@ -1984,7 +2063,7 @@ local function recTip()
     return { "Start roll call", lines }
 end
 
-local function onRecClick()
+onRecClick = function()
     local on, mine = Attendance:IsRecording()
     if on then
         UI:Confirm("End roll call", mine and "Wrap it up? One last headcount, then the street hears who flaked."
@@ -2018,6 +2097,9 @@ local function refreshHeader()
         btn:SetText("End roll call")
         btn:SetActive(true)
         btn:Show()
+    elseif P.bare then
+        -- it's in the middle of the page right now: one's plenty
+        btn:Hide()
     elseif not on and GF.Roster:CanManage() then
         UI:SetIcon(btn.icon, "check")
         btn:SetStyle("primary")
@@ -2035,7 +2117,8 @@ local function refreshHeader()
     else
         local heads = 0
         for _, r in ipairs(raids) do heads = heads + r.mains end
-        P.header:SetSubtitle(format("%s: %d %s, about %d locals a night.", windowLabel(w), #raids,
+        -- the dropdown beside it already says which window
+        P.header:SetSubtitle(format("%d %s, about %d locals a night.", #raids,
             U.Plural(#raids, "raid"), floor(heads / #raids + 0.5)))
     end
 end
@@ -2044,7 +2127,7 @@ local function layoutColumns(showLive)
     local page = P.page
     local top = showLive and P.live or P.header
     P.board:ClearAllPoints()
-    P.board:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, showLive and -16 or -12)
+    P.board:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, showLive and -16 or -14)
     P.board:SetPoint("BOTTOMRIGHT", page, "BOTTOM", 90, 0)
     -- An invisible right column carries the edges, so the recent-raids card can take a
     -- fixed height (a plain RIGHT anchor would pin its vertical centre and squash the
@@ -2055,25 +2138,43 @@ local function layoutColumns(showLive)
     P.rightCol:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     P.raids:ClearAllPoints()
     P.raids:SetPoint("TOPLEFT", P.rightCol, "TOPLEFT", 0, 0)
-    P.raids:SetPoint("TOPRIGHT", P.rightCol, "TOPRIGHT", 0, 0)
-    local avail = (page:GetHeight() or 0) - 60 - (showLive and 120 or 0)
-    P.raids:SetHeight(U.Clamp(floor(avail * 0.45), RAIDS_MIN, RAIDS_MAX))
+    local n = P.raidCount or 0
+    P.detail:SetShown(n > 0)
+    if n == 0 then
+        -- nothing to pick apart yet: the list's own empty state gets the whole column
+        P.raids:SetPoint("BOTTOMRIGHT", P.rightCol, "BOTTOMRIGHT", 0, 0)
+    else
+        P.raids:SetPoint("TOPRIGHT", P.rightCol, "TOPRIGHT", 0, 0)
+        -- only as tall as its rows: the detail below is what people came for
+        local avail = (P.rightCol:GetHeight() or 0)
+        local want = 48 + min(n, RAIDS_SHOWN) * RAID_ROW
+        P.raids:SetHeight(max(RAIDS_MIN, avail > 0 and min(want, floor(avail * 0.45)) or want))
+    end
 end
 
 local function refreshAll()
     if not P.page then return end
     local showLive = refreshLive()
-    layoutColumns(showLive)
-    refreshHeader()
-    refreshBoard()
     refreshRaids()
+    layoutColumns(showLive)
+    refreshBoard()
+    refreshHeader()
     refreshDetail()
+end
+
+--- A button that stays out of the way but can still be read on top of the night scene: plain
+-- text on a carved dark plate instead of metal.
+local function quietButton(parent, text, opts)
+    opts.style = "ghost"
+    local b = UI:Button(parent, text, opts)
+    b.plate = UI:Nine(b, "inset", "BACKGROUND", -6)
+    return b
 end
 
 local function build(page)
     P.page = page
     P.header = UI:PageHeader(page, "Roll Call", "Who showed, who flaked, who's running on Mandurah time.")
-    P.exportBtn = UI:Button(page, "Export CSV", { icon = "export", onClick = exportCSV,
+    P.exportBtn = quietButton(page, "Export CSV", { icon = "export", onClick = exportCSV,
         tooltip = { "Export CSV", { "Copies the leaderboard for this window: Name, Attended, Total, Pct, Late, Flakes, Streak." } } })
     P.recBtn = UI:Button(page, "Start roll call", { style = "primary", icon = "check", onClick = onRecClick, tooltip = recTip })
     P.windowDD = UI:Dropdown(page, {
@@ -2088,7 +2189,10 @@ local function build(page)
     buildRaids(page)
     layoutColumns(false)
     page:SetScript("OnSizeChanged", function()
-        if P.live then layoutColumns(P.live:IsShown()) end
+        if P.live then
+            layoutColumns(P.live:IsShown())
+            layoutLiveStats()
+        end
     end)
 end
 

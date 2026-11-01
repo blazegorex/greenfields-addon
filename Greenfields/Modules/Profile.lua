@@ -2,14 +2,16 @@
      The hidden "profile" page: one resident's full file, opened from the Residents list,
      the sidebar me-card, or anywhere else through GF.UI:OpenProfile(key).
 
-     A character-sheet hero (tooled leather under a gold rim: gold-ringed class portrait
-     with a level medallion, class-coloured name, level/race/class, rank, presence, mains
-     and alts, Greenfields version, whisper/invite) sits over a masonry of cards: Roll Call,
-     Titles, Stats, Badges, Tradie licences, Brings to the raid and Loot. Titles, badges,
-     stats, trades and buffs show their game art in gold action-button frames; crowns held
-     and soft-res wins get the achievement glint when a file opens. Each card pulls
-     from another module behind a guard and has its own cheeky empty line when that module
-     or its data is missing. Data is gathered once per show; resizing only re-lays out.
+     Their name is the page's headline, written across the night scene in their class colour,
+     so it stays put while the file scrolls. Below it a character-sheet hero (gold-ringed class
+     portrait with a level medallion, level/race/class, rank, presence, mains and alts,
+     whisper/invite) sits over a masonry of quiet cards: Roll Call, Titles, Stats, Badges,
+     Tradie licences, Brings to the raid and Loot. Inside a card things are flat rows on fine
+     rules, never a rim inside a rim. Crowns held and soft-res wins get the achievement glint
+     when a file opens. Each card pulls from another module behind a guard; a card with nothing
+     to show folds into one compact "Not on file yet" ledger, keeping its cheeky line, so a
+     resident with no data doesn't get a stack of empty boxes. Data is gathered once per show;
+     resizing only re-lays out.
 
      Also adds /gf profile [name]. ]]
 
@@ -22,17 +24,22 @@ local floor, ceil, max, min, abs = math.floor, math.ceil, math.max, math.min, ma
 local sort, concat = table.sort, table.concat
 
 local GAP = 16
-local HERO_H = 144
-local PORTRAIT = 94         -- the hero's gold-ringed portrait
-local TEXT_X = 134          -- where the hero's text column starts
-local FAM_Y = -124          -- vertical centre of the hero's mains/alts line
+local HERO_H = 124
+local PORTRAIT = 92         -- the hero's gold-ringed portrait
+local TEXT_X = 124          -- where the hero's text column starts
+local FAM_Y = -74           -- vertical centre of the hero's mains/alts line
 local LOOT_SHOWN = 8
 local LOOT_SCAN = 250
 local MAX_SKILL = 300
-local DOT = "  " .. T:Wrap("faint", "\194\183") .. "  "
+local DOT = "  " .. T:Wrap("dim", "\194\183") .. "  "
 -- small gold caption text (the game's own "label" gold, a shade down so values lead)
 local GOLD_DIM = { C.wowGold[1] * 0.82, C.wowGold[2] * 0.82, C.wowGold[3], 1 }
 local MAXED = { 0.86, 0.64, 0.08, 1 }   -- burnished gold for a maxed-out skill bar
+-- data colours, a shade down from the theme's neon: a number shouldn't outshine the resident
+local GOOD = { 0.42, 0.76, 0.50, 1 }
+local WARN = { 0.93, 0.76, 0.28, 1 }
+local BAD = { 0.92, 0.44, 0.42, 1 }
+local SECONDARY = { 0.44, 0.60, 0.82, 1 }
 
 local LINES = {
     titlesNone = "No crowns yet. Give it a raid night or two.",
@@ -47,7 +54,7 @@ local LINES = {
     profsNone = "No trade certificates on file. Probably cash-in-hand.",
     profsNoDoc = "No profile synced yet. They need Greenfields for this one.",
     lootOff = "The loot ledger isn't open on this client yet.",
-    lootNone = "Hasn't won a thing. The bin chickens are embarrassed for them.",
+    lootNone = "Hasn't won a thing. Even the fiends feel bad.",
     buffsNone = "Brings snacks. Probably.",
     buffsUnknown = "Class unknown. Could bring anything. Could bring nothing.",
     buffsGuess = "Going by class alone. Talents and ranks not checked.",
@@ -130,9 +137,9 @@ local function classRGB(class)
 end
 
 local function pctColor(p)
-    if p >= 75 then return "green" end
-    if p >= 45 then return "yellow" end
-    return "red"
+    if p >= 75 then return GOOD end
+    if p >= 45 then return WARN end
+    return BAD
 end
 
 --- race comes from the player's own (remote) profile doc: letters only, or nothing
@@ -155,21 +162,18 @@ local function cleanKey(k)
     return API.Key(k) or k
 end
 
---- Tooltip on a plain frame. hl = true adds a soft hover wash inside the frame's rim;
--- shine = true sweeps an achievement-style glint across it on hover (prized things only).
-local function tipOn(f, hl, shine)
+--- Tooltip on a plain frame. hl = true adds a soft hover wash inside the frame.
+local function tipOn(f, hl)
     f:EnableMouse(true)
     if hl then
-        f.hl = f:CreateTexture(nil, "ARTWORK", nil, -2)
-        f.hl:SetPoint("TOPLEFT", 2, -2)
-        f.hl:SetPoint("BOTTOMRIGHT", -2, 2)
-        f.hl:SetColorTexture(1, 0.86, 0.55, 0.07)
+        f.hl = f:CreateTexture(nil, "BACKGROUND", nil, 2)
+        f.hl:SetAllPoints()
+        f.hl:SetColorTexture(1, 0.86, 0.55, 0.05)
         f.hl:SetBlendMode("ADD")
         f.hl:Hide()
     end
     f:SetScript("OnEnter", function(self)
         if self.hl then self.hl:Show() end
-        if shine or self.shine then UI:Shine(self, 0.6) end
         if self.tipTitle then UI:Tip(self, self.tipTitle, self.tipLines) end
     end)
     f:SetScript("OnLeave", function(self)
@@ -178,54 +182,11 @@ local function tipOn(f, hl, shine)
     end)
 end
 
---- Inner panel in the kit's card language: a dark inset over the card's stone, bronze rim.
-local function slab(f, alpha, rimAlpha)
-    f.slab = f:CreateTexture(nil, "BACKGROUND")
-    f.slab:SetPoint("TOPLEFT", 1, -1)
-    f.slab:SetPoint("BOTTOMRIGHT", -1, 1)
-    f.slab:SetColorTexture(0, 0, 0, alpha or 0.3)
-    f.rim = f:CreateTexture(nil, "BORDER")
-    f.rim:SetAllPoints()
-    UI.Sliced(f.rim, T.tex.frameBronze, 8)
-    f.rim:SetVertexColor(1, 1, 1, rimAlpha or 0.75)
-end
-
---- Classic status bar: dark well, bronze edge, shaded fill. :SetValue(0..1), :SetColor(c)
-local function statusBar(parent, h)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetHeight(h or 10)
-    b.edge = b:CreateTexture(nil, "BACKGROUND")
-    b.edge:SetAllPoints()
-    b.edge:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.85)
-    b.well = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.well:SetPoint("TOPLEFT", 1, -1)
-    b.well:SetPoint("BOTTOMRIGHT", -1, 1)
-    b.well:SetColorTexture(0.02, 0.025, 0.02, 0.95)
-    b.fill = b:CreateTexture(nil, "ARTWORK")
-    b.fill:SetTexture(T.tex.bar)
-    b.fill:SetPoint("TOPLEFT", 1, -1)
-    b.fill:SetPoint("BOTTOMLEFT", 1, 1)
-    b.gloss = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.gloss:SetPoint("TOPLEFT", b.fill, "TOPLEFT", 0, 0)
-    b.gloss:SetPoint("TOPRIGHT", b.fill, "TOPRIGHT", 0, 0)
-    b.gloss:SetHeight(max(1, floor((h or 10) * 0.35)))
-    b.gloss:SetColorTexture(1, 1, 1, 0.12)
-    b.value = 0
-    function b:SetColor(c)
-        c = UI.col(c)
-        self.fill:SetVertexColor(c[1], c[2], c[3], 1)
-    end
-    function b:SetValue(v)
-        self.value = U.Clamp(tonumber(v) or 0, 0, 1)
-        local w = (self:GetWidth() or 0) - 2
-        self.fill:SetWidth(max(0.001, w * self.value))
-        local on = self.value > 0 and w > 0
-        self.fill:SetShown(on)
-        self.gloss:SetShown(on)
-    end
-    b:SetScript("OnSizeChanged", function(self) self:SetValue(self.value) end)
-    b:SetColor("green")
-    return b
+--- The fine rule under a row; rows are lines on the page, not boxes.
+local function rowRule(f)
+    f.rule = UI:Hairline(f, "bronze", 0.25)
+    f.rule:SetPoint("BOTTOMLEFT")
+    f.rule:SetPoint("BOTTOMRIGHT")
 end
 
 --- Title/badge art: the catalogue's game icon (t.art), else a line icon on a dark well.
@@ -245,7 +206,7 @@ local function gatherTitles(key)
     for _, t in ipairs(list) do
         if type(t) == "table" and str(t.title) then
             local def = str(t.key) and GF.TitlesByKey and GF.TitlesByKey[t.key]
-            out[#out + 1] = { title = t.title, label = str(t.label), blurb = str(t.blurb), shame = t.group == "shame",
+            out[#out + 1] = { title = t.title, key = str(t.key), label = str(t.label), blurb = str(t.blurb), shame = t.group == "shame",
                               art = artOf(t) or artOf(def) }
         end
     end
@@ -449,7 +410,8 @@ end
 
 local function begin(card)
     for _, p in pairs(card.pools) do p.n = 0 end
-    if card.emptyFS then card.emptyFS:Hide() end
+    card.emptyLine = nil
+    card.skip = nil
     if card.note then card.note:Hide() end
     card.count:SetText("")
 end
@@ -461,49 +423,44 @@ local function finish(card, h)
     return h
 end
 
-local function emptyLine(card, w, text)
-    local fs = card.emptyFS
-    if not fs then
-        fs = UI:Text(card.body, 12, "faint")
-        fs:SetPoint("TOPLEFT", 0, -2)
-        fs:SetWordWrap(true)
-        card.emptyFS = fs
-    end
-    fs:SetWidth(w)
-    fs:SetText(text)
-    fs:Show()
-    return finish(card, max(18, (fs:GetStringHeight() or 14) + 6))
+--- Nothing to show: this card folds into the "Not on file yet" ledger, cheeky line and all.
+local function emptyLine(card, text)
+    card.emptyLine = text
+    return finish(card, 0)
 end
 
-local TITLE_ROW_H, TITLE_ROW_GAP = 42, 6
+local TITLE_ROW_H = 44
 
---- A held title, achievement style: framed title art, gold Friz name, what it's for.
+--- A held title, achievement style: its art in the gold frame (it's a crown they wear),
+-- gold Friz name, what it's for, and their number at the end of the line.
 local function newTitleRow(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetHeight(TITLE_ROW_H)
-    slab(f, 0.32, 0.7)
-    f.art = UI:FramedIcon(f, 32)
-    f.art:SetPoint("LEFT", 5, 0)
+    rowRule(f)
+    f.art = UI:FramedIcon(f, 32, nil, "gold")
+    f.art:SetPoint("LEFT", 0, 0)
+    f.value = UI:Text(f, 14, "text", "num")
+    f.value:SetPoint("RIGHT", -2, 0)
+    f.value:SetJustifyH("RIGHT")
     f.title = UI:Text(f, 13, "wowGold", "ui")
-    f.title:SetPoint("TOPLEFT", 46, -7)
+    f.title:SetPoint("TOPLEFT", 42, -8)
     f.label = UI:Text(f, 11, "dim")
     f.label:SetPoint("TOPLEFT", f.title, "BOTTOMLEFT", 0, -3)
-    tipOn(f, true, true)
+    tipOn(f, true)
     return f
 end
 
-local CHIP_H, CHIP_ICON = 26, 22
+local CHIP_H, CHIP_ICON = 26, 18
 
---- Badge / buff chip: a framed game icon on a small bronze-rimmed slab.
+--- Badge / buff chip: a small game icon and its name, carved into the card.
 local function newChip(parent)
-    local f = CreateFrame("Frame", nil, parent)
+    local f = UI:Well(parent)
     f:SetHeight(CHIP_H)
-    slab(f, 0.38, 0.7)
-    f.art = UI:FramedIcon(f, CHIP_ICON)
-    f.art:SetPoint("LEFT", 2, 0)
+    f.art = UI:IconChip(f, CHIP_ICON)
+    f.art:SetPoint("LEFT", 4, 0)
     f.label = UI:Text(f, 11, "text", "ui")
     f.label:SetPoint("LEFT", f.art, "RIGHT", 6, 0)
-    tipOn(f, true, false)
+    tipOn(f, true)
     return f
 end
 
@@ -512,8 +469,8 @@ local function setChip(f, text, color, icon, maxW)
     f.art:SetIcon(icon)
     f.label:SetText(text)
     f.label:SetTextColor(c[1], c[2], c[3], 1)
-    local labelW = fitText(f.label, max(20, maxW - (2 + CHIP_ICON + 6 + 9)))
-    f:SetWidth(2 + CHIP_ICON + 6 + labelW + 9)
+    local labelW = fitText(f.label, max(20, maxW - (4 + CHIP_ICON + 6 + 9)))
+    f:SetWidth(4 + CHIP_ICON + 6 + labelW + 9)
 end
 
 --- Lays chips out left to right, wrapping at width w. Returns the height used.
@@ -529,51 +486,53 @@ local function flowChips(chips, w)
     return y + CHIP_H
 end
 
-local STAT_H, STAT_GAP = 50, 6
+local STAT_H = 34
 
+--- One line of the stats ledger: art, what's being counted, and the number right-aligned.
 local function newStatCell(parent)
     local f = CreateFrame("Frame", nil, parent)
-    slab(f, 0.32, 0.65)
-    f.art = UI:FramedIcon(f, 28)
-    f.art:SetPoint("LEFT", 7, 0)
-    f.label = UI:Text(f, 9, GOLD_DIM, "head")
-    f.label:SetPoint("TOPLEFT", 43, -9)
-    f.value = UI:Text(f, 18, "text", "num")
-    f.value:SetPoint("BOTTOMLEFT", 43, 6)
-    tipOn(f, true, false)
+    rowRule(f)
+    f.art = UI:FramedIcon(f, 24)
+    f.art:SetPoint("LEFT", 0, 0)
+    f.value = UI:Text(f, 14, "text", "num")
+    f.value:SetPoint("RIGHT", -2, 0)
+    f.value:SetJustifyH("RIGHT")
+    f.label = UI:Para(f, 11, "dim")
+    f.label:SetPoint("LEFT", 32, 0)
+    tipOn(f, true)
     return f
 end
 
 local function newProfRow(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetHeight(34)
-    f.art = UI:FramedIcon(f, 30)
+    f.art = UI:FramedIcon(f, 32)
     f.art:SetPoint("LEFT", 0, 0)
     f.name = UI:Text(f, 12, "text", "ui")
-    f.name:SetPoint("TOPLEFT", 40, -2)
-    f.value = UI:Text(f, 11, "dim", "num")
+    f.name:SetPoint("TOPLEFT", 42, -2)
+    f.value = UI:Text(f, 12, "dim", "num")
     f.value:SetPoint("TOPRIGHT", 0, -3)
     f.value:SetJustifyH("RIGHT")
-    f.bar = statusBar(f, 10)
-    f.bar:SetPoint("TOPLEFT", 40, -20)
+    f.bar = UI:Bar(f, { height = 8 })
+    f.bar:SetPoint("TOPLEFT", 42, -20)
     f.bar:SetPoint("TOPRIGHT", 0, -20)
     return f
 end
 
-local LOOT_ROW_H, LOOT_ROW_GAP = 40, 6
+local LOOT_ROW_H = 42
 
 local function newLootRow(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetHeight(LOOT_ROW_H)
-    slab(f, 0.32, 0.7)
-    f.item = UI:ItemButton(f, 30)
-    f.item:SetPoint("LEFT", 5, 0)
+    rowRule(f)
+    f.item = UI:ItemButton(f, 32)
+    f.item:SetPoint("LEFT", 0, 0)
     f.name = UI:Text(f, 12, "text")
-    f.name:SetPoint("TOPLEFT", 44, -6)
-    f.meta = UI:Text(f, 10, "dim")
+    f.name:SetPoint("TOPLEFT", 42, -7)
+    f.meta = UI:Text(f, 11, "dim")
     f.meta:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -3)
     f.how = UI:Pill(f, "", "dim", { height = 16, size = 10 })
-    f.how:SetPoint("RIGHT", -8, 0)
+    f.how:SetPoint("RIGHT", -2, 0)
     return f
 end
 
@@ -597,23 +556,19 @@ local function fillRoll(card, w, d)
         g:SetPoint("TOPLEFT")
         g:SetPoint("TOPRIGHT")
         g:SetHeight(112)
-        g.pct = UI:Text(g, 30, "green", "num")
+        g.pct = UI:Text(g, 26, "text", "ui")
         g.pct:SetPoint("TOPLEFT", 0, 0)
-        g.sub = UI:Text(g, 11, "dim")
-        g.sub:SetPoint("BOTTOMLEFT", g.pct, "BOTTOMRIGHT", 8, 4)
-        g.bar = statusBar(g, 10)
-        g.bar:SetPoint("TOPLEFT", 0, -39)
-        g.bar:SetPoint("TOPRIGHT", 0, -39)
+        g.sub = UI:Text(g, 12, "dim")
+        g.sub:SetPoint("BOTTOMLEFT", g.pct, "BOTTOMRIGHT", 8, 3)
+        g.bar = UI:Bar(g, { height = 8 })
+        g.bar:SetPoint("TOPLEFT", 0, -34)
+        g.bar:SetPoint("TOPRIGHT", 0, -34)
         g.minis = {}
-        for i, label in ipairs({ "STREAK", "LATE", "FLAKES" }) do
-            local v = UI:Text(g, 18, "text", "num")
-            local l = UI:Text(g, 10, GOLD_DIM, "head")
-            l:SetPoint("TOPLEFT", v, "BOTTOMLEFT", 0, -2)
-            l:SetText(label)
-            g.minis[i] = { value = v, label = l }
+        for i, label in ipairs({ "Streak", "Late", "Flakes" }) do
+            g.minis[i] = UI:Stat(g, { label = label, size = 18 })
         end
-        g.last = UI:Text(g, 11, "faint")
-        g.last:SetPoint("TOPLEFT", 0, -98)
+        g.last = UI:Text(g, 11, "dim")
+        g.last:SetPoint("TOPLEFT", 0, -92)
         tipOn(g)
         g.tipTitle = "Roll call"
         g.tipLines = {
@@ -626,7 +581,7 @@ local function fillRoll(card, w, d)
     local s = d.summary
     if not d.has.roll or not s then
         g:Hide()
-        return emptyLine(card, w, d.has.roll and LINES.rollNone or LINES.rollOff)
+        return emptyLine(card, d.has.roll and LINES.rollNone or LINES.rollOff)
     end
     g:Show()
     local tone = pctColor(s.pct)
@@ -636,16 +591,16 @@ local function fillRoll(card, w, d)
     g.bar:SetColor(tone)
     g.bar:SetValue(s.pct / 100)
     local vals = {
-        { s.streak, s.streak > 0 and "green" or "faint" },
-        { s.late, s.late > 0 and "yellow" or "faint" },
-        { s.flakes, s.flakes > 0 and "red" or "faint" },
+        { s.streak, s.streak > 0 and GOOD or "dim" },
+        { s.late, s.late > 0 and WARN or "dim" },
+        { s.flakes, s.flakes > 0 and BAD or "dim" },
     }
     local third = floor(w / 3)
     for i, m in ipairs(g.minis) do
-        m.value:ClearAllPoints()
-        m.value:SetPoint("TOPLEFT", g, "TOPLEFT", (i - 1) * third, -58)
-        m.value:SetText(vals[i][1])
-        UI:SetTextColor(m.value, vals[i][2])
+        m:ClearAllPoints()
+        m:SetPoint("TOPLEFT", g, "TOPLEFT", (i - 1) * third, -50)
+        m:Set(vals[i][1], nil, vals[i][2])
+        m:SetHeight(38)
     end
     if s.lastSeen then
         g.last:SetText("Last raid: " .. U.Ago(s.lastSeen))
@@ -653,33 +608,55 @@ local function fillRoll(card, w, d)
     else
         g.last:Hide()
     end
-    card.count:SetText(s.total .. " " .. U.Plural(s.total, "RAID"))
-    return finish(card, s.lastSeen and 112 or 94)
+    card.count:SetText(s.total .. " " .. U.Plural(s.total, "raid"))
+    return finish(card, s.lastSeen and 106 or 88)
+end
+
+local function statValue(s)
+    if s.rank then return "#" .. s.rank end
+    local unit, v = s.def.unit, U.Commas(s.value)
+    if unit == "%" or unit == "g" then return v .. unit end
+    if unit then return v .. " " .. unit end
+    return v
+end
+
+--- The stat behind a title, so its number sits on the title's row and Stats needn't repeat it.
+local function statFor(d, key)
+    for _, s in ipairs(d.stats) do
+        if s.def.key == key then return s end
+    end
+    return nil
 end
 
 local function fillTitles(card, w, d)
     begin(card)
-    if not d.has.titles then return emptyLine(card, w, LINES.titlesOff) end
-    if #d.titles == 0 then return emptyLine(card, w, d.version and LINES.titlesNone or LINES.noAddon) end
+    if not d.has.titles then return emptyLine(card, LINES.titlesOff) end
+    if #d.titles == 0 then return emptyLine(card, d.version and LINES.titlesNone or LINES.noAddon) end
     local y = 0
-    for _, t in ipairs(d.titles) do
+    for i, t in ipairs(d.titles) do
         local row = take(card, "title", newTitleRow)
-        local c = t.shame and C.red or C.wowGold
+        local c = t.shame and BAD or C.wowGold
+        local s = t.key and statFor(d, t.key)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", 0, -y)
         row.art:SetIcon(t.art or "crown")
+        row.art:SetTone((not t.shame) and "gold" or nil)
+        row.shame = t.shame
         row.title:SetText(t.title)
         row.title:SetTextColor(c[1], c[2], c[3], 1)
-        row.title:SetWidth(max(40, w - 54))
+        row.value:SetText(s and statValue(s) or "")
+        local tw = max(40, w - 42 - (s and 8 + (row.value:GetStringWidth() or 30) or 0))
+        row.title:SetWidth(tw)
         row.label:SetText(t.label or "")
-        row.label:SetWidth(max(40, w - 54))
+        row.label:SetWidth(tw)
+        row.rule:SetShown(i < #d.titles)
         row.tipTitle = T:Wrap(t.shame and "red" or "gold", t.title)
         row.tipLines = tipLines(t.label, t.blurb and T:Wrap("dim", t.blurb))
-        y = y + TITLE_ROW_H + TITLE_ROW_GAP
+        y = y + TITLE_ROW_H
     end
     card.count:SetText(#d.titles)
-    return finish(card, y - TITLE_ROW_GAP)
+    return finish(card, y)
 end
 
 --- Achievement glint across a card's pooled rows when a file opens (staggered, top to
@@ -699,33 +676,41 @@ local function shinePool(card, kind, want)
     end
 end
 
-local function statValue(s)
-    if s.rank then return "#" .. s.rank end
-    local unit, v = s.def.unit, U.Commas(s.value)
-    if unit == "%" or unit == "g" then return v .. unit end
-    if unit then return v .. " " .. unit end
-    return v
-end
-
 local function fillStats(card, w, d)
     begin(card)
-    if not d.has.stats then return emptyLine(card, w, LINES.statsOff) end
-    if #d.stats == 0 then return emptyLine(card, w, d.version and LINES.statsNone or LINES.noAddon) end
-    local cols = max(1, floor((w + 8) / 138))
-    local cw = floor((w - (cols - 1) * 8) / cols)
-    for i, s in ipairs(d.stats) do
+    if not d.has.stats then return emptyLine(card, LINES.statsOff) end
+    if #d.stats == 0 then return emptyLine(card, d.version and LINES.statsNone or LINES.noAddon) end
+    -- what a title's row already shows isn't worth saying twice
+    local titled = {}
+    for _, t in ipairs(d.titles) do
+        if t.key then titled[t.key] = true end
+    end
+    local list = {}
+    for _, s in ipairs(d.stats) do
+        if not titled[s.def.key] then list[#list + 1] = s end
+    end
+    if #list == 0 then
+        -- every number they've got is on the Titles card; there's nothing to fold, so just step aside
+        card.skip = true
+        return finish(card, 0)
+    end
+    local cols = w >= 520 and 2 or 1
+    local gap = 20
+    local cw = floor((w - (cols - 1) * gap) / cols)
+    local rows = ceil(#list / cols)
+    for i, s in ipairs(list) do
         local cell = take(card, "stat", newStatCell)
         local def = s.def
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
         cell:ClearAllPoints()
-        cell:SetPoint("TOPLEFT", col * (cw + 8), -row * (STAT_H + STAT_GAP))
+        cell:SetPoint("TOPLEFT", col * (cw + gap), -row * STAT_H)
         cell:SetSize(cw, STAT_H)
         local shame = def.group == "shame"
         cell.art:SetIcon(artOf(def, def.icon or "star"))
-        cell.label:SetText(tostring(def.label or def.key):upper())
-        cell.label:SetWidth(max(20, cw - 50))
         cell.value:SetText(statValue(s))
-        cell.value:SetWidth(max(20, cw - 50))
+        cell.label:SetText(tostring(def.label or def.key))
+        cell.label:SetWidth(max(20, cw - 32 - 8 - (cell.value:GetStringWidth() or 30)))
+        cell.rule:SetShown(row < rows - 1)
         -- a #1 is a crown held: give it the game's gold
         UI:SetTextColor(cell.value, s.rank == 1 and "wowGold" or "text")
         cell.tipTitle = T:Wrap(shame and "red" or "gold", def.title or def.label or def.key)
@@ -733,19 +718,18 @@ local function fillStats(card, w, d)
             s.rank and ("Ranked #" .. s.rank .. " - amount classified.") or nil,
             def.blurb and T:Wrap("dim", def.blurb))
     end
-    card.count:SetText(#d.stats)
-    return finish(card, ceil(#d.stats / cols) * (STAT_H + STAT_GAP) - STAT_GAP)
+    card.count:SetText(#list)
+    return finish(card, rows * STAT_H)
 end
 
 local function fillBadges(card, w, d)
     begin(card)
-    if not d.has.badges then return emptyLine(card, w, LINES.badgesOff) end
-    if #d.badges == 0 then return emptyLine(card, w, d.version and LINES.badgesNone or LINES.noAddon) end
+    if not d.has.badges then return emptyLine(card, LINES.badgesOff) end
+    if #d.badges == 0 then return emptyLine(card, d.version and LINES.badgesNone or LINES.noAddon) end
     local chips = {}
     for _, b in ipairs(d.badges) do
         local chip = take(card, "chip", newChip)
-        setChip(chip, b.name, b.shame and "red" or "wowGold", b.art or "star_fill", w)
-        chip.shine = true
+        setChip(chip, b.name, b.shame and BAD or "wowGold", b.art or "star_fill", w)
         chip.tipTitle = b.name
         chip.tipLines = tipLines(((b.def and b.def.label) or "Milestone") .. ": " .. U.Commas(b.n) .. "+",
             b.def and b.def.title and T:Wrap("dim", "On the road to " .. b.def.title))
@@ -757,8 +741,8 @@ end
 
 local function fillProfs(card, w, d)
     begin(card)
-    if not d.profsKnown then return emptyLine(card, w, LINES.profsNoDoc) end
-    if #d.profs == 0 then return emptyLine(card, w, LINES.profsNone) end
+    if not d.profsKnown then return emptyLine(card, LINES.profsNoDoc) end
+    if #d.profs == 0 then return emptyLine(card, LINES.profsNone) end
     local y = 0
     for _, p in ipairs(d.profs) do
         local row = take(card, "prof", newProfRow)
@@ -766,29 +750,28 @@ local function fillProfs(card, w, d)
         row:SetPoint("TOPLEFT", 0, -y)
         row:SetPoint("TOPRIGHT", 0, -y)
         row.art:SetIcon(p.icon)
-        row.name:SetText(p.name .. (p.secondary and T:Wrap("faint", "  secondary") or ""))
-        row.name:SetWidth(max(40, w - 40 - 70))   -- leave room for "300 / 300" on the right
+        row.name:SetText(p.name .. (p.secondary and T:Wrap("dim", "  secondary") or ""))
+        row.name:SetWidth(max(40, w - 42 - 70))   -- leave room for "300 / 300" on the right
         local cap = max(MAX_SKILL, p.rank)
         local maxed = p.rank >= MAX_SKILL
         row.value:SetText(p.rank .. " / " .. cap)
         UI:SetTextColor(row.value, maxed and "wowGold" or "dim")
-        row.bar:SetColor(maxed and MAXED or (p.secondary and "blue" or "green"))
+        row.bar:SetColor(maxed and MAXED or (p.secondary and SECONDARY or GOOD))
         row.bar:SetValue(p.rank / cap)
-        y = y + 40
+        y = y + 42
     end
     card.count:SetText(#d.profs)
-    return finish(card, y - 6)
+    return finish(card, y - 8)
 end
 
 local function fillBuffs(card, w, d)
     begin(card)
-    if #d.buffs == 0 then return emptyLine(card, w, d.class and LINES.buffsNone or LINES.buffsUnknown) end
+    if #d.buffs == 0 then return emptyLine(card, d.class and LINES.buffsNone or LINES.buffsUnknown) end
     local BD = GF.BuffData
     local chips = {}
     for _, cat in ipairs(d.buffs) do
         local chip = take(card, "chip", newChip)
-        setChip(chip, cat.label or cat.key, cat.core and "green" or "text", API.SpellIcon(cat.icon), w)
-        chip.shine = false
+        setChip(chip, cat.label or cat.key, cat.core and "text" or "dim", API.SpellIcon(cat.icon), w)
         local camp = cat.camp and BD.campByKey and BD.campByKey[cat.camp]
         chip.tipTitle = cat.long or cat.label
         chip.tipLines = tipLines({ "Helps", WHO[cat.who] or "The raid" },
@@ -811,11 +794,11 @@ end
 
 local function fillLoot(card, w, d)
     begin(card)
-    if not d.has.loot then return emptyLine(card, w, LINES.lootOff) end
-    if d.lootCount and d.lootCount > 0 then card.count:SetText(d.lootCount .. " " .. U.Plural(d.lootCount, "ITEM")) end
-    if #d.loot == 0 then return emptyLine(card, w, LINES.lootNone) end
+    if not d.has.loot then return emptyLine(card, LINES.lootOff) end
+    if d.lootCount and d.lootCount > 0 then card.count:SetText(d.lootCount .. " " .. U.Plural(d.lootCount, "item")) end
+    if #d.loot == 0 then return emptyLine(card, LINES.lootNone) end
     local y = 0
-    for _, l in ipairs(d.loot) do
+    for i, l in ipairs(d.loot) do
         local row = take(card, "loot", newLootRow)
         row:ClearAllPoints()
         row:SetPoint("TOPLEFT", 0, -y)
@@ -838,19 +821,20 @@ local function fillLoot(card, w, d)
         if l.winner ~= d.key then meta[#meta + 1] = "on " .. U.ClassName(l.winner, str(GF.Roster:Class(l.winner))) end
         row.meta:SetText(concat(meta, DOT))
         row.meta:SetWidth(textW)
-        y = y + LOOT_ROW_H + LOOT_ROW_GAP
+        row.rule:SetShown(i < #d.loot)
+        y = y + LOOT_ROW_H
     end
-    return finish(card, y - LOOT_ROW_GAP)
+    return finish(card, y)
 end
 
 local CARDS = {
-    { id = "roll", title = "Roll Call", icon = "calendar", accent = "green", fill = fillRoll },
-    { id = "titles", title = "Titles", icon = "crown", accent = "gold", fill = fillTitles },
-    { id = "stats", title = "Stats", icon = "trophy", accent = "blue", fill = fillStats },
-    { id = "badges", title = "Badges", icon = "star", accent = "gold", fill = fillBadges },
-    { id = "profs", title = "Tradie licences", icon = "hammer", accent = "yellow", fill = fillProfs },
-    { id = "buffs", title = "Brings to the raid", icon = "campfire", accent = "green", fill = fillBuffs },
-    { id = "loot", title = "Loot", icon = "bag", accent = "purple", fill = fillLoot },
+    { id = "roll", title = "Roll Call", icon = "calendar", fill = fillRoll },
+    { id = "titles", title = "Titles", icon = "crown", fill = fillTitles },
+    { id = "stats", title = "Stats", icon = "trophy", fill = fillStats },
+    { id = "badges", title = "Badges", icon = "star", fill = fillBadges },
+    { id = "profs", title = "Tradie licences", icon = "hammer", fill = fillProfs },
+    { id = "buffs", title = "Brings to the raid", icon = "campfire", fill = fillBuffs },
+    { id = "loot", title = "Loot", icon = "bag", fill = fillLoot },
 }
 
 -------------------------------------------------------------------------------
@@ -879,12 +863,15 @@ local function newLink(parent)
 end
 
 local function invite(key)
-    if not API.Invite(key) then
-        UI:Toast({ title = "No dice", text = "Couldn't send that invite right now. Try again in a sec.", icon = "warning", style = "red", key = "gf-invite-fail" })
+    local ok, why = API.Invite(key)
+    if not ok then
+        local text = why == "clash" and "Two residents answer to that name and the addon won't guess. /invite the full name yourself."
+            or "Couldn't send that invite right now. Try again in a sec."
+        UI:Toast({ title = "No dice", text = text, icon = "warning", style = "red", key = "gf-invite-fail" })
     end
 end
 
---- Filled-circle layer (stacked circles make the portrait's rings).
+--- Filled-circle layer for the medallion's well.
 local function disc(parent, layer, sub, size, r, g, b, a)
     local t = parent:CreateTexture(nil, layer, nil, sub)
     t:SetTexture(T.tex.circle)
@@ -894,63 +881,42 @@ local function disc(parent, layer, sub, size, r, g, b, a)
     return t
 end
 
---- Character-sheet header: tooled leather under a gold rim, a gold-ringed class portrait
--- with a level medallion, and the resident's class colour washed in from the left.
+--- Character-sheet plate, the page's one gold rim: a gold-ringed class portrait with a level
+-- medallion, and the resident's class colour washed in from the left.
 local function buildHero(page, content)
-    local h = UI:Card(content)
+    local h = UI:Card(content, { tier = "hero" })
     h:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
     h:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, 0)
     h:SetHeight(HERO_H)
-    h.leather = h:CreateTexture(nil, "BACKGROUND", nil, 3)
-    h.leather:SetPoint("TOPLEFT", 3, -3)
-    h.leather:SetPoint("BOTTOMRIGHT", -3, 3)
-    h.leather:SetTexture(T.tex.leather, "REPEAT", "REPEAT")
-    h.leather:SetHorizTile(true)
-    h.leather:SetVertTile(true)
-    h.leather:SetVertexColor(0.72, 0.66, 0.6, 0.92)
-    -- class-coloured wash and edge give every file its own tint
-    h.wash = h:CreateTexture(nil, "BACKGROUND", nil, 4)
-    h.wash:SetTexture(T.tex.white)
+    -- class-coloured wash gives every file its own tint
+    h.wash = h:CreateTexture(nil, "BACKGROUND", nil, 2)
     h.wash:SetPoint("TOPLEFT", 3, -3)
     h.wash:SetPoint("BOTTOMLEFT", 3, 3)
     h.wash:SetWidth(420)
-    -- a soft dark floor so the lower lines read over the leather grain
-    h.floor = h:CreateTexture(nil, "BACKGROUND", nil, 5)
-    h.floor:SetTexture(T.tex.white)
-    h.floor:SetPoint("BOTTOMLEFT", 3, 3)
-    h.floor:SetPoint("BOTTOMRIGHT", -3, 3)
-    h.floor:SetHeight(56)
-    local CC = rawget(_G, "CreateColor")
-    if not (h.floor.SetGradient and type(CC) == "function"
-        and pcall(h.floor.SetGradient, h.floor, "VERTICAL", CC(0, 0, 0, 0.38), CC(0, 0, 0, 0))) then
-        h.floor:SetColorTexture(0, 0, 0, 0.16)
-    end
-    -- gold rim instead of the card's bronze one: this is the file's title plate
-    UI.Sliced(h.rim, T.tex.frameGold, 16)
 
-    -- portrait: class glow, gold ring, dark gap, then the class avatar with its own ring
+    -- portrait: class glow behind a class avatar wearing a gold ring
     local p = CreateFrame("Frame", nil, h)
     p:SetSize(PORTRAIT, PORTRAIT)
-    p:SetPoint("LEFT", 22, 0)
+    p:SetPoint("LEFT", 16, 0)
     p.glow = p:CreateTexture(nil, "BACKGROUND")
     p.glow:SetTexture(T.tex.glow)
-    p.glow:SetSize(PORTRAIT * 1.9, PORTRAIT * 1.9)
+    -- kept inside the plate so a loud class colour can't spill over the gold rim
+    p.glow:SetSize(HERO_H - 4, HERO_H - 4)
     p.glow:SetPoint("CENTER")
     p.glow:SetBlendMode("ADD")
     p.shadow = disc(p, "BACKGROUND", 1, PORTRAIT + 4, 0, 0, 0, 0.6)
-    p.gold = disc(p, "BORDER", 0, PORTRAIT, 0.86, 0.68, 0.22, 1)
-    p.goldHi = disc(p, "BORDER", 1, PORTRAIT - 2, 1, 0.86, 0.42, 1)
-    p.bronze = disc(p, "BORDER", 2, PORTRAIT - 5, C.bronze[1] * 0.7, C.bronze[2] * 0.7, C.bronze[3] * 0.7, 1)
-    p.well = disc(p, "BORDER", 3, PORTRAIT - 8, 0.04, 0.03, 0.02, 1)
-    p.avatar = UI:Avatar(p, PORTRAIT - 12)
+    p.avatar = UI:Avatar(p, PORTRAIT)
     p.avatar:SetPoint("CENTER")
     -- level medallion, PlayerFrame style (a child of the avatar, so it always draws on top
     -- of it without pinning a frame level that a window raise wouldn't carry along)
     local lv = CreateFrame("Frame", nil, p.avatar)
-    lv:SetSize(30, 30)
-    lv:SetPoint("CENTER", p, "BOTTOMLEFT", 15, 15)
-    lv.gold = disc(lv, "BACKGROUND", 0, 30, 0.86, 0.68, 0.22, 1)
-    lv.well = disc(lv, "BACKGROUND", 1, 26, 0.10, 0.07, 0.03, 1)
+    lv:SetSize(28, 28)
+    lv:SetPoint("CENTER", p, "BOTTOMLEFT", 14, 14)
+    lv.well = disc(lv, "BACKGROUND", 0, 26, 0.06, 0.05, 0.05, 1)
+    lv.ring = lv:CreateTexture(nil, "ARTWORK")
+    lv.ring:SetTexture(T.tex.ringMetal)
+    lv.ring:SetAllPoints()
+    lv.ring:SetVertexColor(1, 0.84, 0.42, 1)
     lv.text = UI:Text(lv, 12, "wowGold", "head")
     lv.text:SetPoint("CENTER", 0, 0)
     lv.text:SetJustifyH("CENTER")
@@ -958,46 +924,25 @@ local function buildHero(page, content)
     h.portrait = p
     h.avatar = p.avatar
 
-    h.name = UI:Text(h, 24, "text", "ui")
-    h.name:SetPoint("TOPLEFT", TEXT_X, -20)
-    if h.name.SetShadowOffset then
-        h.name:SetShadowOffset(2, -2)
-        h.name:SetShadowColor(0, 0, 0, 0.95)
-    end
-    h.gf = UI:Pill(h, "", "green", { height = 18, size = 10 })
-    h.gf:SetPoint("LEFT", h.name, "RIGHT", 10, 0)
-    h.line = UI:Text(h, 13, "text", "ui")
-    h.line:SetPoint("TOPLEFT", TEXT_X, -54)
-    h.rank = UI:Pill(h, "", "dim", { height = 20, size = 11 })
-    h.rank:SetPoint("TOPLEFT", TEXT_X, -77)
-    h.status = UI:Pill(h, "", "green", { height = 20, size = 11, icon = "dot" })
-    h.zone = UI:Text(h, 12, "dim")
-    -- ornate gold rule between who they are and who they're related to
-    h.rule = h:CreateTexture(nil, "ARTWORK")
-    h.rule:SetTexture(T.tex.dividerGold)
-    h.rule:SetHeight(10)
-    h.rule:SetPoint("TOPLEFT", TEXT_X - 6, -101)
-    h.rule:SetPoint("TOPRIGHT", -18, -101)
-    h.rule:SetAlpha(0.7)
-    h.famLabel = UI:Text(h, 10, GOLD_DIM, "head")
+    h.line = UI:Text(h, 16, "text", "ui")
+    h.line:SetPoint("TOPLEFT", TEXT_X, -18)
+    h.status = UI:Text(h, 12, "dim")
+    h.status:SetPoint("TOPLEFT", TEXT_X, -44)
+    h.famLabel = UI:Text(h, 11, "dim")
     h.famLabel:SetPoint("LEFT", h, "TOPLEFT", TEXT_X, FAM_Y)
-    h.famNone = UI:Text(h, 11, "faint")
-    h.also = UI:Text(h, 10, GOLD_DIM, "head")
-    h.also:SetText("ALSO")
-    h.more = UI:Text(h, 11, "faint")
+    h.famNone = UI:Text(h, 11, "dim")
+    h.also = UI:Text(h, 11, "dim")
+    h.also:SetText("Also")
+    h.more = UI:Text(h, 11, "dim")
     h.links = {}
+    h.meta = UI:Text(h, 11, "dim")
+    h.meta:SetPoint("TOPLEFT", TEXT_X, -90)
     h.whisper = UI:Button(h, "Whisper", { icon = "bubble", onClick = function() if page.key then UI:Whisper(page.key) end end })
-    h.whisper:SetPoint("TOPRIGHT", -18, -18)
+    h.whisper:SetPoint("TOPRIGHT", -16, -16)
     h.invite = UI:Button(h, "Invite", { icon = "plus", style = "primary", onClick = function() if page.key then invite(page.key) end end })
     h.invite:SetPoint("RIGHT", h.whisper, "LEFT", -8, 0)
     h.you = UI:Pill(h, "THAT'S YOU, LEGEND", "gold", { height = 22, size = 11, icon = "star_fill" })
-    h.you:SetPoint("TOPRIGHT", -18, -20)
-    h.synced = UI:Text(h, 11, "dim")
-    h.synced:SetPoint("TOPRIGHT", -18, -56)
-    h.synced:SetJustifyH("RIGHT")
-    h.heard = UI:Text(h, 11, "dim")
-    h.heard:SetPoint("TOPRIGHT", h.synced, "BOTTOMRIGHT", 0, -5)
-    h.heard:SetJustifyH("RIGHT")
+    h.you:SetPoint("TOPRIGHT", -16, -16)
     return h
 end
 
@@ -1009,7 +954,7 @@ local function fillFamily(h, d, W)
     local items = {}
     if d.main then items[1] = d.main end
     for _, a in ipairs(d.alts) do items[#items + 1] = a end
-    h.famLabel:SetText(d.main and "ALT OF" or "ALTS")
+    h.famLabel:SetText(d.main and "Alt of" or "Alts")
     local y = FAM_Y
     local x = TEXT_X + (h.famLabel:GetStringWidth() or 30) + 10
     if #items == 0 then
@@ -1050,31 +995,52 @@ local function fillFamily(h, d, W)
     end
 end
 
+--- A file's headline: class colour, lifted where the class is too dark to read on the night sky.
+local function headlineColor(class)
+    local r, g, b = classRGB(class)
+    local lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
+    if lum < 0.75 then
+        local t = (0.75 - lum) / (1 - lum)
+        r, g, b = r + (1 - r) * t, g + (1 - g) * t, b + (1 - b) * t
+    end
+    return r, g, b
+end
+
+--- Who, in a line: rank, whether they're home, where. Colour goes on the text; no badges.
+local function statusLine(d)
+    local bits = {}
+    if d.rankName then
+        local tone = d.rankIndex == 0 and "wowGold" or (GF.Roster:IsOfficer(d.key) and GOOD or "dim")
+        local c = UI.col(tone)
+        bits[#bits + 1] = U.Color(shorten(d.rankName, 22), c[1], c[2], c[3])
+    end
+    if d.online then
+        bits[#bits + 1] = U.Color("Home now", GOOD[1], GOOD[2], GOOD[3])
+    elseif d.mobile then
+        bits[#bits + 1] = T:Wrap("blue", "On the app")
+    elseif d.member then
+        bits[#bits + 1] = "Offline"
+    else
+        bits[#bits + 1] = U.Color("Not on the roster", WARN[1], WARN[2], WARN[3])
+    end
+    if d.zone then bits[#bits + 1] = d.online and d.zone or ("Last seen in " .. d.zone) end
+    return concat(bits, DOT)
+end
+
 local function fillHero(page, d, W)
     local h = page.hero
     local r, g, b = classRGB(d.class)
-    local CC = rawget(_G, "CreateColor")
-    local washed = false
-    if h.wash.SetGradient and type(CC) == "function" then
-        washed = pcall(h.wash.SetGradient, h.wash, "HORIZONTAL", CC(r, g, b, 0.26), CC(r, g, b, 0))
-    end
-    if not washed then h.wash:SetColorTexture(r, g, b, 0.1) end
-    h.portrait.glow:SetVertexColor(r, g, b, 0.45)
+    UI:Gradient(h.wash, "HORIZONTAL", r, g, b, 0.14, 0)
+    h.portrait.glow:SetVertexColor(r, g, b, 0.34)
     h.avatar:SetClass(d.class)
+    -- one ring: class colour already has the glow, the wash and the name
+    h.avatar.ring:SetVertexColor(1, 0.84, 0.42, 1)
     if d.level > 0 then
         h.portrait.level.text:SetText(d.level)
         h.portrait.level:Show()
     else
         h.portrait.level:Hide()
     end
-
-    if d.version then
-        h.gf:SetText(d.version == "?" and "GREENFIELDS" or ("GREENFIELDS " .. d.version), "green")
-    else
-        h.gf:SetText("NO GREENFIELDS", "dim")
-    end
-    h.name:SetText(U.ClassName(d.key, d.class))
-    fitText(h.name, max(80, W - TEXT_X - h.gf:GetWidth() - 10 - 200))
 
     -- "Level 60 Dwarf Priest", the way the character sheet puts it, class word in class colour
     local bits = {}
@@ -1085,37 +1051,28 @@ local function fillHero(page, d, W)
     local line = concat(bits, " ")
     if line == "" then line = (d.member or d.doc) and "Details unknown" or LINES.stranger end
     h.line:SetText(line)
-    h.line:SetWidth(max(80, W - TEXT_X - 170))
-
-    local x = TEXT_X
-    h.status:ClearAllPoints()
-    if d.rankName then
-        local tone = d.rankIndex == 0 and "gold" or (GF.Roster:IsOfficer(d.key) and "green" or "dim")
-        h.rank:SetText(shorten(d.rankName, 22), tone)
-        h.rank:Show()
-        h.status:SetPoint("LEFT", h.rank, "RIGHT", 6, 0)
-        x = x + h.rank:GetWidth() + 6
-    else
-        h.rank:Hide()
-        h.status:SetPoint("TOPLEFT", TEXT_X, -77)
-    end
-    if d.online then
-        h.status:SetText("HOME NOW", "green")
-    elseif d.mobile then
-        h.status:SetText("ON THE APP", "blue")
-    elseif d.member then
-        h.status:SetText("OFFLINE", "dim")
-    else
-        h.status:SetText("NOT ON THE ROSTER", "yellow")
-    end
-    x = x + h.status:GetWidth() + 10
-    h.zone:ClearAllPoints()
-    h.zone:SetPoint("LEFT", h.status, "RIGHT", 10, 0)
-    h.zone:SetText(d.zone and (d.online and d.zone or ("Last seen in " .. d.zone)) or "")
-    UI:SetTextColor(h.zone, d.online and "text" or "dim")
-    h.zone:SetWidth(max(40, W - x - 16 - 170))
+    local rightUsed = d.me and ((h.you:GetWidth() or 150) + 32) or 210
+    h.line:SetWidth(max(80, W - TEXT_X - rightUsed))
+    h.status:SetText(statusLine(d))
+    h.status:SetWidth(max(80, W - TEXT_X - 16))
 
     fillFamily(h, d, W)
+
+    -- plumbing: the quiet last line, so it doesn't compete with who they are
+    local meta = {}
+    if d.version then
+        meta[#meta + 1] = d.version == "?" and "Greenfields" or ("Greenfields " .. d.version)
+    else
+        meta[#meta + 1] = "No Greenfields"
+    end
+    if d.synced then
+        meta[#meta + 1] = "Profile synced " .. U.Ago(d.synced)
+    elseif not d.me then
+        meta[#meta + 1] = "No profile synced yet"
+    end
+    if not d.me and d.heard then meta[#meta + 1] = "Last heard from " .. U.Ago(d.heard) end
+    h.meta:SetText(concat(meta, DOT))
+    h.meta:SetWidth(max(80, W - TEXT_X - 16))
 
     if d.me then
         h.whisper:Hide()
@@ -1128,8 +1085,59 @@ local function fillHero(page, d, W)
         h.whisper:SetActive(d.online or d.mobile)
         h.invite:SetActive(d.online)
     end
-    h.synced:SetText(d.synced and ("Profile synced " .. U.Ago(d.synced)) or (d.me and "" or "No profile synced yet"))
-    h.heard:SetText((not d.me and d.heard) and ("Last heard from " .. U.Ago(d.heard)) or "")
+end
+
+-------------------------------------------------------------------------------
+-- "Not on file yet": every empty card, folded into one quiet ledger
+-------------------------------------------------------------------------------
+local FOLD_LABEL = 156
+local FOLD_LABEL_NARROW = 104   -- in a column, the jokes need the width more than the labels do
+
+local function newFoldRow(parent)
+    local f = CreateFrame("Frame", nil, parent)
+    f.icon = UI:Icon(f, 14, nil, "ARTWORK", "bronze")
+    f.icon:SetPoint("TOPLEFT", 0, -1)
+    f.name = UI:Para(f, 12, GOLD_DIM, "ui")
+    f.name:SetPoint("TOPLEFT", 22, 0)
+    f.text = UI:Para(f, 12, "dim")
+    return f
+end
+
+--- Cards saying the same thing share a row ("No Greenfields, no stats" would otherwise run
+-- three times over). Returns the body height.
+local function fillFold(fold, empties, w)
+    begin(fold)
+    local rows, byLine = {}, {}
+    for _, card in ipairs(empties) do
+        local r = byLine[card.emptyLine]
+        if r then
+            r.names[#r.names + 1] = card.title:GetText()
+        else
+            r = { names = { card.title:GetText() }, icon = card.def.icon, text = card.emptyLine }
+            byLine[card.emptyLine] = r
+            rows[#rows + 1] = r
+        end
+    end
+    local y = 0
+    local label = w < 500 and FOLD_LABEL_NARROW or FOLD_LABEL
+    local tw = max(60, w - label)
+    for _, r in ipairs(rows) do
+        local row = take(fold, "row", newFoldRow)
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", 0, -y)
+        UI:SetIcon(row.icon, r.icon)
+        row.name:SetWidth(label - 22 - 8)
+        row.name:SetText(concat(r.names, ", "))
+        row.text:ClearAllPoints()
+        row.text:SetPoint("TOPLEFT", label, 0)
+        row.text:SetWidth(tw)
+        row.text:SetText(r.text)
+        local h = max(row.name:GetStringHeight() or 14, row.text:GetStringHeight() or 14)
+        row:SetHeight(h)
+        y = y + h + 10
+    end
+    return finish(fold, max(0, y - 10))
 end
 
 -------------------------------------------------------------------------------
@@ -1142,30 +1150,81 @@ local function layout(page)
     page.lastW = W
     fillHero(page, d, W)
     local cols = W >= 900 and 3 or (W >= 520 and 2 or 1)
+    -- which cards have anything to say decides the columns, so fill at the narrowest they'd be
     local colW = floor((W - (cols - 1) * GAP) / cols)
+    local shown, empties, bodyH = {}, {}, {}
+    for _, card in ipairs(page.cards) do
+        local ok, h = GF:Safe("profile:card:" .. card.id, card.fill, card, colW - 24, d)
+        h = (ok and type(h) == "number") and h or 18
+        card:SetShown(not card.emptyLine and not card.skip)
+        if card.emptyLine then
+            empties[#empties + 1] = card
+        elseif not card.skip then
+            shown[#shown + 1] = card
+            bodyH[card] = h
+        end
+    end
+    -- one lonely card shouldn't sit half-width next to nothing
+    if #shown > 0 and #shown < cols then
+        cols = #shown
+        colW = floor((W - (cols - 1) * GAP) / cols)
+        for _, card in ipairs(shown) do
+            local ok, h = GF:Safe("profile:card:" .. card.id, card.fill, card, colW - 24, d)
+            bodyH[card] = (ok and type(h) == "number") and h or 18
+        end
+    end
     local heights = {}
     for i = 1, cols do heights[i] = 0 end
     local top = HERO_H + GAP
-    for _, card in ipairs(page.cards) do
-        local ok, bodyH = GF:Safe("profile:card:" .. card.id, card.fill, card, colW - 24, d)
-        bodyH = (ok and type(bodyH) == "number") and bodyH or 18
-        local h = ceil(bodyH) + 50
+    -- whole units leave a sliver over: the last column takes it, so its edge lands on the hero's
+    local spare = W - cols * colW - (cols - 1) * GAP
+    for _, card in ipairs(shown) do
+        local h = ceil(bodyH[card]) + 50
         local ci = 1
         for i = 2, cols do if heights[i] < heights[ci] then ci = i end end
         card:ClearAllPoints()
         card:SetPoint("TOPLEFT", page.content, "TOPLEFT", (ci - 1) * (colW + GAP), -(top + heights[ci]))
-        card:SetSize(colW, h)
+        card:SetSize(ci == cols and colW + spare or colW, h)
         heights[ci] = heights[ci] + h + GAP
     end
     local tallest = 0
     for i = 1, cols do tallest = max(tallest, heights[i]) end
-    page.scroll:SetContentHeight(top + max(0, tallest - GAP) + 4)
+    local y = top + tallest
+    local fold = page.fold
+    fold:SetShown(#empties > 0)
+    if #empties > 0 then
+        -- the masonry's shortest column usually has a hole just the ledger's size, and that keeps it
+        -- on screen (launch morning, it's most of the file); otherwise it runs across the bottom
+        local ci = 1
+        for i = 2, cols do if heights[i] < heights[ci] then ci = i end end
+        local h = cols > 1 and tallest > 0 and fillFold(fold, empties, colW - 24) + 50
+        fold:ClearAllPoints()
+        if h and heights[ci] + h <= tallest then
+            fold:SetPoint("TOPLEFT", page.content, "TOPLEFT", (ci - 1) * (colW + GAP), -(top + heights[ci]))
+            fold:SetSize(ci == cols and colW + spare or colW, h)
+        else
+            h = fillFold(fold, empties, W - 24) + 50
+            fold:SetPoint("TOPLEFT", page.content, "TOPLEFT", 0, -y)
+            fold:SetSize(W, h)
+            y = y + h + GAP
+        end
+    end
+    page.scroll:SetContentHeight(max(0, y - GAP) + 4)
 end
 
 -------------------------------------------------------------------------------
 -- Page
 -------------------------------------------------------------------------------
 local profilePage
+
+local function newCard(content, def)
+    local card = UI:Card(content, { title = def.title, icon = def.icon })
+    card.id, card.fill, card.pools, card.def = def.id, def.fill, {}, def
+    card.count = UI:Text(card, 12, "dim", "num")
+    card.count:SetPoint("TOPRIGHT", -12, -12)
+    card.count:SetJustifyH("RIGHT")
+    return card
+end
 
 local function build(page)
     profilePage = page
@@ -1181,23 +1240,21 @@ local function build(page)
     })
     page.header:AddAction(page.mine)
 
-    local scroll, content = UI:Scroll(page)
-    scroll:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -8)
+    local scroll, content = UI:Scroll(page, { outside = true })
+    -- 14 below the header leaves the night scene clear above the file
+    scroll:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -14)
     scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     page.scroll, page.content = scroll, content
     page.hero = buildHero(page, content)
     page.cards = {}
     for _, def in ipairs(CARDS) do
-        local card = UI:Card(content, { title = def.title, icon = def.icon, accent = def.accent })
-        card.id, card.fill, card.pools = def.id, def.fill, {}
-        card.count = UI:Text(card, 11, "faint", "head")
-        card.count:SetPoint("TOPRIGHT", -12, -14)
-        card.count:SetJustifyH("RIGHT")
-        card.note = UI:Text(card.body, 10, "faint")
-        card.note:SetWordWrap(true)
+        local card = newCard(content, def)
+        card.note = UI:Para(card.body, 11, "dim")
         card.note:Hide()
         page.cards[#page.cards + 1] = card
     end
+    page.fold = newCard(content, { id = "fold", title = "Not on file yet", icon = "clipboard" })
+    page.fold:Hide()
     -- reflow whenever the window is resized
     content:SetScript("OnSizeChanged", function(_, w)
         if page.data and abs(floor(w or 0) - (page.lastW or 0)) >= 1 then GF:Safe("profile:layout", layout, page) end
@@ -1208,13 +1265,17 @@ local function onShow(page, key)
     key = cleanKey(key) or page.key or API.MyKey()
     page.scroll:SetShown(key ~= nil)
     if not key then
+        page.header.title:SetText("Resident file")
+        UI:SetTextColor(page.header.title, "wowGold")
         page.header:SetSubtitle(LINES.noKey)
         return
     end
     local changed = key ~= page.key
     page.key = key
     page.data = gather(key)
-    page.header:SetSubtitle("Everything the street knows about " .. U.ClassName(key, page.data.class) .. ".")
+    page.header.title:SetText(U.ShortName(key))
+    page.header.title:SetTextColor(headlineColor(page.data.class))
+    page.header:SetSubtitle("Everything the street knows about " .. U.ShortName(key) .. ".")
     page.mine:SetShown(not page.data.me)
     layout(page)
     if changed then
@@ -1223,7 +1284,8 @@ local function onShow(page, key)
         -- opening a file: the crowns they hold and their soft-res wins catch the light
         for _, card in ipairs(page.cards) do
             if card.id == "titles" then
-                shinePool(card, "title")
+                -- a glint is for a crown; shame doesn't get the gold treatment
+                shinePool(card, "title", function(row) return not row.shame end)
             elseif card.id == "loot" then
                 shinePool(card, "loot", function(row) return row.srWin end)
             end

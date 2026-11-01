@@ -863,7 +863,7 @@ local function solve(ctx, kingsFromCamp)
         local key = cat.key
         local e = {
             status = nil, providers = {}, camp = {}, need = ctx.need[key] or 0,
-            capable = keysOf(ctx.yes[key]), maybe = keysOf(ctx.maybe[key]),
+            capable = keysOf(ctx.yes[key]), maybe = keysOf(ctx.maybe[key]), tooLow = ctx.tooLow[key],
         }
         if e.need == 0 then
             e.status = "na"
@@ -945,7 +945,7 @@ local function analyze(members, opts)
     local t = now()
     local at = type(opts) == "table" and API.CleanNumber(opts.at) or nil
     if not at or at < t then at = t end
-    local ctx = { infos = {}, byKey = {}, at = at, need = {}, yes = {}, maybe = {}, cands = {} }
+    local ctx = { infos = {}, byKey = {}, at = at, need = {}, yes = {}, maybe = {}, cands = {}, tooLow = {} }
     local n = type(members) == "table" and #members or 0
     for i = 1, n do
         local m = members[i]
@@ -976,6 +976,21 @@ local function analyze(members, opts)
     for _, o in ipairs(D.camp) do
         if o.buff then ctx.cands[o.key] = campCandidates(ctx.infos, o, at) end
     end
+    -- a core buff nobody's old enough to learn isn't missing, unless someone here really can bring it.
+    -- A level 60 clears every learn level, so raids at 60 grade exactly as they always have.
+    local top, under60 = 0, false
+    for _, info in ipairs(ctx.infos) do
+        top = max(top, info.level)
+        if info.level < 60 then under60 = true end
+    end
+    for _, cat in ipairs(CORE) do
+        local key = cat.key
+        local cands = cat.camp and ctx.cands[cat.camp]
+        if top < learnLevel(cat) and not ctx.yes[key][1] and not ctx.maybe[key][1] and not (cands and cands[1]) then
+            ctx.need[key] = 0
+            ctx.tooLow[key] = true
+        end
+    end
 
     -- One paladin: Might/Wisdom from them and Kings from a Fish Bowl when a fisher's ready,
     -- otherwise Kings from them. If the bowl gets squeezed out, keep whichever scores better.
@@ -999,9 +1014,13 @@ local function analyze(members, opts)
         cats = best.cats, plan = best.plan, score = best.score, missing = {}, notes = best.notes,
         people = best.people, blessings = best.bless.list, unassigned = best.unassigned,
         paladins = best.bless.P, count = #ctx.infos, addon = addon, at = at,
+        under60 = under60, covered = 0, applicable = 0,
     }
     for _, cat in ipairs(CORE) do
-        if rep.cats[cat.key].status == "missing" then rep.missing[#rep.missing + 1] = cat.key end
+        local status = rep.cats[cat.key].status
+        if status == "missing" then rep.missing[#rep.missing + 1] = cat.key end
+        if status ~= "na" then rep.applicable = rep.applicable + 1 end
+        if status == "class" or status == "camp" then rep.covered = rep.covered + 1 end
     end
     return rep
 end
@@ -1013,6 +1032,12 @@ function Buffs:Analyze(members, opts)
     local ok, rep = GF:Safe("buffs:analyze", analyze, members, opts)
     if ok and type(rep) == "table" then return rep end
     return emptyReport()
+end
+
+--- Ungraded(report) -> true for the group you're in right now when it's a party with someone under
+-- 60. Nobody's expected to have the raid buffs yet, so the pages don't mark them out of 100.
+function Buffs:Ungraded(rep)
+    return type(rep) == "table" and rep.under60 == true and not API.InRaid()
 end
 
 --- Providers(key) -> array of category keys that player can cast (class buffs only).

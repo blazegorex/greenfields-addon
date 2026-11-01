@@ -1,6 +1,7 @@
 --[[ Greenfields - UI/Theme.lua
-     The look: night-time Greenfields under a green Aussie road sign. Charcoal panels,
-     sign-green accents, hazard yellow for warnings, class colours for people. ]]
+     The look: Greenfields after dark. Midnight panels under a night sky, old gold and bronze
+     for the metalwork, road-sign green for what you can press, warm white for reading,
+     class colours for people. ]]
 
 local _, GF = ...
 
@@ -16,13 +17,8 @@ T.tex = {
     shadow = MEDIA .. "shadow",
     noise = MEDIA .. "noise",
     hazard = MEDIA .. "hazard",
-    bar = MEDIA .. "bar",
     round6 = MEDIA .. "round6",
-    round6edge = MEDIA .. "round6_edge",
-    round10 = MEDIA .. "round10",
-    round10edge = MEDIA .. "round10_edge",
     circle = MEDIA .. "circle",
-    pill = MEDIA .. "pill",
     logo = MEDIA .. "logo",
     welcome = MEDIA .. "welcome",
     minimap = MEDIA .. "minimap",
@@ -31,57 +27,76 @@ T.tex = {
     signRed = MEDIA .. "sign_red",
     signBlue = MEDIA .. "sign_blue",
     -- Warcraft chrome (tools/make_chrome.py)
-    stone = MEDIA .. "stone",
     leather = MEDIA .. "leather",
     parchment = MEDIA .. "parchment",
-    frameGold = MEDIA .. "frame_gold",
-    frameBronze = MEDIA .. "frame_bronze",
-    cornerGold = MEDIA .. "corner_gold",
-    dividerGold = MEDIA .. "divider_gold",
+    frameCorners = MEDIA .. "frame_corners",
     gemGreen = MEDIA .. "gem_green",
     iconFrame = MEDIA .. "icon_frame",
+    iconFrameGold = MEDIA .. "icon_frame_gold",
+    iconFrameWhite = MEDIA .. "icon_frame_white",
+    ringMetal = MEDIA .. "ring_metal",
     shine = MEDIA .. "shine",
-    btnGreen = MEDIA .. "btn_green",
-    btnDark = MEDIA .. "btn_dark",
-    btnRed = MEDIA .. "btn_red",
-    btnGold = MEDIA .. "btn_gold",
+    toggleOn = MEDIA .. "toggle_on",
+    toggleOff = MEDIA .. "toggle_off",
+    knobOn = MEDIA .. "toggle_knob_on",
+    knobOff = MEDIA .. "toggle_knob_off",
+    barFill = MEDIA .. "bar_fill",
+    windowBg = MEDIA .. "window_bg",
     circleMask = "Interface\\CharacterFrame\\TempPortraitAlphaMask",
 }
 
 --- Icon("trophy") -> path to Media/icon_trophy.tga (white; tint with SetVertexColor)
 function T.Icon(name) return MEDIA .. "icon_" .. name end
 
+--- Double-density sliced art, cut by UI:Nine (UI/Widgets.lua). size and margin are in texels,
+-- texel is UI units per texel, and outset is how far past its frame the art hangs (its shadow).
+T.nine = {
+    window = { path = MEDIA .. "frame_window", size = 256, margin = 64, texel = 0.5, outset = 6, hollow = true },
+    card = { path = MEDIA .. "panel_card", size = 128, margin = 40, texel = 0.5, outset = 6 },
+    gold = { path = MEDIA .. "panel_gold", size = 256, margin = 64, texel = 0.5, outset = 7 },
+    inset = { path = MEDIA .. "panel_inset", size = 64, margin = 16, texel = 0.5, outset = 0 },
+    paperEdge = { path = MEDIA .. "paper_edge", size = 64, margin = 16, texel = 0.5, outset = 1, hollow = true },
+    btnGreen = { path = MEDIA .. "btn_green", size = 64, margin = 16, texel = 0.5 },
+    btnDark = { path = MEDIA .. "btn_dark", size = 64, margin = 16, texel = 0.5 },
+    btnRed = { path = MEDIA .. "btn_red", size = 64, margin = 16, texel = 0.5 },
+    btnGold = { path = MEDIA .. "btn_gold", size = 64, margin = 16, texel = 0.5 },
+    btnHl = { path = MEDIA .. "btn_hl", size = 64, margin = 16, texel = 0.5 },
+    tag = { path = MEDIA .. "tag", size = 64, margin = 16, texel = 0.5 },
+    pill = { path = MEDIA .. "pill", size = 64, margin = 16, texel = 0.5 },
+    groove = { path = MEDIA .. "bar_track", size = 64, margin = 16, texel = 0.25 },
+}
+
 T.c = {
-    bg0 = { 0.039, 0.051, 0.043, 0.97 },   -- window
-    bg1 = { 0.059, 0.075, 0.065, 1 },      -- sidebar, header
-    bg2 = { 0.082, 0.102, 0.090, 1 },      -- cards
-    bg3 = { 0.110, 0.137, 0.122, 1 },      -- hover / inputs
-    bg4 = { 0.145, 0.180, 0.160, 1 },      -- pressed / selected
-    line = { 0.157, 0.200, 0.176, 1 },
-    lineSoft = { 0.157, 0.200, 0.176, 0.6 },
-    text = { 0.925, 0.957, 0.937, 1 },
-    dim = { 0.600, 0.667, 0.627, 1 },
-    faint = { 0.400, 0.455, 0.424, 1 },
-    green = { 0.239, 0.859, 0.471, 1 },    -- neon sign green
-    greenDim = { 0.239, 0.859, 0.471, 0.16 },
+    bg0 = { 0.035, 0.047, 0.075, 0.98 },   -- window
+    bg1 = { 0.043, 0.055, 0.082, 1 },      -- sidebar, header
+    bg2 = { 0.071, 0.090, 0.125, 1 },      -- cards
+    bg3 = { 0.102, 0.125, 0.165, 1 },      -- hover / inputs
+    bg4 = { 0.145, 0.165, 0.212, 1 },      -- pressed / selected
+    line = { 0.255, 0.216, 0.161, 1 },     -- worn bronze hairline
+    lineSoft = { 0.255, 0.216, 0.161, 0.55 },
+    text = { 0.957, 0.937, 0.890, 1 },     -- warm white, easy reading on midnight
+    dim = { 0.745, 0.729, 0.690, 1 },
+    faint = { 0.569, 0.561, 0.541, 1 },
+    green = { 0.337, 0.863, 0.525, 1 },    -- lit sign green
+    greenDim = { 0.337, 0.863, 0.525, 0.16 },
     sign = { 0.039, 0.478, 0.267, 1 },     -- road sign green
-    yellow = { 1.000, 0.800, 0.000, 1 },
-    yellowDim = { 1.000, 0.800, 0.000, 0.16 },
-    red = { 1.000, 0.333, 0.333, 1 },
-    redDim = { 1.000, 0.333, 0.333, 0.16 },
-    pink = { 1.000, 0.243, 0.541, 1 },
-    blue = { 0.329, 0.620, 1.000, 1 },
-    blueDim = { 0.329, 0.620, 1.000, 0.16 },
-    gold = { 1.000, 0.820, 0.250, 1 },
+    yellow = { 1.000, 0.800, 0.102, 1 },
+    yellowDim = { 1.000, 0.800, 0.102, 0.16 },
+    red = { 1.000, 0.388, 0.361, 1 },
+    redDim = { 1.000, 0.388, 0.361, 0.16 },
+    pink = { 1.000, 0.333, 0.600, 1 },
+    blue = { 0.439, 0.698, 1.000, 1 },
+    blueDim = { 0.439, 0.698, 1.000, 0.16 },
+    gold = { 1.000, 0.835, 0.353, 1 },
     wowGold = { 1.000, 0.820, 0.000, 1 },  -- the game's own heading gold
-    bronze = { 0.588, 0.424, 0.227, 1 },
-    purple = { 0.640, 0.210, 0.930, 1 },
+    bronze = { 0.757, 0.612, 0.396, 1 },
+    purple = { 0.690, 0.310, 0.960, 1 },
     black = { 0, 0, 0, 1 },
 }
 
 T.hex = {
-    green = "3ddb78", yellow = "ffcc00", red = "ff5555", pink = "ff3e8a", blue = "549eff",
-    gold = "ffd140", dim = "99aaa0", faint = "667468", text = "ecf4ef", purple = "a335ee",
+    green = "56dc86", yellow = "ffcc1a", red = "ff635c", pink = "ff5599", blue = "70b2ff",
+    gold = "ffd55a", dim = "bebab0", faint = "918f8a", text = "f4efe3", purple = "b04ff5",
 }
 
 -- Forever's Fonts folder is archive-only; these paths are known to resolve.

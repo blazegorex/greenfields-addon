@@ -15,8 +15,10 @@ local type, ipairs, pairs, tostring, max, min = type, ipairs, pairs, tostring, m
 local concat, sort = table.concat, table.sort
 
 local KNOWN_RAIDS = { "Barrow Deeps", "Hyjal Summit", "Onyxia's Lair" }
-local SLOT_H, SLOT_GAP = 32, 4
-local LEFT_W = 310
+-- one rhythm for every item row on the page (your slots, the catalogue, the list): 28 icon, 12 over 11
+local ROW_H, ICON_SIZE = 36, 28
+local SLOT_H, SLOT_GAP = ROW_H, 4
+local LEFT_MIN, LEFT_MAX = 310, 400
 local DOT = "  \194\183  "
 
 local page            -- the page frame once built
@@ -100,48 +102,21 @@ local function safeList(obj, method, ...)
 end
 
 -------------------------------------------------------------------------------
--- Warcraft dressing
+-- Item slots
 -------------------------------------------------------------------------------
-local function tile(tex, path, r, g, b, a)
-    tex:SetTexture(path, "REPEAT", "REPEAT")
-    tex:SetHorizTile(true)
-    tex:SetVertTile(true)
-    tex:SetVertexColor(r, g, b, a)
-end
-
-local function gradient(tex, orient, r, g, b, a1, a2)
-    tex:SetTexture(T.tex.white)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2))
-    else
-        tex:SetColorTexture(r, g, b, (a1 + a2) / 2)
-    end
-end
-
---- Turns a kit ItemButton into a Warcraft item slot: the icon sits under a bevelled frame
--- tinted to the item's quality (gold while unknown or common). Tooltip, shift-link and
--- clicks are untouched; the catalogue's learned quality covers items not cached yet.
+--- A kit ItemButton, with its bezel tinted from the catalogue's learned quality too, for items the
+-- client hasn't cached yet. Bronze while unknown or common: the rim only gets a colour when the colour
+-- means something. Tooltip, shift-link and clicks are untouched.
 local function dressItem(b)
-    local size = b:GetWidth() or 32
-    local inset = max(2, math.floor(size * 0.09 + 0.5))
-    b.icon:ClearAllPoints()
-    b.icon:SetPoint("TOPLEFT", inset, -inset)
-    b.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
-    b.qframe = b:CreateTexture(nil, "OVERLAY", nil, -1)
-    b.qframe:SetAllPoints()
-    UI.Sliced(b.qframe, T.tex.iconFrame, max(4, math.floor(size * 0.16)))
     local update = b.Update
     b.Update = function(self)
         update(self)
-        self:SetBackdropBorderColor(0, 0, 0, 0)
         local q = self.itemID and (qualityOf(self.itemID) or self.qHint)
         if type(q) == "number" and q >= 2 then
             local r, g, bb = API.QualityColor(q)
-            self.qframe:SetDesaturated(true)
-            self.qframe:SetVertexColor(min(1, r * 1.1 + 0.12), min(1, g * 1.1 + 0.12), min(1, bb * 1.1 + 0.12), 1)
+            self:SetBackdropBorderColor(r, g, bb, 1)
         else
-            self.qframe:SetDesaturated(false)
-            self.qframe:SetVertexColor(1, 1, 1, 1)
+            self:SetBackdropBorderColor(C.bronze[1], C.bronze[2], C.bronze[3], 1)
         end
     end
     b:Update()
@@ -224,10 +199,10 @@ local function openMore(anchor)
 end
 
 local function buildHeader()
-    local header = UI:PageHeader(page, "Soft Res", "Call dibs before the bin chickens do.")
+    local header = UI:PageHeader(page, "Soft Res", "Call dibs. Leave a bag to hold your spot.")
     page.header = header
     page.btnMore = UI:Button(header, "More", { icon = "chevron_down", onClick = function(b) openMore(b) end })
-    page.btnLock = UI:Button(header, "Lock", { style = "warn", icon = "lock",
+    page.btnLock = UI:Button(header, "Lock", { icon = "lock",
         tooltip = { "Lock / unlock", { "Locked: raiders can't change their picks. You still can." } },
         onClick = function()
             local s = page.session
@@ -251,122 +226,108 @@ end
 -------------------------------------------------------------------------------
 -- Session banner
 -------------------------------------------------------------------------------
-local BANNER_H = 88
+local BANNER_H = 68
 
---- The session's hero plate: worn leather under a gold rim, the Soft Res coin in a gold
--- slot, the session title in the quest-title face.
+--- What's running, in a quiet card: the fights over loot happen in the cards under it. Coin, session
+-- title in the quest-title face with its state beside it, one line of facts, and the count alone on the right.
 local function buildBanner()
-    local b = UI:Panel(page, C.bg1, false)
-    b:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -8)
-    b:SetPoint("TOPRIGHT", page.header, "BOTTOMRIGHT", 0, -8)
+    local b = UI:Card(page)
+    b:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -14)
+    b:SetPoint("TOPRIGHT", page.header, "BOTTOMRIGHT", 0, -14)
     b:SetHeight(BANNER_H)
-    b.leather = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.leather:SetPoint("TOPLEFT", 3, -3)
-    b.leather:SetPoint("BOTTOMRIGHT", -3, 3)
-    tile(b.leather, T.tex.leather, 0.78, 0.72, 0.66, 0.85)
-    -- darker toward the right so the pills and the big count read cleanly
-    b.shade = b:CreateTexture(nil, "BACKGROUND", nil, 2)
-    b.shade:SetPoint("TOPLEFT", 3, -3)
-    b.shade:SetPoint("BOTTOMRIGHT", -3, 3)
-    gradient(b.shade, "HORIZONTAL", 0, 0, 0, 0.05, 0.45)
-    b.glow = b:CreateTexture(nil, "BACKGROUND", nil, 3)
-    b.glow:SetTexture(T.tex.glow)
-    b.glow:SetVertexColor(C.green[1], C.green[2], C.green[3], 0.10)
-    -- kept inside the banner (a 320x170 glow centred on its edge bled over the sidebar)
-    b.glow:SetPoint("TOPLEFT", 3, -3)
-    b.glow:SetPoint("BOTTOMLEFT", 3, 3)
-    b.glow:SetWidth(260)
-    b.rim = b:CreateTexture(nil, "BORDER")
-    b.rim:SetAllPoints()
-    UI.Sliced(b.rim, T.tex.frameGold, 16)
-    b.art = UI:FramedIcon(b, 52, T.navArt.softres or "dice")
-    b.art:SetPoint("LEFT", 18, 0)
-    -- right edges hang off TOP points: pairing a TOPLEFT with a plain "RIGHT" (the
-    -- banner's vertical middle) would derive a bogus height for every line
-    b.title = UI:Text(b, 21, "wowGold", "title")
-    b.title:SetPoint("TOPLEFT", b.art, "TOPRIGHT", 14, 2)
-    b.title:SetPoint("TOPRIGHT", b, "TOPRIGHT", -300, -16)
+    b.art = UI:FramedIcon(b, 44, T.navArt.softres or "dice")
+    b.art:SetPoint("LEFT", 12, 0)
+    b.title = UI:Text(b, 20, "wowGold", "title")
+    b.title:SetPoint("TOPLEFT", b, "TOPLEFT", 68, -11)
     if b.title.SetShadowOffset then
         b.title:SetShadowOffset(1, -1)
         b.title:SetShadowColor(0, 0, 0, 0.95)
     end
     b.sub = UI:Text(b, 12, "text")
-    b.sub:SetPoint("TOPLEFT", b.title, "BOTTOMLEFT", 0, -5)
-    b.sub:SetPoint("TOPRIGHT", b.title, "BOTTOMRIGHT", 150, -5)
-    b.stats = UI:Text(b, 11, "dim")
-    b.stats:SetPoint("TOPLEFT", b.sub, "BOTTOMLEFT", 0, -4)
-    b.stats:SetPoint("TOPRIGHT", b.sub, "BOTTOMRIGHT", 0, -4)
-    b.state = UI:Pill(b, "OPEN", "green", { icon = "check", height = 20 })
-    b.plus = UI:Pill(b, "PLUS MODE", "blue", { icon = "star", height = 20, tooltip = { "Plus mode", { "+1 for every earlier session you reserved the item and missed out. Higher plus wins ties." } } })
-    b.limit = UI:Pill(b, "", "text", { icon = "dice", height = 20 })
+    b.sub:SetPoint("TOPLEFT", b, "TOPLEFT", 68, -39)
+    b.sub:SetPoint("TOPRIGHT", b, "TOPRIGHT", -104, -39)
+    b.state = UI:Pill(b, "OPEN", "green", { icon = "check" })
+    b.plus = UI:Pill(b, "PLUS MODE", "blue", { icon = "star", tooltip = { "Plus mode", { "+1 for every earlier session you reserved the item and missed out. Higher plus wins ties." } } })
+    b.limit = UI:Pill(b, "", "dim", { icon = "dice" })
     b.pills = { b.state, b.plus, b.limit }
-    b.big = UI:Text(b, 30, "wowGold", "num")
-    b.big:SetPoint("BOTTOMRIGHT", -18, 13)
-    b.bigLbl = UI:Text(b, 10, "bronze", "head")
-    b.bigLbl:SetPoint("BOTTOMRIGHT", b.big, "BOTTOMLEFT", -6, 5)
-    -- locked: hazard tape along the bottom, inside the rim
+    b.big = UI:Text(b, 26, "wowGold", "num")
+    b.big:SetPoint("RIGHT", b, "RIGHT", -14, 0)
+    b.big:SetJustifyH("RIGHT")
+    b.bigLbl = UI:Text(b, 11, "dim", "ui")
+    b.bigLbl:SetPoint("RIGHT", b.big, "LEFT", -6, -2)
+    -- locked: hazard tape along the bottom edge, the one ornament on the card
     b.hazard = b:CreateTexture(nil, "ARTWORK")
     b.hazard:SetTexture(T.tex.hazard, "REPEAT", "REPEAT")
-    b.hazard:SetHorizTile(true)
-    b.hazard:SetPoint("BOTTOMLEFT", 7, 7)
-    b.hazard:SetPoint("BOTTOMRIGHT", -7, 7)
+    b.hazard:SetPoint("BOTTOMLEFT", 4, 3)
+    b.hazard:SetPoint("BOTTOMRIGHT", -4, 3)
     b.hazard:SetHeight(5)
     b.hazard:SetAlpha(0.9)
     b.hazard:Hide()
     page.banner = b
 end
 
+--- Title first, its pills right behind it; a long title gives way before they run under the count.
 local function layoutPills(b)
-    local prev
+    local pillsW, prev = 0, nil
     for _, p in ipairs(b.pills) do
         p:ClearAllPoints()
+        if p:IsShown() then pillsW = pillsW + (p:GetWidth() or 60) + 6 end
+    end
+    local room = (b:GetWidth() or 500) - 68 - 104 - pillsW - 10
+    -- whole stripes at any width, not one stripe smeared across the card
+    b.hazard:SetTexCoord(0, ((b:GetWidth() or 500) - 8) / 24, 0, 5 / 24)
+    b.title:SetWidth(max(80, min(room, (b.title:GetStringWidth() or 100) + 2)))
+    for _, p in ipairs(b.pills) do
         if p:IsShown() then
-            if prev then p:SetPoint("RIGHT", prev, "LEFT", -6, 0) else p:SetPoint("TOPRIGHT", -16, -15) end
+            if prev then p:SetPoint("LEFT", prev, "RIGHT", 6, 0) else p:SetPoint("LEFT", b.title, "RIGHT", 10, 0) end
             prev = p
         end
     end
 end
 
-local function refreshBanner(s)
+--- The facts line, shortest version that fits: "opened" is the first to go.
+local function refreshFacts(s)
     local b = page.banner
-    if not s then
-        b.title:SetText("No SR running")
-        b.sub:SetText("Nobody's called dibs on anything yet. Suspiciously civilised.")
-        b.stats:SetText("")
-        for _, p in ipairs(b.pills) do p:Hide() end
-        b.big:SetText("")
-        b.bigLbl:SetText("")
-        b.hazard:Hide()
-        b.art:SetDesaturated(true)
-        b.art:SetAlpha(0.7)
-        return
-    end
-    b.art:SetDesaturated(false)
-    b.art:SetAlpha(1)
-    b.title:SetText(plain(s.title or "Soft reserves"))
-    local bits = {}
-    if s.instance then bits[#bits + 1] = plain(s.instance) end
-    bits[#bits + 1] = "Hosted by " .. GF.Roster:Colored(s.host)
-    bits[#bits + 1] = "Opened " .. U.Ago(s.created)
-    b.sub:SetText(concat(bits, DOT))
     local idx = SR:Index(s)
-    local players, count = idx and idx.players or 0, idx and idx.count or 0
+    local players = idx and idx.players or 0
     local contested = 0
     if idx then
         for _, list in pairs(idx.byItem) do if #list >= 2 then contested = contested + 1 end end
     end
-    b.stats:SetText(("%d %s%s%d contested %s"):format(players, U.Plural(players, "raider"), DOT, contested, U.Plural(contested, "item")))
+    local bits = {}
+    if s.instance then bits[#bits + 1] = plain(s.instance) end
+    bits[#bits + 1] = "Hosted by " .. GF.Roster:Colored(s.host)
+    local opened = #bits + 1
+    bits[opened] = "Opened " .. U.Ago(s.created)
+    bits[#bits + 1] = ("%d %s"):format(players, U.Plural(players, "raider"))
+    local c = ("%d contested %s"):format(contested, U.Plural(contested, "item"))
+    bits[#bits + 1] = contested > 0 and T:Wrap("yellow", c) or c
+    b.sub:SetText(concat(bits, DOT))
+    if (b.sub:GetStringWidth() or 0) > (b:GetWidth() or 500) - 172 then
+        table.remove(bits, opened)
+        b.sub:SetText(concat(bits, DOT))
+    end
+end
+
+local function refreshBanner(s)
+    local b = page.banner
+    b:SetShown(s ~= nil)
+    if not s then return end
+    b.title:SetText(plain(s.title or "Soft reserves"))
+    refreshFacts(s)
+    local idx = SR:Index(s)
+    local count = idx and idx.count or 0
     if s.locked then b.state:SetText("LOCKED", "yellow") else b.state:SetText("OPEN", "green") end
     UI:SetIcon(b.state.icon, s.locked and "lock" or "check")
     b.state.icon:SetVertexColor(unpack(s.locked and C.yellow or C.green))
     b.state:Show()
     b.plus:SetShown(s.plus and true or false)
     local limit = SR:Limit(s)
-    b.limit:SetText(limit .. " EACH", "text")
+    b.limit:SetText(limit .. " EACH", "dim")
     b.limit:Show()
     layoutPills(b)
     b.big:SetText(count)
-    b.bigLbl:SetText(U.Plural(count, "RESERVE", "RESERVES"))
+    b.bigLbl:SetText(U.Plural(count, "reserve", "reserves"))
     b.hazard:SetShown(s.locked and true or false)
 end
 
@@ -380,9 +341,9 @@ local SLOT_COMPACT_H, SLOT_COMPACT_GAP = 24, 3
 local function setSlotCompact(r, on)
     if r.compact == on then return end
     r.compact = on
-    local size = on and 20 or 26
+    local size = on and 20 or ICON_SIZE
     r.item:SetSize(size, size)
-    r.emptyIcon:SetSize(size, size)
+    r.socket:SetSize(size, size)
     r.name:ClearAllPoints()
     if on then
         r.name:SetPoint("LEFT", r.item, "RIGHT", 8, 0)
@@ -394,20 +355,14 @@ local function setSlotCompact(r, on)
 end
 
 local function slotRow(parent, i)
-    local r = CreateFrame("Frame", nil, parent)
+    -- a carved well, no rim of its own: the only coloured edge in here is the item's quality
+    local r = UI:Well(parent)
     r:SetHeight(SLOT_H)
     r:SetPoint("TOPLEFT", 0, -(i - 1) * (SLOT_H + SLOT_GAP))
     r:SetPoint("TOPRIGHT", 0, -(i - 1) * (SLOT_H + SLOT_GAP))
-    -- a gear-slot well: dark slate under a bronze rim
-    r.bg = UI:Tex(r, "BACKGROUND", C.bg3)
-    r.bg:SetPoint("TOPLEFT", 2, -2)
-    r.bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    r.hl = UI:Tex(r, "BACKGROUND", { 1, 1, 1, 0.05 }, 1)
-    r.hl:SetAllPoints(r.bg)
+    r.hl = UI:Tex(r, "BORDER", { 1, 1, 1, 0.05 })
+    r.hl:SetAllPoints()
     r.hl:Hide()
-    r.rim = r:CreateTexture(nil, "BORDER")
-    r.rim:SetAllPoints()
-    UI.Sliced(r.rim, T.tex.frameBronze, 8)
     r:EnableMouse(true)
     r:SetScript("OnEnter", function(self)
         if not self.itemID then return end
@@ -420,43 +375,39 @@ local function slotRow(parent, i)
         end
     end)
     r:SetScript("OnLeave", function(self) self.hl:Hide(); UI:HideTip() end)
-    r.item = dressItem(UI:ItemButton(r, 26))
+    r.item = dressItem(UI:ItemButton(r, ICON_SIZE))
     r.item:SetPoint("LEFT", 4, 0)
     r.name = UI:Text(r, 12, "text")
     r.name:SetPoint("TOPLEFT", r.item, "TOPRIGHT", 8, -1)
-    r.name:SetPoint("TOPRIGHT", r, "TOPRIGHT", -32, -4)
-    r.sub = UI:Text(r, 10, "faint")
-    r.sub:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -3)
-    r.sub:SetPoint("TOPRIGHT", r.name, "BOTTOMRIGHT", 0, -3)
+    r.name:SetPoint("TOPRIGHT", r, "TOPRIGHT", -32, -5)
+    r.sub = UI:Text(r, 11, "dim")
+    r.sub:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -2)
+    r.sub:SetPoint("TOPRIGHT", r.name, "BOTTOMRIGHT", 0, -2)
     r.remove = UI:IconButton(r, "trash", 22, "Drop this reserve", function(btn)
         local id = btn:GetParent().itemID
         if not id then return end
         local ok, err = SR:RemoveReserve(id)
         if not ok then fail(err) end
-    end, "faint")
+    end, "dim")
     r.remove:SetPoint("RIGHT", -5, 0)
-    -- an empty slot is an empty gold socket, like a bare gear slot
-    r.emptyIcon = UI:FramedIcon(r, 26, "plus")
-    r.emptyIcon:SetPoint("LEFT", 4, 0)
-    r.emptyIcon:SetAlpha(0.6)
-    r.emptyIcon.icon:ClearAllPoints()
-    r.emptyIcon.icon:SetPoint("CENTER")
-    r.emptyIcon.icon:SetSize(11, 11)
-    r.emptyIcon.icon:SetVertexColor(C.bronze[1], C.bronze[2], C.bronze[3], 1)
-    r.emptyIcon.well:ClearAllPoints()
-    r.emptyIcon.well:SetPoint("TOPLEFT", 2, -2)
-    r.emptyIcon.well:SetPoint("BOTTOMRIGHT", -2, 2)
-    r.emptyText = UI:Text(r, 12, "faint")
-    r.emptyText:SetPoint("LEFT", r.emptyIcon, "RIGHT", 8, 0)
+    -- an empty slot is a bare socket with a plus in it
+    r.socket = UI:Tex(r, "ARTWORK", { 0, 0, 0, 0.32 })
+    r.socket:SetSize(ICON_SIZE, ICON_SIZE)
+    r.socket:SetPoint("LEFT", 4, 0)
+    r.plusIcon = UI:Icon(r, 12, "plus", "OVERLAY", { C.bronze[1], C.bronze[2], C.bronze[3], 0.85 })
+    r.plusIcon:SetPoint("CENTER", r.socket, "CENTER")
+    r.emptyText = UI:Text(r, 12, "dim")
+    r.emptyText:SetPoint("LEFT", r.socket, "RIGHT", 8, 0)
     return r
 end
 
 local function buildMine(cols)
-    local card = UI:Card(cols, { title = "Your reserves", icon = "star" })
+    -- the one gold rim on the page: this is the thing you hold
+    local card = UI:Card(cols, { title = "Your reserves", icon = "star", tier = "hero" })
     card:SetPoint("TOPLEFT")
-    card:SetWidth(LEFT_W)
+    card:SetWidth(LEFT_MIN)
     card:SetHeight(120)
-    card.count = UI:Pill(card.right, "", "green", { height = 18, size = 10 })
+    card.count = UI:Pill(card.right, "", "green", { height = 18 })
     card.count:SetPoint("RIGHT")
     card.slots = {}
     for i = 1, SR.MAX_LIMIT do card.slots[i] = slotRow(card.body, i) end
@@ -487,6 +438,7 @@ local function refreshMine(s)
     if card.shownFor ~= s.id then before = nil end
     card.shown, card.shownFor = {}, s.id
     for _, id in ipairs(mine) do card.shown[id] = true end
+    local saidEmpty = false
     for i, r in ipairs(card.slots) do
         if i <= limit then
             r:SetHeight(h)
@@ -510,18 +462,19 @@ local function refreshMine(s)
                     r.sub:Show()
                 end
                 r.name:Show()
-                r.emptyIcon:Hide(); r.emptyText:Hide()
+                r.socket:Hide(); r.plusIcon:Hide(); r.emptyText:Hide()
                 r.remove:SetShown(editable)
-                r.bg:SetColorTexture(0.035, 0.045, 0.04, 0.85)
-                r.rim:SetAlpha(1)
+                r.skin:SetAlpha(1)
                 if before and not before[id] then UI:Shine(r, 0.8) end
             else
                 r.subText = nil
                 r.item:Hide(); r.name:Hide(); r.sub:Hide(); r.remove:Hide()
-                r.emptyIcon:Show(); r.emptyText:Show()
+                r.socket:Show(); r.plusIcon:Show()
+                -- said once: on a limit of four it isn't news by the third slot
+                r.emptyText:SetShown(not saidEmpty)
+                saidEmpty = true
                 r.emptyText:SetText(editable and "Empty slot. Pick something below." or "Empty slot. Locked, sorry.")
-                r.bg:SetColorTexture(0, 0, 0, 0.28)
-                r.rim:SetAlpha(0.45)
+                r.skin:SetAlpha(0.6)
             end
             r:Show()
         else
@@ -529,7 +482,7 @@ local function refreshMine(s)
             r:Hide()
         end
     end
-    card:SetHeight(38 + limit * (h + gap) + 6)
+    card:SetHeight(38 + limit * (h + gap) - gap + 12)
     card.count:SetText(#mine .. " / " .. limit, #mine >= limit and "green" or "yellow")
 end
 
@@ -579,21 +532,21 @@ local function instanceItems(allText, extra)
 end
 
 local function catalogRowCreate(row)
-    row.btn = dressItem(UI:ItemButton(row, 24))
+    row.btn = dressItem(UI:ItemButton(row, ICON_SIZE))
     row.btn:SetPoint("LEFT", 4, 0)
     -- the icon eats the row's click; make it do the same thing (shift-click still links)
     row.btn.onClick = function()
         if row.item and not API.IsShiftKeyDown() then toggleReserve(row.item.itemID) end
     end
     row.name = UI:Text(row, 12, "text")
-    row.name:SetPoint("LEFT", row.btn, "RIGHT", 8, 6)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -64, 6)
-    row.sub = UI:Text(row, 10, "faint")
-    row.sub:SetPoint("LEFT", row.btn, "RIGHT", 8, -7)
-    row.sub:SetPoint("RIGHT", row, "RIGHT", -64, -7)
+    row.name:SetPoint("TOPLEFT", row.btn, "TOPRIGHT", 8, -1)
+    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -64, -5)
+    row.sub = UI:Text(row, 11, "dim")
+    row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
+    row.sub:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -2)
     row.mark = UI:Icon(row, 14, "plus", "OVERLAY", "dim")
     row.mark:SetPoint("RIGHT", -10, 0)
-    row.count = UI:Pill(row, "", "yellow", { height = 16, size = 10 })
+    row.count = UI:Pill(row, "", "yellow", { height = 18 })
     row.count:SetPoint("RIGHT", row.mark, "LEFT", -6, 0)
 end
 
@@ -631,36 +584,23 @@ local CATALOG_EMPTY = {
     nomatch = { "Nothing matches. Check your spelling, champ.", "Nothing matches. Check your spelling, champ." },
 }
 
---- Tall list: icon + text centred in it. Short list (high limits, small window): text
--- only, from the top, so it stays inside the card.
+--- It holds an instruction people need, so it's plain reading text at the top of the list.
 local function layoutCatalogEmpty()
     local card = page and page.add
     if not card or not card.empty then return end
-    local e = card.empty
-    local short = (card.list:GetHeight() or 0) < 150
-    e:ClearAllPoints()
-    e.text:ClearAllPoints()
-    if short then
-        e.icon:Hide()
-        e:SetPoint("TOP", card.list, "TOP", 0, -8)
-        e.text:SetPoint("TOP", e, "TOP", 0, 0)
-    else
-        e.icon:Show()
-        e:SetPoint("CENTER", card.list, "CENTER", 0, 0)
-        e.text:SetPoint("TOP", e.icon, "BOTTOM", 0, -12)
-    end
     local lines = CATALOG_EMPTY[card.emptyKind or "none"] or CATALOG_EMPTY.none
-    e:SetText(short and lines[2] or lines[1])
+    card.empty:SetText((card.list:GetHeight() or 0) < 76 and lines[2] or lines[1])
 end
 
 local function buildAdd(cols)
     local card = UI:Card(cols, { title = "Add a reserve", icon = "plus" })
     card:SetPoint("TOPLEFT", page.mine, "BOTTOMLEFT", 0, -16)
     card:SetPoint("BOTTOMLEFT", cols, "BOTTOMLEFT", 0, 0)
-    card:SetWidth(LEFT_W)
+    card:SetWidth(LEFT_MIN)
     local body = card.body
-    card.input = UI:Input(body, { placeholder = "Shift-click an item, or paste a link / ID",
+    card.input = UI:Input(body, { placeholder = "Shift-click or paste a link",
         onEnter = function(text, box) addFrom(text, box) end })
+    UI.AttachTip(card.input, { "Add a reserve", { "Shift-click an item into the box, paste a link, or type an item ID, then hit Add." } })
     card.input:SetPoint("TOPLEFT")
     card.input:SetPoint("TOPRIGHT", -64, 0)
     SR:AddLinkTarget(card.input)
@@ -677,8 +617,11 @@ local function buildAdd(cols)
         onChange = function(text) page.catSearch = text; page.refreshCatalog() end })
     card.search:SetPoint("TOPLEFT", card.inst, "TOPRIGHT", 6, 0)
     card.search:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -34)
+    card.search:HookScript("OnSizeChanged", function(_, w)
+        card.search.placeholder:SetText((tonumber(w) or 0) >= 136 and "Search loot..." or "Search...")
+    end)
     card.list = UI:List(body, {
-        rowHeight = 30,
+        rowHeight = ROW_H, spacing = 0,
         createRow = catalogRowCreate,
         updateRow = catalogRowUpdate,
         onClick = function(e) toggleReserve(e.itemID) end,
@@ -693,19 +636,17 @@ local function buildAdd(cols)
         end,
     })
     card.list:SetPoint("TOPLEFT", 0, -68)
-    card.list:SetPoint("BOTTOMRIGHT", 0, 0)
-    -- parented to the body, not the list: the list clips its children, and at high
-    -- reserve limits it is shorter than the empty state
-    card.empty = UI:Empty(body, "", "bag")
-    card.empty:SetWidth(LEFT_W - 40)
-    card.empty.text:SetWidth(LEFT_W - 50)
+    -- the kit keeps 10 spare on a row's right for a scrollbar: hang that in the card's margin
+    card.list:SetPoint("BOTTOMRIGHT", 10, 0)
+    card.empty = UI:Para(body, 12, "dim")
+    card.empty:SetPoint("TOPLEFT", 2, -74)
+    card.empty:SetPoint("TOPRIGHT", -2, -74)
+    card.empty:Hide()
     card.list:HookScript("OnSizeChanged", function() layoutCatalogEmpty() end)
     card:HookScript("OnSizeChanged", function()
         GF:Debounce("srui-addsize", 0.1, function() if page.refreshCatalog then page.refreshCatalog() end end)
     end)
     card.lock = UI:Empty(body, "SR's locked. Your picks are set in stone. Well, in a SavedVariable.", "lock")
-    card.lock:SetWidth(LEFT_W - 40)
-    card.lock.text:SetWidth(LEFT_W - 50)
     card.lock:Hide()
     page.add = card
 end
@@ -750,28 +691,30 @@ end
 -- The list: grouped by item or by player
 -------------------------------------------------------------------------------
 local function itemRowCreate(row)
-    row.btn = dressItem(UI:ItemButton(row, 28))
+    -- your own row: the kit's edge and a lighter wash, because epic purple dies on a gold one
+    row.sel:SetAlpha(0.35)
+    row.btn = dressItem(UI:ItemButton(row, ICON_SIZE))
     row.btn:SetPoint("LEFT", 4, 0)
     row.name = UI:Text(row, 12, "text")
-    row.name:SetPoint("TOPLEFT", row.btn, "TOPRIGHT", 10, -1)
-    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -130, -5)
+    row.name:SetPoint("TOPLEFT", row.btn, "TOPRIGHT", 8, -1)
+    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -5)
     row.who = UI:Text(row, 11, "dim")
-    row.who:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -4)
-    row.who:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -4)
-    row.count = UI:Text(row, 18, "dim", "num")
-    row.count:SetPoint("RIGHT", -12, 0)
-    row.pill = UI:Pill(row, "CONTESTED", "yellow", { height = 18, size = 10, icon = "warning" })
-    row.pill:SetPoint("RIGHT", row.count, "LEFT", -8, 0)
+    row.who:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
+    row.who:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -2)
+    row.pill = UI:Pill(row, "CONTESTED", "yellow", { icon = "warning" })
+    row.pill:SetPoint("RIGHT", -4, 0)
 end
 
 local function itemRowUpdate(row, e)
     row.btn:SetItem(e.itemID)
     row.name:SetText(coloredName(e.itemID))
     row.who:SetText(whoText(e.list, 4))
-    row.count:SetText(#e.list)
+    -- only a fight over an item earns anything on the right, so a fight is what you see
     local contested = #e.list >= 2
+    if contested then row.pill:SetText(#e.list .. " CONTESTED", "yellow") end
     row.pill:SetShown(contested)
-    UI:SetTextColor(row.count, contested and "yellow" or "dim")
+    -- the name only gives way to a pill that's there
+    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", contested and -(row.pill:GetWidth() + 12) or -8, -5)
 end
 
 local function itemRowEnter(row, e)
@@ -783,17 +726,17 @@ local function itemRowEnter(row, e)
 end
 
 local function playerRowCreate(row)
-    row.avatar = UI:Avatar(row, 26)
-    row.avatar:SetPoint("LEFT", 6, 0)
-    row.name = UI:Text(row, 13, "text", "head")
-    row.name:SetPoint("TOPLEFT", row.avatar, "TOPRIGHT", 10, -1)
-    row.sub = UI:Text(row, 10, "faint")
-    row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-    row.sub:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -3)
+    row.avatar = UI:Avatar(row, ICON_SIZE)
+    row.avatar:SetPoint("LEFT", 4, 0)
+    row.name = UI:Text(row, 12, "text", "ui")
+    row.name:SetPoint("TOPLEFT", row.avatar, "TOPRIGHT", 8, -1)
+    row.sub = UI:Text(row, 11, "dim")
+    row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
+    row.sub:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -2)
     row.icons = {}
     for i = 1, SR.MAX_LIMIT do
-        local b = dressItem(UI:ItemButton(row, 24))
-        b:SetPoint("RIGHT", row, "RIGHT", -8 - (i - 1) * 28, 0)
+        local b = dressItem(UI:ItemButton(row, ICON_SIZE))
+        b:SetPoint("RIGHT", row, "RIGHT", -4 - (i - 1) * 32, 0)
         row.icons[i] = b
     end
 end
@@ -809,7 +752,7 @@ local function playerRowUpdate(row, e)
         if id then b:SetItem(id); b:Show() else b:Hide() end
     end
     -- the text stops short of however many item icons this row shows (sub follows name)
-    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -16 - min(n, #row.icons) * 28, -6)
+    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -12 - min(n, #row.icons) * 32, -5)
     local bits = {}
     for _, id in ipairs(r.items) do
         local nm = nameOf(id)
@@ -844,8 +787,6 @@ local function buildList(cols)
     local card = UI:Card(cols, { title = "The list", icon = "clipboard" })
     card:SetPoint("TOPLEFT", page.mine, "TOPRIGHT", 16, 0)
     card:SetPoint("BOTTOMRIGHT", cols, "BOTTOMRIGHT", 0, 0)
-    card.total = UI:Text(card.right, 11, "faint", "head")
-    card.total:SetPoint("RIGHT", -4, 0)
     local body = card.body
     card.tabs = UI:Tabs(body, {
         { key = "item", text = "By item", icon = "bag" },
@@ -863,11 +804,11 @@ local function buildList(cols)
         card.search.placeholder:SetText(sw >= 170 and "Search names or loot..." or "Search...")
     end)
     card.byItem = UI:List(body, {
-        rowHeight = 36, createRow = itemRowCreate, updateRow = itemRowUpdate, onEnter = itemRowEnter,
+        rowHeight = ROW_H, spacing = 0, createRow = itemRowCreate, updateRow = itemRowUpdate, onEnter = itemRowEnter,
         isSelected = function(e) return e.mine end,
     })
     card.byPlayer = UI:List(body, {
-        rowHeight = 36, createRow = playerRowCreate, updateRow = playerRowUpdate, onClick = playerRowClick,
+        rowHeight = ROW_H, spacing = 0, createRow = playerRowCreate, updateRow = playerRowUpdate, onClick = playerRowClick,
         isSelected = function(e) return e.mine end,
         onEnter = function(row, e)
             local lines = {}
@@ -879,7 +820,8 @@ local function buildList(cols)
     })
     for _, l in ipairs({ card.byItem, card.byPlayer }) do
         l:SetPoint("TOPLEFT", 0, -40)
-        l:SetPoint("BOTTOMRIGHT", 0, 0)
+        -- the kit keeps 10 spare on a row's right for a scrollbar: hang that in the card's margin
+        l:SetPoint("BOTTOMRIGHT", 10, 0)
     end
     card.empty = UI:Empty(body, "", "dice")
     card.empty:ClearAllPoints()
@@ -932,7 +874,6 @@ local function refreshList()
     card.byPlayer:SetShown(byPlayer)
     local list = byPlayer and card.byPlayer or card.byItem
     list:SetItems(rows, true)
-    card.total:SetText(idx and (idx.players .. " " .. U.Plural(idx.players, "RAIDER", "RAIDERS") .. DOT .. idx.count .. " " .. U.Plural(idx.count, "RESERVE", "RESERVES")) or "")
     if #rows == 0 then
         card.empty:SetText((idx and idx.count > 0) and "Nothing matches that. Check your spelling, champ."
             or GF.Flavor.emptyStates.sr)
@@ -945,10 +886,9 @@ end
 -------------------------------------------------------------------------------
 -- No session: the host's start form, or a quiet street for everyone else
 -------------------------------------------------------------------------------
-local function label(parent, text, x, y)
-    local l = UI:Text(parent, 10, "bronze", "head")
-    l:SetPoint("TOPLEFT", x, y)
-    l:SetText(text:upper())
+local function label(parent, text)
+    local l = UI:Text(parent, 11, "bronze", "ui")
+    l:SetText(text)
     return l
 end
 
@@ -986,31 +926,87 @@ local HOW_STEPS = {
     "When loot drops the Loot Desk shows who reserved what. Roll it, award it, done.",
 }
 
+--- The form is what this state is for, so it leads, and it's measured rather than fixed: the same
+-- rows at every window size, narrower on a small window, with the steps beside it stacked by how
+-- far their text actually wrapped.
+local function layoutNone()
+    local none, form, how = page.none, page.form, page.how
+    local w = none:GetWidth() or 0
+    if w <= 0 then return end
+    local fw = U.Clamp(math.floor(w * 0.55), 340, 420)
+    local inner = fw - 24
+    form:SetWidth(fw)
+    form.lead:SetWidth(inner)
+    local y = (form.lead:GetStringHeight() or 16) + 14
+    local function place(l, c, yy, x, right)
+        l:ClearAllPoints()
+        l:SetPoint("TOPLEFT", x or 0, -yy)
+        c:ClearAllPoints()
+        c:SetPoint("TOPLEFT", x or 0, -(yy + 15))
+        if right then c:SetPoint("TOPRIGHT", 0, -(yy + 15)) end
+    end
+    place(form.titleLbl, form.titleBox, y, 0, true)
+    local rw = inner - form.limitDrop:GetWidth() - 12
+    form.instDrop:SetWidth(rw)
+    place(form.instLbl, form.instDrop, y + 48, 0)
+    place(form.limitLbl, form.limitDrop, y + 48, rw + 12)
+    place(form.eventLbl, form.eventDrop, y + 96, 0, true)
+    form.plus:ClearAllPoints()
+    form.plus:SetPoint("TOPLEFT", 0, -(y + 148))
+    form.start:ClearAllPoints()
+    form.start:SetPoint("TOPLEFT", 0, -(y + 182))
+    form.hint:ClearAllPoints()
+    form.hint:SetPoint("TOPLEFT", 0, -(y + 222))
+    form.hint:SetWidth(inner)
+    -- on a narrow form the plain wrap leaves "open." alone on a line
+    form.hint:SetText("You'll be the host." .. (inner < 380 and "\n" or " ") .. "Starting a new one closes any SR you left open.")
+    local total = y + 222 + (form.hint:GetStringHeight() or 14)
+    local fh = 38 + total + 18
+    form:SetHeight(fh)
+
+    local tw = (w - fw - 16) - 24 - 28
+    -- the steps share the card's height, so it doesn't read as half empty beside a taller form
+    local used = 0
+    for _, st in ipairs(how.steps) do
+        st.text:SetWidth(tw)
+        used = used + max(20, st.text:GetStringHeight() or 14)
+    end
+    local pitch = U.Clamp(math.floor((fh - 38 - 16 - used) / max(1, #how.steps - 1)), 14, 64)
+    local sy = 2
+    for _, st in ipairs(how.steps) do
+        st.num:ClearAllPoints()
+        st.num:SetPoint("TOPLEFT", 2, -(sy - 1))
+        st.text:ClearAllPoints()
+        st.text:SetPoint("TOPLEFT", 28, -sy)
+        sy = sy + max(20, st.text:GetStringHeight() or 14) + pitch
+    end
+end
+
 local function buildNone()
     local none = CreateFrame("Frame", nil, page)
-    none:SetPoint("TOPLEFT", page.banner, "BOTTOMLEFT", 0, -16)
+    none:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -14)
     none:SetPoint("BOTTOMRIGHT")
     page.none = none
 
-    local form = UI:Card(none, { title = "Start a soft-res session", icon = "dice" })
+    local form = UI:Card(none, { title = "Start a soft-res session", icon = "dice", tier = "hero" })
     form:SetPoint("TOPLEFT")
-    form:SetSize(420, 318)
+    form:SetSize(420, 330)
     local body = form.body
-    label(body, "Title", 0, 0)
+    form.lead = UI:Para(body, 12, "dim")
+    form.lead:SetPoint("TOPLEFT")
+    form.lead:SetText("No SR running. Nobody's called dibs on anything yet.\nSuspiciously civilised.")
+    form.titleLbl = label(body, "Title")
     form.titleBox = UI:Input(body, { placeholder = "e.g. Onyxia Wednesday SR", max = 48,
         onChange = function() form.autoTitle = false end })
-    form.titleBox:SetPoint("TOPLEFT", 0, -16)
-    form.titleBox:SetPoint("TOPRIGHT", 0, -16)
-    label(body, "Raid", 0, -56)
+    form.instLbl = label(body, "Raid")
     form.instDrop = UI:Dropdown(body, {
-        width = 200, items = function() return instanceItems("Not sure yet", form.instance) end,
+        width = 290, items = function() return instanceItems("Not sure yet", form.instance) end,
         get = function() return form.instance or "" end,
         set = function(v) form.instance = v ~= "" and v or nil end,
     })
-    form.instDrop:SetPoint("TOPLEFT", 0, -72)
-    label(body, "Reserves each", 216, -56)
+    form.limitLbl = label(body, "Reserves each")
     form.limitDrop = UI:Dropdown(body, {
-        width = 90,
+        width = 94,
         items = function()
             local out = {}
             for i = 1, SR.MAX_LIMIT do out[i] = { value = i, text = tostring(i) } end
@@ -1019,8 +1015,7 @@ local function buildNone()
         get = function() return form.limit or GF.Roster:Config().srLimit end,
         set = function(v) form.limit = v end,
     })
-    form.limitDrop:SetPoint("TOPLEFT", 216, -72)
-    label(body, "Linked raid night", 0, -112)
+    form.eventLbl = label(body, "Linked raid night")
     form.eventDrop = UI:Dropdown(body, {
         width = 396, items = eventItems,
         get = function() return form.eventId or "" end,
@@ -1030,14 +1025,11 @@ local function buildNone()
         end,
         placeholder = "None",
     })
-    form.eventDrop:SetPoint("TOPLEFT", 0, -128)
-    form.eventDrop:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -128)
     form.plus = UI:Toggle(body, "Plus mode", {
         get = function() return form.plusOn and true or false end,
         set = function(v) form.plusOn = v end,
         tooltip = { "Plus mode", { "+1 for every earlier session a raider reserved the same item and missed out. Higher plus wins ties." } },
     })
-    form.plus:SetPoint("TOPLEFT", 0, -172)
     form.start = UI:Button(body, "Open the SR", { style = "primary", icon = "dice", height = 30, onClick = function()
         local ok, err = SR:Start({ title = form.titleBox:GetText(), instance = form.instance, eventId = form.eventId,
             limit = form.limit, plus = form.plusOn })
@@ -1045,39 +1037,37 @@ local function buildNone()
         form.prefilled = false
         UI:Toast({ title = "SR's open", text = "Hit Announce so the raid knows. Lock it when you're ready.", icon = "dice", style = "green" })
     end })
-    form.start:SetPoint("TOPLEFT", 0, -214)
-    form.hint = UI:Text(body, 11, "faint")
-    form.hint:SetPoint("TOPLEFT", form.start, "BOTTOMLEFT", 0, -10)
-    form.hint:SetPoint("TOPRIGHT", body, "TOPRIGHT", 0, -254)
-    form.hint:SetWordWrap(true)
+    form.hint = UI:Para(body, 11, "dim")
     form.hint:SetText("You'll be the host. Starting a new one closes any SR you left open.")
     page.form = form
 
     local how = UI:Card(none, { title = "How it works", icon = "clipboard" })
     how:SetPoint("TOPLEFT", form, "TOPRIGHT", 16, 0)
-    how:SetPoint("TOPRIGHT", none, "TOPRIGHT", 0, 0)
-    how:SetHeight(318)
+    how:SetPoint("BOTTOMRIGHT", form, "BOTTOMRIGHT", 0, 0)
+    how:SetPoint("RIGHT", none, "RIGHT", 0, 0)
+    how.steps = {}
     for i, text in ipairs(HOW_STEPS) do
-        local y = -(i - 1) * 58
-        -- step numbers sit in gold slots, like ranks on a talent
-        local disc = UI:FramedIcon(how.body, 28)
-        disc:SetPoint("TOPLEFT", 0, y + 1)
-        local num = UI:Text(disc, 14, "wowGold", "ui")
-        num:SetPoint("CENTER", disc, "CENTER", 1, 0)
-        num:SetJustifyH("CENTER")
+        local num = UI:Text(how.body, 15, "bronze", "ui")
         num:SetText(i)
-        local t = UI:Text(how.body, 12, "dim")
-        t:SetPoint("TOPLEFT", disc, "TOPRIGHT", 12, -4)
-        t:SetPoint("TOPRIGHT", how.body, "TOPRIGHT", 0, y - 4)
-        t:SetWordWrap(true)
-        t:SetJustifyV("TOP")
+        local t = UI:Para(how.body, 12, "text")
         t:SetText(text)
+        how.steps[i] = { num = num, text = t }
     end
     page.how = how
+    none:HookScript("OnSizeChanged", function() GF:Safe("srui:none", layoutNone) end)
 
-    page.quiet = UI:Empty(none, "No SR running. Pester your raid leader, or bribe them with a Bunnings snag.", "dice")
+    page.quiet = UI:Empty(none, "Nobody's called dibs on anything yet. Suspiciously civilised.\nPester your raid leader, or slip them forty bucks.", "dice",
+        { heading = "No SR running" })
     page.quiet:ClearAllPoints()
-    page.quiet:SetPoint("CENTER", 0, 30)
+    page.quiet:SetPoint("CENTER", 0, 20)
+    -- the kit caps its block at 360, which leaves these lines ending in one lonely word
+    local function widen()
+        local w = min(480, max(120, (none:GetWidth() or 480) - 32))
+        page.quiet:SetWidth(w)
+        page.quiet.text:SetWidth(w)
+    end
+    none:HookScript("OnSizeChanged", widen)
+    widen()
 end
 
 local function refreshNone()
@@ -1086,6 +1076,9 @@ local function refreshNone()
     page.how:SetShown(canHost)
     page.quiet:SetShown(not canHost)
     if not canHost then return end
+    layoutNone()
+    -- again next frame, in case the client only wrapped the strings properly once they were on screen
+    GF:After(0, function() if page.none:IsShown() and page.form:IsShown() then layoutNone() end end)
     local form = page.form
     if not form.prefilled then
         form.prefilled = true
@@ -1117,7 +1110,8 @@ local function refresh()
     page.btnLock:SetShown(ctl)
     if s then
         page.btnLock:SetText(s.locked and "Unlock" or "Lock")
-        page.btnLock:SetStyle(s.locked and "secondary" or "warn")
+        -- a locked SR is the state worth noticing, and Unlock the button you'd come back for
+        page.btnLock:SetStyle(s.locked and "warn" or "secondary")
     end
     page.btnMore:SetShown(s ~= nil)
     page.btnDesk:SetShown(ctl or SR:CanHost())
@@ -1148,13 +1142,21 @@ local function build(p)
     buildMine(cols)
     buildAdd(cols)
     buildList(cols)
+    cols:HookScript("OnSizeChanged", function(_, w)
+        if not w or w <= 0 then return end
+        -- a narrow window: the list is where people read, so the left column gives up the spare
+        local lw = U.Clamp(math.floor(w * 0.36), w < 640 and 280 or LEFT_MIN, LEFT_MAX)
+        page.mine:SetWidth(lw)
+        page.add:SetWidth(lw)
+        if page.session then GF:Safe("srui:banner", refreshBanner, page.session) end
+    end)
     buildNone()
     page.refreshCatalog = refreshCatalog
     page.refreshList = refreshList
 end
 
 UI:RegisterPage({
-    key = "softres", title = "Soft Res", subtitle = "Call dibs before the bin chickens do.",
+    key = "softres", title = "Soft Res", subtitle = "Call dibs. Leave a bag to hold your spot.",
     icon = "dice", group = "raid", order = 20,
     build = build,
     onShow = function() refresh() end,

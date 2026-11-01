@@ -728,15 +728,15 @@ end
 -------------------------------------------------------------------------------
 -- Guild API
 -------------------------------------------------------------------------------
-G.IsInGuild = function() return guild ~= nil end
+G.IsInGuild = function() return MaybeSecret("guildname", guild ~= nil) end
 G.GetGuildInfo = function(unit)
     unitCheck(unit, "GetGuildInfo")
-    if not guild or not state.guildLoaded then return nil end
+    if not guild or not state.guildLoaded or state.guildHeld then return nil end
     local rec, _, self = resolve(unit)
     if not rec then return nil end
     local m = guildByName[rec.name]
     if not m then return nil end
-    return guild.name, guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0, nil
+    return MaybeSecret("guildname", guild.name), guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0, nil
 end
 G.GetNumGuildMembers = function()
     if not guild or not state.guildLoaded then return 0, 0, 0 end
@@ -757,12 +757,27 @@ G.GetGuildRosterInfo = function(i)
     local cd = MOCK.CLASS_DATA[rec.class] or MOCK.CLASS_DATA.WARRIOR
     local status = (m.afk and 1) or (m.dnd and 2) or 0
     local zone = m.online and (m.zone or "Stormwind City") or GUILD_ZONE_OFFLINE
-    return MaybeSecret("roster", rec.name .. " " .. (rec.surname or "Greenfield")), guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0,
-        rec.level or 60, cd.name, MaybeSecret("roster", zone), MaybeSecret("roster", m.note or ""),
+    return MaybeSecret(state.hiddenRows and state.hiddenRows[m.surname and (m.name .. " " .. m.surname) or m.name] and "hiddenrow" or "roster", rec.name .. " " .. (m.surname or rec.surname or "Greenfield")), guild.ranks[(m.rankIndex or 0) + 1] or "Member", m.rankIndex or 0,
+        MaybeSecret("rosterfields", m.level or rec.level or 60), cd.name, MaybeSecret(MOCK.secretOn.rosterfields and "rosterfields" or "roster", zone), MaybeSecret("roster", m.note or ""),
         MaybeSecret("roster", m.officerNote or ""), m.online and true or false, status, cd.file,
-        m.ap or 0, i, m.mobile and not m.online or false, false, 5, MaybeSecret("roster", rec.guid)
+        m.ap or 0, i, m.onApp or (m.mobile and not m.online) or false, false, 5, MaybeSecret("roster", rec.guid)
 end
+-- Shapes from the forever-branch API docs; nobody's seen these answer on a real client.
+G.C_DamageMeter = {
+    IsDamageMeterAvailable = function() return true, "" end,
+    GetAvailableCombatSessions = function() return {} end,
+    ResetAllCombatSessions = function() error("the doctor must never call this", 2) end,
+}
+G.C_LootHistory = {
+    GetLootHistoryTime = function() return 7200 end,
+    GetAllEncounterInfos = function() return {} end,
+}
 G.C_GuildInfo = {
+    GetPreferredPlaySettings = function()
+        if not guild then error("GetPreferredPlaySettings: not in a guild", 2) end
+        return true, 0, 3, 0, 0, 30     -- loaded, locale, data centre, two change dates, cooldown days
+    end,
+    GetPreferredPlaySettingsFeatures = function() return false, true end,
     GuildRoster = function()
         if not guild then return end
         local now = MOCK.uptime
@@ -1711,6 +1726,41 @@ function Game.RosterLoaded()
     state.guildLoaded = true
 end
 
+--- Moves this client in or out of a guild. name nil: no guild at all. held: in the guild, but its
+-- name hasn't reached the client yet (IsInGuild true, GetGuildInfo nil).
+function Game.SetGuild(name, held)
+    if name then
+        guild = CFG.guild
+        guild.name = name
+    else
+        guild = nil
+    end
+    state.guildHeld = held and true or false
+end
+
+--- A new roster row, which can share a first name with someone already there (give it a surname).
+function Game.AddMember(name, surname, rankIndex, online)
+    guild.members[#guild.members + 1] = { name = name, surname = surname, rankIndex = rankIndex, online = online and true or false,
+        note = "", officerNote = "", mobile = false, zone = "Stormwind City", ap = 0 }
+end
+
+function Game.RemoveMember(name, surname)
+    for i, m in ipairs(guild.members) do
+        if m.name == name and m.surname == surname then
+            table.remove(guild.members, i)
+            return
+        end
+    end
+end
+
+--- Makes one guild roster row's name secret, the way a partly hidden roster would. A row added with
+-- a surname goes by its full name here.
+function Game.HideRosterRow(name, on)
+    state.hiddenRows = state.hiddenRows or {}
+    state.hiddenRows[name] = on and true or nil
+    MOCK.secretOn.hiddenrow = true
+end
+
 function Game.SetMemberOnline(name, online, zone)
     local m = guildByName[name]
     if m then
@@ -1793,9 +1843,10 @@ function Game.SetMoney(copper)
     fire("PLAYER_MONEY")
 end
 
-function Game.SetLevel(level)
+--- hidden: the event's level argument comes through secret, and only UnitLevel can say.
+function Game.SetLevel(level, hidden)
     ME.level = level
-    fire("PLAYER_LEVEL_UP", level, 50, 30, 1, 1, 1, 1, 1)
+    fire("PLAYER_LEVEL_UP", hidden and MOCK.Secret(level) or level, 50, 30, 1, 1, 1, 1, 1)
     fire("UNIT_LEVEL", "player")
     fire("PLAYER_LEVEL_CHANGED", level - 1, level)
 end

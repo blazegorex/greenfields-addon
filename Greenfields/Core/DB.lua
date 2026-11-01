@@ -28,7 +28,7 @@ local DEFAULT_SETTINGS = {
     feedToasts = true,          -- toast for guild feed events
     welcome = true,             -- login greeting
     minimap = { hide = false, angle = 200 },
-    shareWealth = true,         -- send the hidden-amount wealth score
+    shareWealth = true,         -- send the wealth score: hides the amount, gives it away to within about double
     wipeRoastsLocal = true,     -- show a roast toast on wipes
     wipeRoastsRaid = false,     -- (leader) post a roast in raid chat on wipes
     srAutoAnnounce = false,     -- (opt-in) announce SR'd items in raid chat when loot drops (host)
@@ -69,7 +69,7 @@ end
 --- Guild partitions keep data from different guilds (alts in other guilds) apart.
 function DB:GuildKey()
     local gname = GF.API.GuildInfo()
-    if not gname then return nil end
+    if not gname or gname == "" then return nil end
     local faction = GF.API.UnitFaction("player") or "?"
     return gname .. "|" .. faction
 end

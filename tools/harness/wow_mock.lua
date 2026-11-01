@@ -228,6 +228,12 @@ function MOCK.SetClock(epoch, uptime)
     MOCK.uptime = uptime
 end
 
+--- This PC's clock, in hours from UTC. Mandurah is 8, Sydney in summer is 11.
+function MOCK.SetTZ(hours)
+    TZ = hours * 3600
+    MOCK.TZ = TZ
+end
+
 local function daysFromCivil(y, m, d)
     y = (m <= 2) and (y - 1) or y
     local era = floor(y / 400)

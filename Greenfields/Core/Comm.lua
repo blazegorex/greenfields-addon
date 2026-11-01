@@ -33,6 +33,7 @@ Comm.handlers = {}
 Comm.senders, Comm.senderCount = {}, 0   -- raw sender -> {key, channel} (diagnostics)
 Comm.peers = {}                -- key -> { version=, proto=, seen= }
 Comm.stats = { sent = 0, recv = 0, bytesOut = 0, dropped = 0, throttled = 0 }
+Comm.ignored = {}              -- sender -> messages ignored for not being a guildie (diagnostics)
 
 local queues = { ALERT = {}, NORMAL = {}, BULK = {} }
 local PRIOS = { "ALERT", "NORMAL", "BULK" }
@@ -98,6 +99,7 @@ end
 
 --- Send(op, payload, channel, target, prio) -> true when queued
 function Comm:Send(op, payload, channel, target, prio)
+    if GF.gateShut then return false end
     channel = resolveChannel(channel)
     if not channel then return false end
     if channel == "WHISPER" and (type(target) ~= "string" or target == "") then return false end
@@ -117,12 +119,25 @@ end
 
 function Comm:Guild(op, payload, prio) return self:Send(op, payload, "GUILD", nil, prio) end
 function Comm:Group(op, payload, prio) return self:Send(op, payload, "GROUP", nil, prio) end
+-- Heard from them this recently and a roster row saying "offline" is just old: rows only get asked
+-- for every 90 s, and someone who's just logged in is exactly who it's wrong about.
+local HEARD_LATELY = 60
+
+local function heardLately(key)
+    local p = Comm.peers[key]
+    return p and p.seen and API.ServerTime() - p.seen < HEARD_LATELY
+end
+
 function Comm:Whisper(target, op, payload, prio)
     if target == API.MyKey() then return false end
     -- don't knock on doors we know are empty: offline guildies just bounce
     local R = GF.Roster
-    if R and R.Get and R:Get(target) and not R:IsOnline(target) then return false end
-    return self:Send(op, payload, "WHISPER", API.WhisperName(target), prio)
+    if R and R.Get and R:Get(target) and not R:IsOnline(target) and not heardLately(target) then return false end
+    local name = API.WhisperName(target)
+    if not name then return false end -- two guildies with that first name: no guessing which
+    -- nobody we can name in full yet (roster's still loading): on Forever a bare name only bounces
+    if name == target and API.UniqueNames() and not (R and R.Get and R:Get(target)) then return false end
+    return self:Send(op, payload, "WHISPER", name, prio)
 end
 
 -------------------------------------------------------------------------------
@@ -132,7 +147,14 @@ end
 local recentWhispers = {}
 
 function Comm:NoteWhisper(target)
-    if type(target) == "string" then recentWhispers[target] = API.Time() end
+    if type(target) ~= "string" then return end
+    local now = API.Time()
+    recentWhispers[target] = now
+    -- we send "Kaghul Doomskull", and the line might say plain "Kaghul", with or without a realm: all ours
+    local bare = target:match("^[^%-]+") or target
+    recentWhispers[bare] = now
+    local first = bare:match("^%S+")
+    if first then recentWhispers[first] = now end
 end
 
 local notFoundPattern
@@ -142,6 +164,9 @@ do
         notFoundPattern = "^" .. fmt:gsub("([%^%$%(%)%.%[%]%*%+%-%?])", "%%%1"):gsub("%%s", "(.+)") .. "$"
     end
 end
+
+--- The pattern that spots those lines, or nil if the client's text didn't give us one (/gf doctor).
+function Comm:BouncePattern() return notFoundPattern end
 
 local function bounceFilter(_, _, msg, ...)
     if not notFoundPattern or type(msg) ~= "string" or not API.Readable(msg) then return false end
@@ -256,16 +281,32 @@ local function deliver(full, senderKey, channel)
     GF:Safe("comm:" .. op, h.fn, payload, senderKey, channel)
 end
 
+-- Only people who've been on the guild roster get listened to, so an edited copy outside the guild
+-- can't feed us anything by whisper or from inside a party. The guild channel is the game's own proof.
+local function hears(key, channel)
+    if channel == "GUILD" or key == API.MyKey() then return true end
+    local Gate, R = GF.Gate, GF.Roster
+    -- until we've read the whole roster, nobody can be ruled out
+    if not (Gate and Gate:IsLive()) or not R or not R:ReadAll() then return true end
+    if R:WasMember(key) then return true end
+    Comm.ignored[key] = (Comm.ignored[key] or 0) + 1
+    return false
+end
+
 local function onAddonMessage(_, prefix, text, channel, sender)
-    if prefix ~= Comm.PREFIX then return end
+    if prefix ~= Comm.PREFIX or GF.gateShut then return end
     if not API.Readable(text) or not API.Readable(sender) or type(text) ~= "string" then return end
     local key = API.Key(sender)
     if not key then return end
     -- diagnostics for /gf doctor: the raw sender format Forever uses, and what we keyed it as
-    if not Comm.senders[sender] and Comm.senderCount < 20 then
+    local seenSender = Comm.senders[sender]
+    if not seenSender and Comm.senderCount < 20 then
         Comm.senderCount = Comm.senderCount + 1
         Comm.senders[sender] = { key = key, channel = tostring(channel) }
+    elseif seenSender and channel == "WHISPER" and not seenSender.channel:find("WHISPER", 1, true) then
+        seenSender.channel = seenSender.channel .. "+WHISPER"   -- the launch card reads this for hello replies
     end
+    if not hears(key, channel) then return end
     local h, body = sub(text, 1, 1), sub(text, 2)
     local bkey = key .. "\031" .. tostring(channel)
     if h == "1" then
@@ -300,6 +341,20 @@ function Comm:SendHello(channel, target)
         channel or "GUILD", target, "NORMAL")
 end
 
+-- Everyone answers a hello while there's few of us with the addon online, because recorder choice and
+-- camp pings go by who's known. A crowd of us would bury the newcomer, so there it's about HELLO_REPLIES
+-- per hello. Only addon users answer, so they're who gets counted, not the whole guild's online list.
+local HELLO_CROWD, HELLO_REPLIES = 20, 3
+
+local function answerHello(sender, again)
+    local sent = Comm:Whisper(sender, "HI", { v = GF.VERSION, p = GF.PROTOCOL, r = 1, c = API.UnitClassFile("player"), l = API.UnitLevel("player") }, "BULK")
+    -- not on our roster yet, so there's no full name to send it to: ask for one and try once more
+    if not sent and not again and not GF.Roster:Get(sender) then
+        GF.Roster:Refresh()
+        GF:After(20, function() answerHello(sender, true) end)
+    end
+end
+
 Comm:Register("HI", function(p, sender, channel)
     if type(p) ~= "table" then return end
     local peer = Comm.peers[sender] or {}
@@ -316,10 +371,10 @@ Comm:Register("HI", function(p, sender, channel)
     end
     -- answer a guild hello once, so the newcomer learns who has the addon
     if channel == "GUILD" and not p.r then
-        GF:After(1 + math.random() * 6, function()
-            Comm:Send("HI", { v = GF.VERSION, p = GF.PROTOCOL, r = 1, c = API.UnitClassFile("player"), l = API.UnitLevel("player") },
-                "WHISPER", sender, "BULK")
-        end)
+        local users = Comm:OnlineUsers()
+        if users <= HELLO_CROWD or math.random() < HELLO_REPLIES / (users - 1) then
+            GF:After(1 + math.random() * 6, function() answerHello(sender) end)
+        end
     end
     GF:Fire("GF_PEER_SEEN", sender, peer)
 end)
@@ -332,6 +387,15 @@ function Comm:HasAddon(key)
     local known = GF.gdb and GF.gdb["local"] and GF.gdb["local"].comm
     known = known and known.peers and known.peers[key]
     return known and known.v or nil
+end
+
+--- OnlineUsers() -> how many online on the roster we know run the addon, us included.
+function Comm:OnlineUsers()
+    local n = 0
+    for key, m in pairs(GF.Roster:All()) do
+        if m.online and self:HasAddon(key) then n = n + 1 end
+    end
+    return n
 end
 
 function Comm:OnlinePeers()
@@ -347,6 +411,13 @@ end
 -------------------------------------------------------------------------------
 GF:On("GF_INIT", function()
     API.RegisterPrefix(Comm.PREFIX)
+end)
+
+-- Shut out of the guild: whatever was waiting to go stays unsent.
+GF:On("GF_GATE_CHANGED", function(shut)
+    if not shut then return end
+    for _, p in ipairs(PRIOS) do queues[p] = {} end
+    for k in pairs(inflight) do inflight[k] = nil end
 end)
 
 GF:RegisterEvent("CHAT_MSG_ADDON", onAddonMessage)
@@ -370,4 +441,4 @@ GF:RegisterSlash("comm", function()
     GF:Print("comm: sent %d, received %d, %s out, queued %d, throttled %d, dropped %d, peers online %d, deflate %s",
         s.sent, s.recv, U.Short(s.bytesOut) .. "B", Comm:QueueSize(), s.throttled, s.dropped, Comm:OnlinePeers(),
         API.CanCompress() and "on" or "off")
-end, "addon-channel diagnostics")
+end, "addon-channel diagnostics", true)

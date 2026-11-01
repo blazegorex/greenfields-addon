@@ -5,10 +5,11 @@
        Residents' Licences  every resident's trades with skill bars, sortable by trade
        Cooldowns            who has a transmute, Mooncloth or Salt Shaker ready, and when
      Presentation only: every number comes from GF.Profs (Modules/Professions.lua).
-     Look: every trade, item and recipe icon sits in the kit's gold action-button frame; the
-     trade list mirrors the sidebar (gold wash + bar when picked); the job sheet floats in the
-     window's gold frame over dark leather; the "open your windows" nudge is a parchment
-     notice; cooldown headers are gold Friz over a gold wash.
+     Look: the job names are the content, so everything repeated around them stays quiet. Trades
+     are plain icons in a list with a gold wash + bar when picked (a dropdown on narrow windows);
+     Whisper is a dim bubble that wakes up when you hover the row; the job sheet is the page's one
+     gold-rimmed thing while it's open; the "open your windows" nudge is a parchment notice;
+     cooldown headers are gold Friz over a soft gold wash.
      UI:ShowPage("tradies", arg) takes an itemID (opens its job sheet), a search string, or
      { person = key } (that resident's trades). /gf tradies [search] opens it too. ]]
 
@@ -23,9 +24,12 @@ local floor, max, min = math.floor, math.max, math.min
 local sort, concat, tinsert, tremove = table.sort, table.concat, table.insert, table.remove
 
 local PAGE = "tradies"
-local LEFT_W, DRAWER_W = 212, 296
+local LEFT_W, DRAWER_W = 184, 296
+local NARROW_W = 680      -- page narrower than this: the trades list folds into a dropdown
+local SHEET_FILL_W = 480  -- results narrower than this: the job sheet takes the whole card
 local CHIP_H = 26
-local NAME_W, SIDE_W = 186, 54
+local NAME_W, NAME_W_NARROW, SIDE_W = 186, 150, 44
+local WHISPER_REST = 0.5  -- how far the whisper bubble fades back until you're on its row
 local SECONDARY = { 185, 129, 356 }
 local DOT = "  \194\183  "
 local TABS = { find = true, licences = true, cooldowns = true }
@@ -37,7 +41,7 @@ local state = {
 local page
 local views = {}
 local ticker
-local refreshFind, refreshLicences, refreshCooldowns
+local refreshFind, refreshLicences, refreshCooldowns, rescan
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -58,7 +62,11 @@ end
 
 local function isMe(key) return key == API.MyKey() end
 local function isOnline(key) return GF.Roster:IsOnline(key) and true or false end
-local function colored(key) return GF.Roster:Colored(key) end
+--- Shaman blue is the one class colour that's hard to read on midnight: lift it for text.
+local function colored(key)
+    if GF.Roster:Class(key) == "SHAMAN" then return "|cff3d8fff" .. U.ShortName(key) .. "|r" end
+    return GF.Roster:Colored(key)
+end
 
 local function emptyProfs()
     local E = GF.Flavor and GF.Flavor.emptyStates
@@ -180,54 +188,22 @@ end
 -------------------------------------------------------------------------------
 -- Shared bits
 -------------------------------------------------------------------------------
---- Puts an icon button in the same bevelled gold frame as UI:FramedIcon (action-button look).
-local function goldFrame(btn, size)
-    local inset = max(2, floor(size * 0.09 + 0.5))
-    btn.icon:ClearAllPoints()
-    btn.icon:SetPoint("TOPLEFT", inset, -inset)
-    btn.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
-    btn.goldRim = btn:CreateTexture(nil, "OVERLAY")
-    btn.goldRim:SetAllPoints()
-    UI.Sliced(btn.goldRim, T.tex.iconFrame, max(4, floor(size * 0.16)))
-    -- the kit's 1px quality edge would only peek out at the bevelled corners: keep it hidden
-    -- (the job's name already carries the quality colour)
-    if btn.SetItem and btn.Update then
-        local update = btn.Update
-        function btn:Update()
-            update(self)
-            self:SetBackdropBorderColor(0, 0, 0, 0)
-        end
-    end
-    btn:SetBackdropBorderColor(0, 0, 0, 0)
-    return btn
-end
-
---- Tileable texture (stone / leather / parchment) filling a region.
-local function tiled(tex, path, r, g, b, a)
-    tex:SetTexture(path, "REPEAT", "REPEAT")
-    tex:SetHorizTile(true)
-    tex:SetVertTile(true)
-    tex:SetVertexColor(r, g, b, a)
-end
-
 --- Small-caps group label, the same bronze Friz the sidebar uses for its groups.
 local function groupLabel(parent, text)
-    local fs = UI:Text(parent, 10, "bronze", "ui")
+    local fs = UI:Text(parent, 11, "bronze", "ui")
     fs:SetText(text)
     return fs
 end
 
 --- Square spell icon (enchants have no output item): spell tooltip, shift-click links it.
 local function spellButton(parent, size, onClick)
-    local b = CreateFrame("Button", nil, parent, "BackdropTemplate")
+    local b = CreateFrame("Button", nil, parent)
     b:SetSize(size, size)
-    UI:SetBackdrop(b, C.black, false)
-    b.icon = b:CreateTexture(nil, "ARTWORK")
-    b.icon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-    goldFrame(b, size)
+    b.art = UI:FramedIcon(b, size)
+    b.art:SetPoint("CENTER")
     function b:SetRecipe(id)
         self.recipe = id
-        self.icon:SetTexture(API.SpellIcon(id))
+        self.art:SetIcon(API.SpellIcon(id))
     end
     b:SetScript("OnEnter", function(self) spellTip(self, self.recipe) end)
     b:SetScript("OnLeave", function() UI:HideTip() end)
@@ -253,6 +229,17 @@ end
 local function keepHover(row, child)
     child:HookScript("OnEnter", function() if row.hl then row.hl:Show() end end)
     child:HookScript("OnLeave", function() if row.hl and not row:IsMouseOver() then row.hl:Hide() end end)
+end
+
+--- A repeated action shouldn't outrank what it's next to: it rests dim and wakes with its row.
+local function restUntilHover(row, btn)
+    local function wake() btn:SetAlpha(1) end
+    local function rest() if not row:IsMouseOver() then btn:SetAlpha(WHISPER_REST) end end
+    row:HookScript("OnEnter", wake)
+    row:HookScript("OnLeave", rest)
+    btn:HookScript("OnEnter", wake)
+    btn:HookScript("OnLeave", rest)
+    btn:SetAlpha(WHISPER_REST)
 end
 
 local function askGuild(e)
@@ -283,19 +270,14 @@ local function makeChip(parent, line)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(CHIP_H)
     b.line = line
-    -- styled like the sidebar: the trade in a gold frame, a gold wash + bar when picked
+    -- a plain icon on a plain row, so this doesn't read as a second sidebar; a gold wash + bar when picked
     b.bg = b:CreateTexture(nil, "BACKGROUND")
     b.bg:SetAllPoints()
     b.bg:SetColorTexture(1, 1, 1, 0.04)
     b.bg:Hide()
     b.sel = b:CreateTexture(nil, "BACKGROUND", nil, 1)
     b.sel:SetAllPoints()
-    b.sel:SetTexture(T.tex.white)
-    if b.sel.SetGradient and CreateColor then
-        b.sel:SetGradient("HORIZONTAL", CreateColor(1, 0.78, 0.25, 0.20), CreateColor(1, 0.78, 0.25, 0))
-    else
-        b.sel:SetColorTexture(1, 0.78, 0.25, 0.10)
-    end
+    UI:Gradient(b.sel, "HORIZONTAL", 1, 0.78, 0.25, 0.20, 0)
     b.sel:Hide()
     b.bar = b:CreateTexture(nil, "ARTWORK")
     b.bar:SetPoint("TOPLEFT")
@@ -303,14 +285,14 @@ local function makeChip(parent, line)
     b.bar:SetWidth(3)
     b.bar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
     b.bar:Hide()
-    b.art = UI:FramedIcon(b, 20, line and Profs:LineIcon(line) or "hammer")
+    b.art = UI:IconChip(b, 18, line and Profs:LineIcon(line) or "hammer")
     b.art:SetPoint("LEFT", 8, 0)
     b.icon = b.art.icon
     b.count = UI:Text(b, 11, "dim", "num")
-    b.count:SetPoint("RIGHT", -8, 0)
+    b.count:SetPoint("RIGHT", -6, 0)
     b.label = UI:Text(b, 12, "text", "ui")
     b.label:SetPoint("LEFT", b.art, "RIGHT", 8, 0)
-    b.label:SetPoint("RIGHT", b.count, "LEFT", -6, 0)
+    b.label:SetPoint("RIGHT", b.count, "LEFT", -4, 0)
     b.label:SetText(line and Profs:LineName(line) or "All trades")
 
     local function paint(self)
@@ -327,6 +309,9 @@ local function makeChip(parent, line)
         if self.icon.isGameIcon then
             self.art:SetDesaturated(members == 0)
             self.art:SetAlpha(members == 0 and 0.45 or 1)
+        else
+            local c = selected and C.wowGold or C.bronze
+            self.icon:SetVertexColor(c[1], c[2], c[3], 1)
         end
         paint(self)
     end
@@ -373,37 +358,35 @@ local function findLayout(row)
     row.laidW, row.laidC = w, row.cNat
     -- the crafters only take what their names need (capped); the job name gets the rest,
     -- so "Bazza" alone doesn't squeeze "Journeyman Campfire Kit" down to "Journeyma..."
-    local cap = floor(max(110, w * 0.34))
+    local cap = floor(max(110, w * 0.38))
     local cw = floor(min(cap, max(40, (row.cNat or cap) + 2)))
     row.crafters:SetWidth(cw)
-    local nw = max(60, w - 44 - cw - (row.whisper:GetWidth() or 80) - 8 - 20)
+    local nw = max(60, w - 40 - cw - 26 - 8 - 16)
     row.name:SetWidth(nw)
     row.sub:SetWidth(nw)
 end
 
 local function findCreateRow(row)
-    row.itemBtn = goldFrame(UI:ItemButton(row, 28), 28)
+    row.itemBtn = UI:ItemButton(row, 26)
     row.itemBtn:SetPoint("LEFT", 6, 0)
     row.itemBtn.onClick = function(btn) if not API.IsShiftKeyDown() then clickRow(btn) end end
-    row.spellBtn = spellButton(row, 28, clickRow)
+    row.spellBtn = spellButton(row, 26, clickRow)
     row.spellBtn:SetPoint("LEFT", 6, 0)
-    row.whisper = UI:Button(row, "Whisper", {
-        height = 22, size = 11, icon = "bubble", iconSize = 12, tooltip = whisperTip,
-        onClick = function(self) if self.target then UI:Whisper(self.target) end end,
-    })
-    if row.whisper.SetMotionScriptsWhileDisabled then row.whisper:SetMotionScriptsWhileDisabled(true) end
-    row.whisper:SetPoint("RIGHT", -8, 0)
+    row.whisper = UI:IconButton(row, "bubble", 24, whisperTip, function(self)
+        if self.target then UI:Whisper(self.target) end
+    end)
+    row.whisper:SetPoint("RIGHT", -2, 0)
     row.crafters = UI:Text(row, 12, "text")
-    row.crafters:SetPoint("RIGHT", row.whisper, "LEFT", -12, 0)
+    row.crafters:SetPoint("RIGHT", row.whisper, "LEFT", -8, 0)
     row.crafters:SetJustifyH("RIGHT")
     row.name = UI:Text(row, 13, "text")
-    row.name:SetPoint("TOPLEFT", 44, -4)
     row.sub = UI:Text(row, 11, "dim")
-    row.sub:SetPoint("BOTTOMLEFT", 44, 4)
+    row.sub:SetPoint("BOTTOMLEFT", 40, 4)
     row:HookScript("OnSizeChanged", findLayout)
     keepHover(row, row.itemBtn)
     keepHover(row, row.spellBtn)
     keepHover(row, row.whisper)
+    restUntilHover(row, row.whisper)
 end
 
 local function findUpdateRow(row, e)
@@ -421,13 +404,31 @@ local function findUpdateRow(row, e)
     end
     row.name:SetText(entryName(e))
     row.name:SetTextColor(entryColor(e))
-    local total, on = #e.crafters, onlineCount(e.crafters)
-    local sub = gameIcon(Profs:LineIcon(e.line), 12) .. " " .. Profs:LineName(e.line) .. DOT .. total .. " " .. U.Plural(total, "tradie")
-    if on > 0 then sub = sub .. ", " .. T:Wrap("green", on .. " online") end
-    row.sub:SetText(sub)
+    -- the trade's only news when you're looking at all of them; with one picked, the name sits alone
+    row.name:ClearAllPoints()
+    if state.line then
+        row.name:SetPoint("LEFT", 40, 0)
+        row.sub:Hide()
+    else
+        row.name:SetPoint("TOPLEFT", 40, -4)
+        row.sub:SetText(Profs:LineName(e.line))
+        row.sub:Show()
+    end
     row.whisper.entry = e
     row.whisper.target = firstOnline(e.crafters)
-    row.whisper:SetActive(row.whisper.target ~= nil)
+    row.whisper:SetShown(row.whisper.target ~= nil)
+end
+
+local function findTip(row, e)
+    local total, on = #e.crafters, onlineCount(e.crafters)
+    local lines = {}
+    local count = total .. " " .. U.Plural(total, "tradie")
+    if on > 0 then count = count .. ", " .. T:Wrap("green", on .. " online") end
+    lines[#lines + 1] = { Profs:LineName(e.line), count }
+    -- no whisper bubble on this row, so say why here
+    if not firstOnline(e.crafters) then lines[#lines + 1] = whisperTip({ entry = e }) end
+    lines[#lines + 1] = T:Wrap("dim", "Click for the job sheet")
+    UI:Tip(row, entryName(e), lines)
 end
 
 local function findEntries()
@@ -454,7 +455,7 @@ end
 local function findEmptyText()
     if Profs:Index().recipeCount == 0 then return emptyProfs() end
     if state.search ~= "" then
-        return ('Nobody on the street makes "%s". Might be a Bunnings job.'):format(U.ChatSafe(state.search))
+        return ('Nobody on the street makes "%s". Might be a job for the pawn shop.'):format(U.ChatSafe(state.search))
     end
     if state.person then
         if state.line then
@@ -476,16 +477,16 @@ local function crafterCreateRow(row)
     row.dot:SetPoint("LEFT", 8, 0)
     row.cls = UI:ClassIcon(row, 16)
     row.cls:SetPoint("LEFT", 22, 0)
-    row.name = UI:Text(row, 12, "text")
-    row.name:SetPoint("LEFT", 44, 0)
-    row.name:SetWidth(DRAWER_W - 24 - 44 - 82)
-    row.rank = UI:Text(row, 12, "text", "num")
-    row.rank:SetPoint("RIGHT", -32, 0)
-    row.rank:SetJustifyH("RIGHT")
     row.whisper = UI:IconButton(row, "bubble", 22, "Whisper", function(self)
         if self.key then UI:Whisper(self.key) end
     end)
-    row.whisper:SetPoint("RIGHT", -4, 0)
+    row.whisper:SetPoint("RIGHT", -2, 0)
+    row.rank = UI:Text(row, 12, "text", "num")
+    row.rank:SetPoint("RIGHT", row.whisper, "LEFT", -6, 0)
+    row.rank:SetJustifyH("RIGHT")
+    row.name = UI:Text(row, 12, "text")
+    row.name:SetPoint("LEFT", 44, 0)
+    row.name:SetPoint("RIGHT", row.rank, "LEFT", -6, 0)
     keepHover(row, row.whisper)
 end
 
@@ -530,24 +531,45 @@ local function crafterRows(e)
     return rows
 end
 
-local function buildDrawer(res)
+--- Wide results: the sheet slides over their right side. Narrow: it takes the whole card.
+local function placeDrawer(v)
+    local holder = v.drawerHolder
+    holder:ClearAllPoints()
+    holder:SetPoint("TOPRIGHT", v.res, "TOPRIGHT", -7, -38)
+    holder:SetPoint("BOTTOMRIGHT", v.res, "BOTTOMRIGHT", -7, 7)
+    if (v.res:GetWidth() or 0) < SHEET_FILL_W then
+        holder:SetPoint("TOPLEFT", v.res, "TOPLEFT", 7, -38)
+    else
+        holder:SetWidth(DRAWER_W)
+    end
+end
+
+--- The two-line job name pushes everything under it down, so this runs once the name is set.
+local function placeSheetBody(d)
+    local top = max(40, (d.name:GetStringHeight() or 16) + 4 + (d.sub:GetStringHeight() or 13) + 2)
+    d.rule:ClearAllPoints()
+    d.rule:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -(top + 8))
+    d.rule:SetPoint("TOPRIGHT", d.body, "TOPRIGHT", 0, -(top + 8))
+    d.label:ClearAllPoints()
+    d.label:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -(top + 16))
+    d.list:ClearAllPoints()
+    d.list:SetPoint("TOPLEFT", d.body, "TOPLEFT", 0, -(top + 34))
+    d.list:SetPoint("BOTTOMRIGHT", d.body, "BOTTOMRIGHT", 0, 34)
+end
+
+local function buildDrawer(v, res)
     -- a raised holder keeps the sheet above the result rows it slides over
     local holder = CreateFrame("Frame", nil, res)
     holder:SetFrameLevel(res:GetFrameLevel() + 30)
-    holder:SetPoint("TOPRIGHT", res, "TOPRIGHT", -1, -37)
-    holder:SetPoint("BOTTOMRIGHT", res, "BOTTOMRIGHT", -1, 1)
-    holder:SetWidth(DRAWER_W)
-    local d = UI:Card(holder, { title = "Job sheet", icon = "clipboard" })
+    v.drawerHolder = holder
+    -- while it's open the sheet is what the page is about, so it gets the page's one gold rim
+    local d = UI:Card(holder, { title = "Job sheet", icon = "clipboard", tier = "hero" })
     d:SetAllPoints(holder)
-    UI:Shadow(d, 10)
-    -- a floating sheet: dark leather under the slate, in the window's own gold frame
-    d.leather = d:CreateTexture(nil, "BACKGROUND", nil, 1)
-    d.leather:SetPoint("TOPLEFT", 3, -3)
-    d.leather:SetPoint("BOTTOMRIGHT", -3, 3)
-    tiled(d.leather, T.tex.leather, 0.55, 0.5, 0.46, 0.5)
-    d.gold = d:CreateTexture(nil, "BORDER", nil, 1)
-    d.gold:SetAllPoints()
-    UI.Sliced(d.gold, T.tex.frameGold, 16)
+    -- the panel art lets a little through, and rows must not ghost through a floating sheet
+    d.solid = d:CreateTexture(nil, "BACKGROUND", nil, -7)
+    d.solid:SetPoint("TOPLEFT", 2, -2)
+    d.solid:SetPoint("BOTTOMRIGHT", -2, 2)
+    d.solid:SetColorTexture(C.bg2[1], C.bg2[2], C.bg2[3], 1)
     d:EnableMouse(true)
     d:EnableMouseWheel(true)
     d:SetScript("OnMouseWheel", function() end) -- don't scroll the results underneath
@@ -555,39 +577,33 @@ local function buildDrawer(res)
         state.selected = nil
         refreshFind(true)
     end)
-    d.close:SetPoint("TOPRIGHT", -9, -8)
+    d.close:SetPoint("TOPRIGHT", -9, -6)
 
     local body = d.body
-    d.itemBtn = goldFrame(UI:ItemButton(body, 40), 40)
+    d.itemBtn = UI:ItemButton(body, 40)
     d.itemBtn:SetPoint("TOPLEFT", 0, 0)
     d.spellBtn = spellButton(body, 40, nil)
     d.spellBtn:SetPoint("TOPLEFT", 0, 0)
     d.name = UI:Text(body, 14, "text", "ui")
     d.name:SetPoint("TOPLEFT", 50, -2)
-    d.name:SetWidth(DRAWER_W - 24 - 50)
+    d.name:SetPoint("TOPRIGHT", 0, -2)
     d.name:SetWordWrap(true)
     if d.name.SetMaxLines then d.name:SetMaxLines(2) end
     d.sub = UI:Text(body, 11, "dim")
     d.sub:SetPoint("TOPLEFT", d.name, "BOTTOMLEFT", 0, -4)
-    d.sub:SetWidth(DRAWER_W - 24 - 50)
-    local div = body:CreateTexture(nil, "ARTWORK")
-    div:SetTexture(T.tex.dividerGold)
-    div:SetHeight(12)
-    div:SetPoint("TOPLEFT", -4, -50)
-    div:SetPoint("TOPRIGHT", 4, -50)
-    div:SetAlpha(0.85)
+    d.sub:SetPoint("TOPRIGHT", d.name, "BOTTOMRIGHT", 0, -4)
+    d.rule = UI:Hairline(body, "bronze", 0.5)
     d.label = groupLabel(body, "")
-    d.label:SetPoint("TOPLEFT", 0, -66)
-    d.list = UI:List(body, { rowHeight = 32, createRow = crafterCreateRow, updateRow = crafterUpdateRow, onEnter = crafterTip })
-    d.list:SetPoint("TOPLEFT", 0, -82)
-    d.list:SetPoint("BOTTOMRIGHT", 0, 38)
+    d.list = UI:List(body, { rowHeight = 28, createRow = crafterCreateRow, updateRow = crafterUpdateRow, onEnter = crafterTip })
     d.ask = UI:Button(body, "Ask in guild chat", {
-        icon = "megaphone", height = 26, width = DRAWER_W - 24,
+        icon = "megaphone", height = 26, width = 100,
         tooltip = "Posts a short request in guild chat. You'll see it before it goes.",
         onClick = function() askGuild(d.entry) end,
     })
     d.ask:SetPoint("BOTTOMLEFT", 0, 2)
+    d.ask:SetPoint("BOTTOMRIGHT", 0, 2)
     d:Hide()
+    holder:Show()
     return d
 end
 
@@ -618,6 +634,9 @@ local function refreshDrawer(v)
     local spell = Profs:RecipeName(e.recipe)
     if e.item and spell and spell ~= name then sub = sub .. DOT .. spell end
     d.sub:SetText(sub)
+    placeSheetBody(d)
+    -- the name's width comes from its anchors, so it only measures true once it's been laid out
+    GF:After(0, function() placeSheetBody(d) end)
     local rows = crafterRows(e)
     d.label:SetText(("%d %s ON THE BOOKS"):format(#rows, U.Plural(#rows, "TRADIE", "TRADIES")))
     d.list:SetItems(rows, same)
@@ -639,7 +658,7 @@ local function layoutFindBody(v)
         v.banner:ClearAllPoints()
         v.banner:SetPoint("TOPLEFT", 0, -y)
         v.banner:SetPoint("TOPRIGHT", 0, -y)
-        y = y + 38
+        y = y + v.banner:GetHeight() + 8
     end
     if v.personBtn:IsShown() then
         v.personBtn:ClearAllPoints()
@@ -651,6 +670,46 @@ local function layoutFindBody(v)
     v.list:SetPoint("BOTTOMRIGHT", 0, 0)
 end
 
+--- Everything that hangs off the page's width: the trades list or its dropdown, the title row.
+local function fitFind(v)
+    local W = v:GetWidth() or 0
+    if W < 200 then return end
+    local narrow = W < NARROW_W
+    v.left:SetShown(not narrow)
+    v.lineDD:SetShown(narrow)
+    v.res:ClearAllPoints()
+    if narrow then
+        v.res:SetPoint("TOPLEFT", v, "TOPLEFT", 0, 0)
+    else
+        v.res:SetPoint("TOPLEFT", v.left, "TOPRIGHT", 16, 0)
+    end
+    v.res:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+    local resW = narrow and W or (W - LEFT_W - 16)
+    local searchW = (resW >= 520 and not narrow) and 224 or 160
+    v.search:SetWidth(searchW)
+    local tw = v.res.title:GetStringWidth() or 90
+    local room = resW - 32 - tw - 8 - searchW - 16 - (narrow and (v.lineDD:GetWidth() + 8) or 0)
+    v.res.subtitle:SetShown(room >= 60)
+    v.res.subtitle:SetWidth(max(30, room))
+    placeDrawer(v)
+    -- a long list of windows wraps onto a second line rather than losing the end of the sentence
+    local bannerText = v.banner.text
+    local avail = resW - 24 - 10 - 14 - 8 - 6 - 25
+    local full = textWidth(bannerText) or 0
+    local two = full > avail
+    bannerText:SetWordWrap(two)
+    -- two even lines, not a whole sentence and one lonely word
+    bannerText:ClearAllPoints()
+    bannerText:SetPoint("LEFT", v.banner.icon, "RIGHT", 8, 0)
+    if two then
+        bannerText:SetWidth(min(avail, max(full * 0.62, 120)))
+    else
+        bannerText:SetPoint("RIGHT", v.banner.close, "LEFT", -6, 0)
+    end
+    v.banner:SetHeight(two and 46 or 32)
+    if v.banner:IsShown() then layoutFindBody(v) end
+end
+
 local function buildFind(parent)
     local v = CreateFrame("Frame", nil, parent)
     v:SetAllPoints()
@@ -660,7 +719,8 @@ local function buildFind(parent)
     left:SetPoint("TOPLEFT", 0, 0)
     left:SetPoint("BOTTOMLEFT", 0, 0)
     left:SetWidth(LEFT_W)
-    local scroll, content = UI:Scroll(left.body)
+    v.left = left
+    local scroll, content = UI:Scroll(left.body, { outside = true, inCard = true })
     scroll:SetAllPoints(left.body)
     v.chips = {}
     local y = 0
@@ -671,65 +731,74 @@ local function buildFind(parent)
         v.chips[#v.chips + 1] = chip
         y = y + CHIP_H + 2
     end
-    local function addLabel(text)
-        local fs = groupLabel(content, text)
-        fs:SetPoint("TOPLEFT", 9, -(y + 10))
-        y = y + 28
-    end
     addChip(nil)
-    addLabel("TRADES")
+    -- "All trades" stands apart from the list it sums up: a rule says it, no third "Trades" needed
+    local rule = UI:Hairline(content, "bronze", 0.4)
+    rule:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + 3))
+    rule:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(y + 3))
+    y = y + 8
     for _, line in ipairs(D.professionOrder) do
         if not Profs:IsSecondary(line) then addChip(line) end
     end
-    addLabel("SECONDARY")
+    local sec = UI:SectionLabel(content, "SECONDARY")
+    sec:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(y + 6))
+    sec:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(y + 6))
+    y = y + 26
     for _, line in ipairs(D.professionOrder) do
         if Profs:IsSecondary(line) then addChip(line) end
     end
     scroll:SetContentHeight(y)
 
     -- right: results
-    local res = UI:Card(v, { title = "On the books", icon = "search", subtitle = " " })
-    res:SetPoint("TOPLEFT", left, "TOPRIGHT", 16, 0)
-    res:SetPoint("BOTTOMRIGHT", v, "BOTTOMRIGHT", 0, 0)
+    local res = UI:Card(v, { title = "On the books", icon = "clipboard", subtitle = " " })
     v.res = res
     v.search = UI:Search(res, {
-        placeholder = "Search recipes and items...", width = 200, height = 24,
+        placeholder = "Search recipes, items...", width = 224, height = 24,
         onChange = function(text)
             state.search = U.Trim(text)
             state.selected = nil
             refreshFind()
         end,
     })
-    v.search:SetPoint("TOPRIGHT", res, "TOPRIGHT", -8, -7)
+    v.search:SetPoint("TOPRIGHT", res, "TOPRIGHT", -12, -4)
     v.search:SetText(state.search)
     v.search:RefreshPlaceholder()
-    res:HookScript("OnSizeChanged", function(self, w)
-        local tw = self.title:GetStringWidth() or 90
-        self.subtitle:SetWidth(max(30, (w or 0) - 32 - tw - 8 - 200 - 24))
-    end)
+    -- on a narrow window the trades list folds up into this
+    v.lineDD = UI:Dropdown(res, {
+        width = 150, height = 24,
+        items = function()
+            local items = { { value = "all", text = "All trades", icon = "hammer" } }
+            for _, line in ipairs(D.professionOrder) do
+                items[#items + 1] = { value = line, text = Profs:LineName(line), icon = Profs:LineIcon(line) }
+            end
+            return items
+        end,
+        get = function() return state.line or "all" end,
+        set = function(value)
+            state.line = value ~= "all" and value or nil
+            state.selected = nil
+            refreshFind()
+        end,
+    })
+    v.lineDD:SetPoint("RIGHT", v.search, "LEFT", -8, 0)
+    v.lineDD:Hide()
 
-    -- the nudge is a parchment notice in a bronze rim, written in ink
-    local INK = { 0.24, 0.14, 0.05, 1 }
+    -- the nudge is a parchment notice, written in ink
     local banner = CreateFrame("Frame", nil, res.body)
-    banner:SetHeight(30)
-    banner.bg = banner:CreateTexture(nil, "BACKGROUND")
-    banner.bg:SetPoint("TOPLEFT", 2, -2)
-    banner.bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    tiled(banner.bg, T.tex.parchment, 0.95, 0.9, 0.8, 1)
-    banner.rim = banner:CreateTexture(nil, "BORDER")
-    banner.rim:SetAllPoints()
-    UI.Sliced(banner.rim, T.tex.frameBronze, 8)
-    banner.icon = UI:Icon(banner, 14, "warning", "ARTWORK", { 0.62, 0.16, 0.06, 1 })
+    banner:SetHeight(32)
+    UI:Parchment(banner)
+    banner.icon = UI:Icon(banner, 14, "warning", "ARTWORK", UI.INK.red)
     banner.icon:SetPoint("LEFT", 10, 0)
     banner.close = UI:IconButton(banner, "close", 20, "Hide this for now", function()
         state.bannerClosed = true
         refreshFind(true)
-    end, { 0.36, 0.22, 0.1, 1 })
+    end, UI.INK.dim)
     banner.close:SetPoint("RIGHT", -5, 0)
     -- the kit's white hover would vanish on parchment: go a darker ink instead
-    banner.close:HookScript("OnEnter", function(self) self.icon:SetVertexColor(0.55, 0.1, 0.04, 1) end)
-    banner.text = UI:Text(banner, 11, INK)
+    banner.close:HookScript("OnEnter", function(self) self.icon:SetVertexColor(UI.INK.red[1], UI.INK.red[2], UI.INK.red[3], 1) end)
+    banner.text = UI:Text(banner, 12, UI.INK.dark)
     banner.text:SetShadowOffset(0, 0)
+    banner.text:SetSpacing(2)
     banner.text:SetPoint("LEFT", banner.icon, "RIGHT", 8, 0)
     banner.text:SetPoint("RIGHT", banner.close, "LEFT", -6, 0)
     banner:Hide()
@@ -746,17 +815,21 @@ local function buildFind(parent)
     v.personBtn:Hide()
 
     v.list = UI:List(res.body, {
-        rowHeight = 36, createRow = findCreateRow, updateRow = findUpdateRow,
+        rowHeight = 36, createRow = findCreateRow, updateRow = findUpdateRow, onEnter = findTip,
         onClick = function(e)
             state.selected = (state.selected ~= e.recipe) and e.recipe or nil
             refreshFind(true)
         end,
         isSelected = function(e) return e.recipe == state.selected end,
     })
-    v.empty = UI:Empty(res.body, "", "hammer")
+    v.empty = UI:Empty(res.body, "", "hammer", {
+        action = "Check my toolbox", actionStyle = "primary", onAction = function() rescan() end,
+    })
     v.empty:Hide()
-    v.drawer = buildDrawer(res)
+    v.drawer = buildDrawer(v, res)
     layoutFindBody(v)
+    v:HookScript("OnSizeChanged", fitFind)
+    fitFind(v)
     return v
 end
 
@@ -764,6 +837,7 @@ refreshFind = function(keep)
     local v = views.find
     if not v or not v:IsVisible() then return end
     local idx = Profs:Index()
+    v.lineDD:Refresh()
     for _, chip in ipairs(v.chips) do
         if chip.line then
             chip:Refresh(state.line == chip.line, idx.lineMembers[chip.line] or 0, idx.lineRecipes[chip.line] or 0)
@@ -789,6 +863,7 @@ refreshFind = function(keep)
     else
         v.personBtn:Hide()
     end
+    fitFind(v)
     layoutFindBody(v)
 
     if state.selected and not idx.recipes[state.selected] then state.selected = nil end
@@ -808,10 +883,11 @@ refreshFind = function(keep)
     else
         sub = ("%s of %s recipes"):format(U.Commas(#entries), U.Commas(total))
     end
-    if #entries > 0 then sub = sub .. DOT .. "click one for the job sheet" end
     v.res.subtitle:SetText(sub)
     if #entries == 0 then
         v.empty:SetText(findEmptyText())
+        -- nothing on file at all is the one case a button can help with
+        v.empty.action:SetShown(idx.recipeCount == 0)
         v.empty:Show()
     else
         v.empty:Hide()
@@ -837,7 +913,7 @@ end
 local function licBlock(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(150, 26)
-    f.art = UI:FramedIcon(f, 22)
+    f.art = UI:IconChip(f, 18)
     f.art:SetPoint("LEFT", 0, 0)
     f.icon = f.art.icon
     f.rank = UI:Text(f, 12, "text", "num")
@@ -846,28 +922,34 @@ local function licBlock(parent)
     f.name = UI:Text(f, 11, "dim")
     f.name:SetPoint("BOTTOMLEFT", f.art, "RIGHT", 6, 1)
     f.name:SetPoint("BOTTOMRIGHT", f.rank, "BOTTOMLEFT", -3, 0)
-    f.bar = UI:Bar(f, { height = 5 })
+    f.bar = UI:Bar(f, { height = 4 })
     f.bar:SetPoint("TOPLEFT", f.art, "RIGHT", 6, -3)
     f.bar:SetPoint("TOPRIGHT", f, "RIGHT", 0, -3)
     return f
 end
 
-local function licSmall(parent, line)
+--- The secondary trades are a table now: the icon's in the column head, the rows are just numbers.
+local function licSmall(parent)
     local f = CreateFrame("Frame", nil, parent)
     f:SetSize(SIDE_W, 20)
-    f.art = UI:FramedIcon(f, 20, Profs:LineIcon(line))
-    f.art:SetPoint("LEFT", 0, 0)
-    f.icon = f.art.icon
-    f.rank = UI:Text(f, 11, "text", "num")
-    f.rank:SetPoint("LEFT", f.art, "RIGHT", 5, 0)
+    f.rank = UI:Text(f, 12, "text", "num")
+    f.rank:SetPoint("RIGHT", 0, 0)
+    f.rank:SetJustifyH("RIGHT")
     return f
 end
+
+local function nameColumn(w) return w < 620 and NAME_W_NARROW or NAME_W end
 
 local function licLayout(row)
     local w = row:GetWidth() or 0
     row.laidW = w
-    local avail = w - NAME_W - #SECONDARY * SIDE_W - 30
-    local bw = floor(U.Clamp((avail - 10) / 2, 96, 190))
+    local nameW = nameColumn(w)
+    row.prim[1]:ClearAllPoints()
+    row.prim[1]:SetPoint("LEFT", row, "LEFT", nameW, 0)
+    row.none:ClearAllPoints()
+    row.none:SetPoint("LEFT", row, "LEFT", nameW, 0)
+    local avail = w - nameW - #SECONDARY * SIDE_W - 30
+    local bw = floor(U.Clamp((avail - 12) / 2, 96, 190))
     row.prim[1]:SetWidth(bw)
     row.prim[2]:SetWidth(bw)
 end
@@ -879,18 +961,16 @@ local function licCreateRow(row)
     row.dot:SetPoint("BOTTOMRIGHT", row.cls, "BOTTOMRIGHT", 3, -2)
     row.name = UI:Text(row, 13, "text")
     row.name:SetPoint("BOTTOMLEFT", row.cls, "RIGHT", 8, 1)
-    row.note = UI:Text(row, 10, "faint")
+    row.note = UI:Text(row, 11, "dim")
     row.note:SetPoint("TOPLEFT", row.cls, "RIGHT", 8, -2)
     row.prim = { licBlock(row), licBlock(row) }
-    row.prim[1]:SetPoint("LEFT", row, "LEFT", NAME_W, 0)
-    row.prim[2]:SetPoint("LEFT", row.prim[1], "RIGHT", 10, 0)
-    row.none = UI:Text(row, 11, "faint")
-    row.none:SetPoint("LEFT", row, "LEFT", NAME_W, 0)
+    row.prim[2]:SetPoint("LEFT", row.prim[1], "RIGHT", 12, 0)
+    row.none = UI:Text(row, 11, "dim")
     row.none:SetText("No trade on file")
     row.sec = {}
-    for i, line in ipairs(SECONDARY) do
-        local s = licSmall(row, line)
-        s:SetPoint("RIGHT", row, "RIGHT", -(8 + (#SECONDARY - i) * SIDE_W), 0)
+    for i in ipairs(SECONDARY) do
+        local s = licSmall(row)
+        s:SetPoint("RIGHT", row, "RIGHT", -(18 + (#SECONDARY - i) * SIDE_W), 0)
         row.sec[i] = s
     end
     row:HookScript("OnSizeChanged", licLayout)
@@ -908,7 +988,8 @@ local function fillBlock(f, l, focus)
     local done = l.rank >= Profs.MAX_SKILL
     f.rank:SetText(l.rank > 0 and tostring(l.rank) or "?")
     UI:SetTextColor(f.rank, done and "gold" or "text")
-    f.bar:SetColor(done and "gold" or "green")
+    -- maxed earns the gold; the climb is plain metal, not another green thing to look at
+    f.bar:SetColor(done and "gold" or "bronze")
     f.bar:SetValue(l.rank / Profs.MAX_SKILL)
 end
 
@@ -920,8 +1001,9 @@ local function licUpdateRow(row, r)
     row.cls:SetClass(GF.Roster:Class(r.key))
     local dc = r.online and C.green or C.faint
     row.dot:SetVertexColor(dc[1], dc[2], dc[3], r.online and 1 or 0.6)
-    row.name:SetWidth(NAME_W - 48 - indent)
-    row.note:SetWidth(NAME_W - 48 - indent)
+    local nameW = nameColumn(row:GetWidth() or 0)
+    row.name:SetWidth(nameW - 48 - indent)
+    row.note:SetWidth(nameW - 48 - indent)
     row.name:SetText(colored(r.key) .. (isMe(r.key) and T:Wrap("faint", " (you)") or ""))
     if r.alt then
         row.note:SetText("Alt of " .. colored(r.main))
@@ -952,13 +1034,9 @@ local function licUpdateRow(row, r)
     for i, line in ipairs(SECONDARY) do
         local s, l = row.sec[i], r.p.lines[line]
         if l then
-            s.art:SetDesaturated(false)
-            s.art:SetAlpha(1)
             s.rank:SetText(l.rank > 0 and tostring(l.rank) or "?")
             UI:SetTextColor(s.rank, l.rank >= Profs.MAX_SKILL and "gold" or (line == state.sort and "text" or "dim"))
         else
-            s.art:SetDesaturated(true)
-            s.art:SetAlpha(0.3)
             s.rank:SetText("-")
             UI:SetTextColor(s.rank, "faint")
         end
@@ -1034,11 +1112,22 @@ local function licenceRows()
     return rows
 end
 
+--- The card hugs a few residents rather than framing a big empty hole. While you're searching it
+-- holds still, so it doesn't jump about under your typing.
+local function fitLicences(v)
+    local full = v:GetHeight() or 0
+    local n = v.rowCount or 0
+    local wanted = 38 + 26 + n * 42 + 10
+    v.card:SetHeight((n > 0 and state.who == "") and min(full, wanted) or full)
+end
+
 local function buildLicences(parent)
     local v = CreateFrame("Frame", nil, parent)
     v:SetAllPoints()
     local card = UI:Card(v, { title = "Residents' licences", icon = "clipboard", subtitle = " " })
-    card:SetAllPoints(v)
+    card:SetPoint("TOPLEFT")
+    card:SetPoint("TOPRIGHT")
+    card:SetHeight(200)
     v.card = card
     v.sort = UI:Dropdown(card, {
         width = 180, height = 24, items = sortItems,
@@ -1050,7 +1139,7 @@ local function buildLicences(parent)
         end,
         tooltip = "Sort by name, by who's on, or by skill in a trade",
     })
-    v.sort:SetPoint("TOPRIGHT", card, "TOPRIGHT", -8, -7)
+    v.sort:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -4)
     v.search = UI:Search(card, {
         placeholder = "Find a resident...", width = 170, height = 24,
         onChange = function(text)
@@ -1059,26 +1148,52 @@ local function buildLicences(parent)
         end,
     })
     v.search:SetPoint("RIGHT", v.sort, "LEFT", -8, 0)
-    card:HookScript("OnSizeChanged", function(self, w)
-        local tw = self.title:GetStringWidth() or 120
-        self.subtitle:SetWidth(max(30, (w or 0) - 32 - tw - 8 - 180 - 170 - 32))
-    end)
 
     local body = card.body
-    -- column labels line up with the row parts below (rows stop 10px short for the scrollbar)
-    local function label(text, rel, x)
-        local fs = groupLabel(body, text)
-        fs:SetPoint("TOPLEFT", body, rel, x, 0)
+    -- column heads line up with the row parts below
+    v.head = CreateFrame("Frame", nil, body)
+    v.head:SetPoint("TOPLEFT")
+    v.head:SetPoint("TOPRIGHT")
+    v.head:SetHeight(24)
+    local resident = groupLabel(v.head, "Resident")
+    resident:SetPoint("TOPLEFT", 10, -2)
+    v.tradesLabel = groupLabel(v.head, "Trades")
+    for i, line in ipairs(SECONDARY) do
+        -- the column's icon says which trade it is, and the rows don't have to repeat it
+        local chip = UI:IconChip(v.head, 18, Profs:LineIcon(line))
+        chip:SetPoint("TOPRIGHT", v.head, "TOPRIGHT", -(18 + (#SECONDARY - i) * SIDE_W), 0)
+        chip:EnableMouse(true)
+        UI.AttachTip(chip, function() return Profs:LineName(line) end)
     end
-    label("RESIDENT", "TOPLEFT", 10)
-    label("TRADES", "TOPLEFT", NAME_W)
-    label("SECONDARY", "TOPRIGHT", -(18 + #SECONDARY * SIDE_W))
+    local rule = UI:Hairline(v.head, "bronze", 0.4, "none")
+    rule:SetPoint("BOTTOMLEFT", 0, 1)
+    rule:SetPoint("BOTTOMRIGHT", 0, 1)
 
     v.list = UI:List(body, { rowHeight = 40, createRow = licCreateRow, updateRow = licUpdateRow, onEnter = licTip, onClick = licClick })
-    v.list:SetPoint("TOPLEFT", 0, -18)
-    v.list:SetPoint("BOTTOMRIGHT", 0, 0)
-    v.empty = UI:Empty(body, "", "clipboard")
+    -- the kit keeps 10 spare on a row's right for the scrollbar: hang that in the card's margin
+    -- so the rows finish where the header's rule does
+    v.list:SetPoint("TOPLEFT", 0, -26)
+    v.list:SetPoint("BOTTOMRIGHT", 10, 0)
+    v.empty = UI:Empty(body, "", "clipboard", {
+        action = "Check my toolbox", actionStyle = "primary", onAction = function() rescan() end,
+    })
     v.empty:Hide()
+
+    -- the title row gives way on a narrow window: smaller controls, and no stub of a subtitle
+    card:HookScript("OnSizeChanged", function(self, w)
+        w = w or 0
+        local small = w < 700
+        local sortW, searchW = small and 190 or 200, small and 150 or 170
+        v.sort:SetWidth(sortW)
+        v.search:SetWidth(searchW)
+        local tw = self.title:GetStringWidth() or 120
+        local room = w - 32 - tw - 8 - sortW - searchW - 32
+        self.subtitle:SetShown(room >= 120)
+        self.subtitle:SetWidth(max(30, room))
+        v.tradesLabel:ClearAllPoints()
+        v.tradesLabel:SetPoint("TOPLEFT", v.head, "TOPLEFT", nameColumn(w - 14), -2)
+    end)
+    v:HookScript("OnSizeChanged", fitLicences)
     return v
 end
 
@@ -1087,6 +1202,8 @@ refreshLicences = function(keep)
     if not v or not v:IsVisible() then return end
     v.sort:Refresh()
     local rows = licenceRows()
+    v.rowCount = #rows
+    fitLicences(v)
     v.list:SetItems(rows, keep)
     local maxed = 0
     for _, r in ipairs(rows) do
@@ -1098,12 +1215,16 @@ refreshLicences = function(keep)
     if #rows == 0 then
         if state.who ~= "" then
             v.empty:SetText(('No resident called "%s" holds a licence. Dodgy.'):format(U.ChatSafe(state.who)))
+            v.empty.action:Hide()
         else
             v.empty:SetText(emptyProfs())
+            v.empty.action:Show()
         end
         v.empty:Show()
+        v.head:Hide()
     else
         v.empty:Hide()
+        v.head:Show()
     end
 end
 
@@ -1149,77 +1270,83 @@ local function cooldownRows()
     return rows, ready
 end
 
-local function cdCreateRow(row)
-    -- recipe headers: a gold wash from the left, the spell in a gold frame, the name in gold
-    row.hSheen = row:CreateTexture(nil, "BACKGROUND", nil, 3)
+local CD_HEAD_H, CD_ROW_H, CD_GROUP_GAP = 32, 28, 12
+
+local function cdMakeRow(parent)
+    local row = CreateFrame("Button", nil, parent)
+    row.hl = row:CreateTexture(nil, "BACKGROUND")
+    row.hl:SetAllPoints()
+    row.hl:SetColorTexture(1, 0.90, 0.68, 0.055)
+    row.hl:Hide()
+    -- recipe headers: a gold wash from the left and a bronze rule, the name in gold
+    row.hSheen = row:CreateTexture(nil, "BACKGROUND", nil, 1)
     row.hSheen:SetAllPoints()
-    row.hSheen:SetTexture(T.tex.white)
-    if row.hSheen.SetGradient and CreateColor then
-        row.hSheen:SetGradient("HORIZONTAL", CreateColor(1, 0.78, 0.25, 0.12), CreateColor(1, 0.78, 0.25, 0))
-    else
-        row.hSheen:SetColorTexture(1, 0.78, 0.25, 0.05)
-    end
-    row.hEdge = row:CreateTexture(nil, "BORDER")
+    UI:Gradient(row.hSheen, "HORIZONTAL", 1, 0.78, 0.25, 0.12, 0)
+    row.hEdge = UI:Hairline(row, "bronze", 0.6)
     row.hEdge:SetPoint("BOTTOMLEFT", 0, 0)
     row.hEdge:SetPoint("BOTTOMRIGHT", 0, 0)
-    row.hEdge:SetHeight(1)
-    row.hEdge:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.6)
-    row.hIcon = UI:FramedIcon(row, 26)
-    row.hIcon:SetPoint("LEFT", 4, 0)
+    row.hIcon = UI:IconChip(row, 22)
+    row.hIcon:SetPoint("LEFT", 6, 0)
     row.hName = UI:Text(row, 13, "wowGold", "ui")
-    row.hName:SetPoint("LEFT", row.hIcon, "RIGHT", 9, 0)
-    row.hCd = UI:Text(row, 11, "faint")
+    row.hName:SetPoint("LEFT", row.hIcon, "RIGHT", 8, 0)
+    row.hCd = UI:Text(row, 11, "dim")
     row.hCd:SetPoint("LEFT", row.hName, "RIGHT", 10, 0)
-    row.hCount = UI:Text(row, 11, "dim", "head")
-    row.hCount:SetPoint("RIGHT", -10, 0)
+    row.hCount = UI:Text(row, 11, "dim", "ui")
+    row.hCount:SetPoint("RIGHT", -8, 0)
 
     row.dot = UI:Icon(row, 8, "dot")
-    row.dot:SetPoint("LEFT", 40, 0)
+    row.dot:SetPoint("LEFT", 22, 0)
     row.cls = UI:ClassIcon(row, 16)
-    row.cls:SetPoint("LEFT", 56, 0)
-    row.whisper = UI:Button(row, "Whisper", {
-        height = 20, size = 10, icon = "bubble", iconSize = 11,
-        -- never nil: the kit would fall back to the function itself and AddLine it
-        tooltip = function(self) return self.target and ("Whisper " .. colored(self.target)) or "Nobody to whisper" end,
-        onClick = function(self) if self.target then UI:Whisper(self.target) end end,
-    })
-    row.whisper:SetPoint("RIGHT", -8, 0)
-    row.status = UI:Text(row, 12, "text", "head")
-    row.status:SetPoint("RIGHT", row.whisper, "LEFT", -12, 0)
+    row.cls:SetPoint("LEFT", 36, 0)
+    row.whisper = UI:IconButton(row, "bubble", 24, function(self)
+        return self.target and ("Whisper " .. colored(self.target)) or "Nobody to whisper"
+    end, function(self) if self.target then UI:Whisper(self.target) end end)
+    row.whisper:SetPoint("RIGHT", -2, 0)
+    row.status = UI:Text(row, 12, "dim")
+    row.status:SetPoint("RIGHT", row.whisper, "LEFT", -8, 0)
     row.status:SetJustifyH("RIGHT")
     row.cName = UI:Text(row, 12, "text")
-    row.cName:SetPoint("LEFT", 80, 0)
+    row.cName:SetPoint("LEFT", 60, 0)
     row.cName:SetPoint("RIGHT", row.status, "LEFT", -12, 0)
     keepHover(row, row.whisper)
+    restUntilHover(row, row.whisper)
     row.headParts = { row.hIcon, row.hName, row.hCd, row.hCount, row.hSheen, row.hEdge }
     row.crafterParts = { row.dot, row.cls, row.cName, row.status }
+    row:SetScript("OnEnter", function(self)
+        self.hl:SetShown(self.item.kind ~= "h")
+        GF:Safe("tradies:cd-tip", row.tip, self, self.item)
+    end)
+    row:SetScript("OnLeave", function(self)
+        self.hl:Hide()
+        UI:HideTip()
+    end)
+    return row
 end
 
 local function cdUpdateRow(row, it)
+    row.item = it
     local head = it.kind == "h"
     for _, w in ipairs(row.headParts) do w:SetShown(head) end
     for _, w in ipairs(row.crafterParts) do w:SetShown(not head) end
     if head then
-        row.bg:SetColorTexture(C.bg3[1], C.bg3[2], C.bg3[3], 1)
         row.hIcon:SetIcon(API.SpellIcon(it.recipe))
         row.hName:SetText(Profs:RecipeName(it.recipe) or "Mystery recipe")
         row.hCd:SetText(cdLength(it.cd) .. " cooldown")
         row.hCount:SetText(("%d of %d ready"):format(it.ready, it.total))
-        UI:SetTextColor(row.hCount, it.ready > 0 and "green" or "dim")
         row.whisper:Hide()
         return
     end
-    row.bg:SetColorTexture(C.bg2[1], C.bg2[2], C.bg2[3], 0.7)
     local dc = it.online and C.green or C.faint
     row.dot:SetVertexColor(dc[1], dc[2], dc[3], it.online and 1 or 0.6)
     row.cls:SetClass(GF.Roster:Class(it.key))
-    row.cName:SetText(colored(it.key) .. (isMe(it.key) and T:Wrap("faint", " (you)") or ""))
+    row.cName:SetText(colored(it.key) .. (isMe(it.key) and T:Wrap("dim", " (you)") or ""))
+    -- green only for a cast we actually logged; a guess or a countdown is just information
     if it.left then
-        row.status:SetText(T:Wrap("yellow", "in " .. U.Duration(it.left)))
+        row.status:SetText("in " .. U.Duration(it.left))
     elseif it.at then
-        row.status:SetText(T:Wrap("green", "READY"))
+        row.status:SetText(T:Wrap("green", "Ready"))
     else
-        row.status:SetText(T:Wrap("dim", "PROBABLY READY"))
+        row.status:SetText("Probably ready")
     end
     local target = (not it.left and it.online and not isMe(it.key)) and it.key or nil
     row.whisper.target = target
@@ -1243,23 +1370,37 @@ local function cdTip(row, it)
     UI:Tip(row, colored(it.key), lines)
 end
 
+--- The card hugs a short list rather than framing a big empty hole; a long one fills and scrolls.
+local function fitCooldowns(v)
+    local full = v:GetHeight() or 0
+    local wanted = 38 + (v.listH or 0) + 12
+    v.card:SetHeight((v.listH or 0) > 0 and min(full, wanted) or full)
+    local w = v.card:GetWidth() or 0
+    local tw = v.card.title:GetStringWidth() or 90
+    local room = w - 32 - tw - 8 - 130
+    -- the second sentence is the first to go when the title row gets tight
+    v.card.subtitle:SetText(room >= 430 and "Transmutes, Mooncloth and mates. Times come from each tradie's last cast."
+        or "Transmutes, Mooncloth and mates.")
+    v.card.subtitle:SetWidth(max(30, room))
+    v.scroll:SetContentHeight(v.listH or 0)
+end
+
 local function buildCooldowns(parent)
     local v = CreateFrame("Frame", nil, parent)
     v:SetAllPoints()
     local card = UI:Card(v, { title = "Cooldowns", icon = "clock", subtitle = " " })
-    card:SetAllPoints(v)
+    card:SetPoint("TOPLEFT")
+    card:SetPoint("TOPRIGHT")
     v.card = card
     v.pill = UI:Pill(card, "", "green", { icon = "check", height = 20 })
-    v.pill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -10, -9)
-    card:HookScript("OnSizeChanged", function(self, w)
-        local tw = self.title:GetStringWidth() or 90
-        self.subtitle:SetWidth(max(30, (w or 0) - 32 - tw - 8 - 130))
-    end)
-    card.subtitle:SetText("Transmutes, Mooncloth and mates. Times come from each tradie's last cast.")
-    v.list = UI:List(card.body, { rowHeight = 32, createRow = cdCreateRow, updateRow = cdUpdateRow, onEnter = cdTip })
-    v.list:SetAllPoints(card.body)
+    v.pill:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -6)
+    v.scroll, v.content = UI:Scroll(card.body, { outside = true, inCard = true })
+    v.scroll:SetAllPoints(card.body)
+    -- the kit's fade goes to near-black, which shows as a dark box on a card
+    v.rows = {}
     v.empty = UI:Empty(card.body, "", "clock")
     v.empty:Hide()
+    v:HookScript("OnSizeChanged", fitCooldowns)
     return v
 end
 
@@ -1267,7 +1408,29 @@ refreshCooldowns = function(keep)
     local v = views.cooldowns
     if not v or not v:IsVisible() then return end
     local rows, ready = cooldownRows()
-    v.list:SetItems(rows, keep)
+    local y = 0
+    for i, it in ipairs(rows) do
+        local row = v.rows[i]
+        if not row then
+            row = cdMakeRow(v.content)
+            row.tip = cdTip
+            v.rows[i] = row
+        end
+        local head = it.kind == "h"
+        if head and i > 1 then y = y + CD_GROUP_GAP end
+        local h = head and CD_HEAD_H or CD_ROW_H
+        row:ClearAllPoints()
+        row:SetPoint("TOPLEFT", v.content, "TOPLEFT", 0, -y)
+        row:SetPoint("TOPRIGHT", v.content, "TOPRIGHT", 0, -y)
+        row:SetHeight(h)
+        cdUpdateRow(row, it)
+        row:Show()
+        y = y + h
+    end
+    for i = #rows + 1, #v.rows do v.rows[i]:Hide() end
+    v.listH = y
+    if not keep then v.scroll:SetVerticalScroll(0) end
+    fitCooldowns(v)
     v.pill:SetText(ready .. " READY NOW", ready > 0 and "green" or "dim")
     v.pill:SetShown(#rows > 0)
     -- another cooldown came off: a light sweep across the count (not on every 15 s tick)
@@ -1366,7 +1529,7 @@ local function applyArg(arg)
     end
 end
 
-local function rescan()
+rescan = function()
     local res = Profs:Rescan()
     if res == "combat" then
         UI:Toast({ title = "Hang on", text = "You're in a scrap. Your toolbox gets checked once it's over.", icon = "clock", style = "yellow", key = "profs-rescan" })
@@ -1386,8 +1549,9 @@ local function build(p)
     end
 
     p.header = UI:PageHeader(p, "Tradies", "")
+    -- a matte face, not a ghost: it sits on the forge's glow and has to stay readable there
     p.header:AddAction(UI:Button(p.header, "Rescan", {
-        style = "ghost", icon = "sync", onClick = rescan,
+        icon = "sync", onClick = rescan,
         tooltip = { "Check my toolbox", { "Re-reads your skills, cooldowns and any recipes you've picked up.", "Opening a profession window gives the full picture." } },
     }))
 
@@ -1400,10 +1564,12 @@ local function build(p)
         prefs().tab = key
         showView(key, true)
     end)
-    p.tabs:SetPoint("TOPLEFT", p.header, "BOTTOMLEFT", 0, -4)
+    -- under the night scene, on the dark: the tabs don't have to fight the picture
+    p.tabs:SetPoint("TOPLEFT", p.header, "BOTTOMLEFT", 0, -14)
+    p.tabs:SetPoint("TOPRIGHT", p.header, "BOTTOMRIGHT", 0, -14)
 
     p.body = CreateFrame("Frame", nil, p)
-    p.body:SetPoint("TOPLEFT", p.tabs, "BOTTOMLEFT", 0, -14)
+    p.body:SetPoint("TOPLEFT", p.tabs, "BOTTOMLEFT", 0, -12)
     p.body:SetPoint("BOTTOMRIGHT", p, "BOTTOMRIGHT", 0, 0)
 end
 

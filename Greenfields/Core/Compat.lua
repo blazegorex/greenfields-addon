@@ -27,12 +27,17 @@ local function pack(...) return { n = select("#", ...), ... } end
 -------------------------------------------------------------------------------
 local canaccess = G("canaccessvalue")
 local issecret = G("issecretvalue")
+-- The answer depends on who's asking, so it's asked from here rather than straight through pcall.
+local function accessible(v)
+    local r = canaccess(v)
+    return r
+end
 
 --- true when v can be safely compared/concatenated/used as a key.
 function API.Readable(v)
-    if v == nil then return true end
+    if type(v) == "nil" then return true end   -- not v == nil: even that can raise on a secret
     if canaccess then
-        local ok, r = pcall(canaccess, v)
+        local ok, r = pcall(accessible, v)
         if ok then return r and true or false end
         return false
     end
@@ -90,11 +95,20 @@ end
 -------------------------------------------------------------------------------
 local uniqueNames
 
+-- Blizzard said the "Camelot" name is getting renamed, so the build's own TOC number vouches for
+-- Forever as well. If both went, surnames would come back into keys and sync would fall apart.
+local function foreverClient()
+    local pid, camelot = G("WOW_PROJECT_ID"), G("WOW_PROJECT_CAMELOT")
+    if pid and camelot and pid == camelot then return true end
+    local f = G("GetBuildInfo")
+    if not f then return false end
+    local ok, _, _, _, toc = pcall(f)
+    return (ok and type(toc) == "number" and Readable(toc) and toc >= 16000 and toc <= 19999) and true or false
+end
+
 function API.UniqueNames()
     if uniqueNames == nil then
-        uniqueNames = false
-        local pid, camelot = G("WOW_PROJECT_ID"), G("WOW_PROJECT_CAMELOT")
-        if pid and camelot and pid == camelot then uniqueNames = true end
+        uniqueNames = foreverClient()
         local f = G("RegionalUniqueNamesEnabled")
         if f then
             local ok, r = pcall(f)
@@ -104,10 +118,7 @@ function API.UniqueNames()
     return uniqueNames
 end
 
-function API.IsForever()
-    local pid, camelot = G("WOW_PROJECT_ID"), G("WOW_PROJECT_CAMELOT")
-    return (pid and camelot and pid == camelot) and true or false
-end
+function API.IsForever() return foreverClient() end
 
 --- Key(rawName) -> stable player key or nil (secret / empty).
 function API.Key(name)
@@ -146,6 +157,15 @@ end
 -------------------------------------------------------------------------------
 -- Units
 -------------------------------------------------------------------------------
+--- FullName(unit) -> first name, surname: UnitFullName's second return is a surname on Forever.
+function API.FullName(unit)
+    local f = G("UnitFullName")
+    if not f or type(unit) ~= "string" then return nil end
+    local ok, n, surname = pcall(f, unit)
+    if not ok then return nil end
+    return API.CleanString(n), API.CleanString(surname)
+end
+
 function API.UnitName(unit)
     local f = G("UnitName")
     if not f or type(unit) ~= "string" then return nil end
@@ -171,6 +191,15 @@ function API.UnitLevel(unit)
     local ok, l = pcall(f, unit)
     if ok and type(l) == "number" and Readable(l) then return l end
     return 0
+end
+
+--- The zone you're in, spelt the way the guild roster spells it, or nil when the client won't say.
+function API.ZoneName()
+    local f = G("GetRealZoneText")
+    if not f then return nil end
+    local ok, z = pcall(f)
+    if ok and type(z) == "string" and Readable(z) and z ~= "" then return z end
+    return nil
 end
 
 function API.UnitRace(unit)
@@ -617,8 +646,12 @@ function API.CanLeadGroup()
     return API.IsGroupLeader("player") or API.IsGroupAssistant("player")
 end
 
+--- Invite(key) -> ok, "clash" when two guildies share that first name and we won't guess which.
 function API.Invite(name)
+    if GF.gateShut then return false, "gate" end
     if type(name) ~= "string" then return false end
+    name = API.WhisperName(name)
+    if not name then return false, "clash" end
     local CP = G("C_PartyInfo")
     local f = (CP and CP.InviteUnit) or G("InviteUnit")
     if not f then return false end
@@ -643,10 +676,36 @@ function API.SwapRaidSubgroup(a, b)
     return pcall(f, a, b)
 end
 
+--- LootMethodNow() -> the current method's name, or nil when the client won't say.
+function API.LootMethodNow()
+    local CP = G("C_PartyInfo")
+    local f = (CP and CP.GetLootMethod) or G("GetLootMethod")
+    if not f then return nil end
+    local ok, m = pcall(f)
+    if not ok or not Readable(m) then return nil end
+    if type(m) == "string" then return m end
+    local E = G("Enum")
+    local LM = E and E.LootMethod
+    if type(LM) == "table" then
+        for name, value in pairs(LM) do
+            if value == m then return name end
+        end
+    end
+    return m ~= nil and tostring(m) or nil
+end
+
 -------------------------------------------------------------------------------
 -- Guild
 -------------------------------------------------------------------------------
 function API.InGuild() return boolCall("IsInGuild") end
+
+--- True only when the client plainly says no guild: a failed or secret answer isn't a no.
+function API.NoGuild()
+    local f = G("IsInGuild")
+    if not f then return false end
+    local ok, r = pcall(f)
+    return ok and Readable(r) and not r
+end
 
 --- GuildInfo() -> guildName, rankName, rankIndex (0 = GM)
 function API.GuildInfo()
@@ -664,14 +723,15 @@ function API.RequestGuildRoster()
     if f then pcall(f) end
 end
 
---- GuildMembers() -> list of {name, key, rankName, rankIndex, level, class, zone, note, officerNote, online, guid, mobile}
+--- GuildMembers() -> list of {name, key, rankName, rankIndex, level, class, zone, note, officerNote, online, guid, mobile},
+-- count of rows that are there but couldn't be read
 function API.GuildMembers()
-    local out = {}
+    local out, hidden = {}, 0
     local num = G("GetNumGuildMembers")
     local info = G("GetGuildRosterInfo")
-    if not num or not info then return out end
+    if not num or not info then return out, hidden end
     local ok, total = pcall(num)
-    if not ok or type(total) ~= "number" then return out end
+    if not ok or type(total) ~= "number" then return out, hidden end
     for i = 1, total do
         local ok2, name, rankName, rankIndex, level, _, zone, note, officerNote, online, _, classFile, _, _, isMobile, _, _, guid = pcall(info, i)
         if ok2 and type(name) == "string" and Readable(name) then
@@ -690,9 +750,11 @@ function API.GuildMembers()
                 mobile = Readable(isMobile) and isMobile and true or false,
                 guid = Readable(guid) and guid or nil,
             }
+        elseif not ok2 or type(name) ~= "nil" then
+            hidden = hidden + 1
         end
     end
-    return out
+    return out, hidden
 end
 
 -------------------------------------------------------------------------------
@@ -744,9 +806,11 @@ end
 --- SendChat(text, chatType, target) -> ok. Only call from user actions for SAY/YELL.
 --- WhisperName(key) -> the name the server accepts for a whisper. Forever wants the full
 -- "Name Surname" the guild roster shows; a bare first name gets "No player named ...".
+-- nil when two guildies share that first name: which one you'd get is anyone's guess.
 function API.WhisperName(key)
     if type(key) ~= "string" then return key end
     local R = GF.Roster
+    if R and R.Clash and R:Clash(key) then return nil end
     local m = R and R.Get and R:Get(key)
     if m and type(m.name) == "string" then return m.name end
     local g = R and R.GroupEntry and R:GroupEntry(key)
@@ -755,9 +819,11 @@ function API.WhisperName(key)
 end
 
 function API.SendChat(text, chatType, target)
+    if GF.gateShut then return false, "gate" end
     if type(text) ~= "string" or text == "" or type(chatType) ~= "string" then return false end
     if chatType == "WHISPER" then
         target = API.WhisperName(target)
+        if not target then return false, "clash" end
         if GF.Comm and GF.Comm.NoteWhisper then GF.Comm:NoteWhisper(target) end
     end
     if API.ChatLockdown() then return false, "lockdown" end
@@ -796,6 +862,80 @@ function API.SendAddon(prefix, text, channel, target)
         return false, "error"
     end
     return true
+end
+
+--- RestrictionActive("Chat"|"Combat"|"Encounter"|"Map"|"PvPMatch"|"ChallengeMode") -> true, false, or
+-- nil when the client can't or won't say.
+function API.RestrictionActive(kind)
+    local R, E = G("C_RestrictedActions"), G("Enum")
+    local T = E and E.AddOnRestrictionType
+    if not (R and R.IsAddOnRestrictionActive and T and T[kind] ~= nil) then return nil end
+    local ok, r = pcall(R.IsAddOnRestrictionActive, T[kind])
+    if not ok or not Readable(r) then return nil end
+    return r and true or false
+end
+
+-------------------------------------------------------------------------------
+-- Diagnostics: for asking the client about things we've only read about (/gf doctor)
+-------------------------------------------------------------------------------
+--- EnumNames("LootMethod") -> what the client calls that enum's members, in value order, or nil.
+function API.EnumNames(enum)
+    local E = G("Enum")
+    local t = E and E[enum]
+    if type(t) ~= "table" then return nil end
+    local names = {}
+    for name in pairs(t) do names[#names + 1] = name end
+    table.sort(names, function(a, b) return (tonumber(t[a]) or 0) < (tonumber(t[b]) or 0) end)
+    return names
+end
+
+local function lookup(path)
+    local cur = _G
+    for part in path:gmatch("[^%.]+") do
+        if type(cur) ~= "table" then return nil end
+        cur = rawget(cur, part)
+    end
+    return cur
+end
+
+local function describe(v, nested)
+    if not Readable(v) then return "hidden" end
+    if type(v) == "string" then return ("%q"):format(v) end
+    if type(v) ~= "table" then return tostring(v) end
+    if nested then return "table" end
+    local parts = {}
+    for k, x in pairs(v) do
+        parts[#parts + 1] = (Readable(k) and tostring(k) or "?") .. "=" .. describe(x, true)
+    end
+    table.sort(parts)
+    local more = #parts > 12 and (", " .. (#parts - 12) .. " more") or ""
+    return "{" .. table.concat(parts, ", ", 1, math.min(#parts, 12)) .. more .. "}"
+end
+
+--- ClientFunctions("C_Thing") -> sorted function names in that table, or nil when it isn't there.
+function API.ClientFunctions(path)
+    local t = lookup(path)
+    if type(t) ~= "table" then return nil end
+    local names = {}
+    for k, v in pairs(t) do
+        if type(k) == "string" and type(v) == "function" then names[#names + 1] = k end
+    end
+    table.sort(names)
+    return names
+end
+
+--- Ask("C_Thing.Getter", ...) -> "ok", what it said | "failed", the error | "missing"
+function API.Ask(path, ...)
+    local f = lookup(path)
+    if type(f) ~= "function" then return "missing" end
+    local res = pack(pcall(f, ...))
+    if not res[1] then return "failed", res[2] end
+    local parts = {}
+    for i = 2, res.n do
+        local ok, text = pcall(describe, res[i])
+        parts[#parts + 1] = ok and text or "hidden"
+    end
+    return "ok", #parts > 0 and table.concat(parts, ", ") or "nothing"
 end
 
 -------------------------------------------------------------------------------
@@ -869,13 +1009,17 @@ function API.TooltipPostCall(kind, fn)
     local E = G("Enum")
     local tt = E and E.TooltipDataType and E.TooltipDataType[kind]
     if TDP and TDP.AddTooltipPostCall and tt ~= nil then
-        TDP.AddTooltipPostCall(tt, function(tooltip, data) GF:Safe("tooltip:" .. kind, fn, tooltip, data) end)
+        TDP.AddTooltipPostCall(tt, function(tooltip, data)
+            if not GF.gateShut then GF:Safe("tooltip:" .. kind, fn, tooltip, data) end
+        end)
         return true
     end
     local script = kind == "Item" and "OnTooltipSetItem" or "OnTooltipSetUnit"
     local gt = G("GameTooltip")
     if gt and gt.HasScript and gt:HasScript(script) then
-        gt:HookScript(script, function(self) GF:Safe("tooltip:" .. kind, fn, self, nil) end)
+        gt:HookScript(script, function(self)
+            if not GF.gateShut then GF:Safe("tooltip:" .. kind, fn, self, nil) end
+        end)
         return true
     end
     return false

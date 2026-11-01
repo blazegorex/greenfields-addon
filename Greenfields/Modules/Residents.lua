@@ -1,14 +1,14 @@
 --[[ Greenfields - Modules/Residents.lua
      The Residents page ("roster"): the whole guild as one street.
 
-     A summary strip (headcount, who's home, who runs Greenfields, a clickable class-mix
-     bar; slate tiles with framed game icons) sits above a virtual list of everyone on the
-     roster, under a tooled-leather column band. Each row shows presence,
-     class, level, rank, whereabouts, their top Hall of Fame title, roll-call percentage
-     and their two main trades; alts can fold in underneath their main. Left-click opens
-     the resident's profile (Modules/Profile.lua), right-click offers whisper, invite and
-     copy-name. Everything other modules supply (titles, attendance, professions) is
-     optional and fetched behind guards, lazily, only for the rows on screen.
+     A single summary plate (headcount, who's home, who's on Greenfields, a clickable
+     class-mix bar) sits above a virtual list of everyone on the roster. Each row is a line
+     in a ledger: class portrait with one presence pip, name, level, rank, whereabouts, their
+     top Hall of Fame title, roll-call percentage and their two main trades; alts can fold in
+     underneath their main. Left-click opens the resident's profile (Modules/Profile.lua),
+     right-click offers whisper, invite and copy-name. Everything other modules supply
+     (titles, attendance, professions) is optional and fetched behind guards, lazily, only
+     for the rows on screen.
 
      Per-account view preferences live in GF.db.settings.residents = { filter, sort, groupAlts }. ]]
 
@@ -22,23 +22,23 @@ local sort, concat = table.sort, table.concat
 
 local ROW_H = 38
 local INDENT = 18
-local TILE_W = 140
+local TILE_W = 116
 local GROUP_ALTS = "_groupAlts"     -- pseudo-value in the filter menu: toggles alt grouping
--- summary tile art (classic-era icon files present in every client)
-local TILE_ART = {
-    online = "Interface\\Icons\\INV_Misc_Rune_01",        -- the hearthstone: home now
-    addon = "Interface\\Icons\\Spell_Nature_Lightning",   -- matches the bolt used for the addon filter
-}
+local SORT_PICK = "sort:"           -- pseudo-value prefix in the filter menu: picks the sort order
 -- small gold caption text (the game's own "label" gold, a shade down so values lead)
 local GOLD_DIM = { C.wowGold[1] * 0.82, C.wowGold[2] * 0.82, C.wowGold[3], 1 }
+-- data colours, a shade down from the theme's neon so a roster of them doesn't shout
+local GOOD = { 0.46, 0.80, 0.56, 1 }
+local WARN = { 0.93, 0.76, 0.28, 1 }
+local BAD = { 0.92, 0.44, 0.42, 1 }
 local REFRESH_COOLDOWN = 10         -- seconds between roster requests from the refresh button
-local DOT = "  " .. T:Wrap("faint", "\194\183") .. "  "
+local DOT = "  " .. T:Wrap("dim", "\194\183") .. "  "
 
 local LINES = {
     noGuild = "Not in a guild, mate. Hard to have neighbours without a street.",
     noMatch = "Nobody by that name on this street. Check the spelling, or check the servo.",
     noneHome = "Lights on, nobody home. Typical.",
-    noAddon = "Nobody's running Greenfields yet. Spread the word at the next barbie.",
+    noAddon = "Nobody's running Greenfields yet. Spread the word at the servo.",
     noOfficers = "No officers on the books. Anarchy on the street.",
     noMains = "Every single one of them is an alt. Bold strategy.",
     noClass = "Nobody of that persuasion lives here any more.",
@@ -120,15 +120,15 @@ local function classRGB(class)
 end
 
 local function pctColor(p)
-    if p >= 75 then return "green" end
-    if p >= 45 then return "yellow" end
-    return "red"
+    if p >= 75 then return GOOD end
+    if p >= 45 then return WARN end
+    return BAD
 end
 
 local function rankColor(key, rankIndex)
-    if rankIndex == 0 then return "gold" end
-    if GF.Roster:IsOfficer(key) then return "green" end
-    return "dim"
+    if rankIndex == 0 then return C.wowGold end
+    if GF.Roster:IsOfficer(key) then return GOOD end
+    return C.dim
 end
 
 --- Sizes a FontString to its text, capped at maxW (truncates beyond). Returns the width used.
@@ -299,19 +299,31 @@ end
 -------------------------------------------------------------------------------
 -- Row geometry, shared by the column header and every row
 -------------------------------------------------------------------------------
-local COL_LVL, COL_RANK, COL_ATT, COL_TRADES = 34, 110, 64, 104
+local AVATAR_X, NAME_X = 10, 46
+local COL_LVL, COL_RANK, COL_ATT, COL_TRADES = 30, 92, 56, 100
+local COL_GAP = 12
 
+--- Names get a steady column and whereabouts takes what's left up to a cap, so a row's values
+-- don't drift apart on a big window: spare width becomes air between the columns. A narrow
+-- window drops roll call (it's still in the tooltip) before anything truncates.
 local function columns(w)
-    local fixed = 54 + 8 + COL_LVL + 8 + COL_RANK + 8 + 8 + COL_ATT + COL_TRADES
-    local free = max(160, (w or 0) - fixed)
-    local c = { name = 54 }
-    c.nameW = max(110, floor(free * 0.56))
-    c.zoneW = max(50, free - c.nameW)
-    c.level = c.name + c.nameW + 8
-    c.rank = c.level + COL_LVL + 8
-    c.zone = c.rank + COL_RANK + 8
-    c.att = (w or 0) - COL_TRADES - COL_ATT
-    c.trades = (w or 0) - COL_TRADES
+    w = w or 0
+    local narrow = w < 680
+    local nameW = narrow and 160 or 190
+    local attW = narrow and 0 or COL_ATT
+    local gaps = narrow and 4 or 5
+    local free = w - (NAME_X + nameW + COL_LVL + COL_RANK + attW + COL_TRADES) - gaps * COL_GAP
+    local zoneW = U.Clamp(free, 50, 240)
+    local spare = max(0, free - zoneW)
+    local grow = min(70, spare)
+    nameW = nameW + grow
+    local gap = COL_GAP + floor((spare - grow) / gaps)
+    local c = { narrow = narrow, name = NAME_X, nameW = nameW, zoneW = zoneW }
+    c.level = c.name + nameW + gap
+    c.rank = c.level + COL_LVL + gap
+    c.zone = c.rank + COL_RANK + gap
+    c.att = c.zone + zoneW + gap
+    c.trades = w - COL_TRADES
     return c
 end
 
@@ -319,43 +331,48 @@ end
 -- Rows
 -------------------------------------------------------------------------------
 local function createRow(row)
-    row.dot = row:CreateTexture(nil, "ARTWORK")
-    row.dot:SetTexture(T.tex.circle)
-    row.dot:SetSize(8, 8)
-    row.dot:SetPoint("LEFT", 8, 0)
     -- tree connector for alts folded under their main
     row.elbowV = row:CreateTexture(nil, "ARTWORK")
-    row.elbowV:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.75)
+    row.elbowV:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.55)
     row.elbowV:SetWidth(1)
-    row.elbowV:SetPoint("TOPLEFT", row, "TOPLEFT", 30, 2)
-    row.elbowV:SetPoint("BOTTOMLEFT", row, "LEFT", 30, 0)
+    row.elbowV:SetPoint("TOPLEFT", row, "TOPLEFT", AVATAR_X + 10, 0)
+    row.elbowV:SetPoint("BOTTOMLEFT", row, "LEFT", AVATAR_X + 10, 0)
     row.elbowH = row:CreateTexture(nil, "ARTWORK")
-    row.elbowH:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.75)
+    row.elbowH:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.55)
     row.elbowH:SetSize(7, 1)
-    row.elbowH:SetPoint("LEFT", row, "LEFT", 30, 0)
-    row.avatar = UI:Avatar(row, 26)
-    -- a thin gold ring around the class portrait, unit-frame style
-    row.ring = row:CreateTexture(nil, "ARTWORK", nil, 1)
-    row.ring:SetTexture(T.tex.circle)
-    row.ring:SetSize(30, 30)
-    row.ring:SetPoint("CENTER", row.avatar, "CENTER", 0, 0)
-    row.ring:SetVertexColor(0.78, 0.6, 0.2, 1)
-    row.name = UI:Text(row, 12, "text", "ui")
-    row.gf = UI:Pill(row, "GF", "green", { height = 14, size = 9 })
-    row.gf:SetPoint("LEFT", row.name, "RIGHT", 4, 0)
-    row.sub = UI:Text(row, 11, "faint")
+    row.elbowH:SetPoint("LEFT", row, "LEFT", AVATAR_X + 10, 0)
+    row.avatar = UI:Avatar(row, 28)
+    -- the row's one marker: a pip on the portrait's shoulder. A child frame, so it draws over the ring.
+    row.pip = CreateFrame("Frame", nil, row.avatar)
+    row.pip:SetSize(11, 11)
+    row.pip:SetPoint("CENTER", row.avatar, "BOTTOMRIGHT", -4, 4)
+    row.pip.back = row.pip:CreateTexture(nil, "ARTWORK")
+    row.pip.back:SetTexture(T.tex.circle)
+    row.pip.back:SetAllPoints()
+    row.pip.back:SetVertexColor(0.02, 0.025, 0.04, 1)
+    row.pip.dot = row.pip:CreateTexture(nil, "ARTWORK", nil, 1)
+    row.pip.dot:SetTexture(T.tex.circle)
+    row.pip.dot:SetSize(8, 8)
+    row.pip.dot:SetPoint("CENTER")
+    row.name = UI:Text(row, 13, "text", "ui")
+    row.gf = UI:Icon(row, 10, "bolt", "ARTWORK", { GOLD_DIM[1], GOLD_DIM[2], GOLD_DIM[3], 0.75 })
+    row.gf:SetPoint("LEFT", row.name, "RIGHT", 2, 0)
+    row.sub = UI:Text(row, 11, "dim")
     row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -2)
     row.level = UI:Text(row, 12, "text", "num")
-    row.level:SetJustifyH("CENTER")
+    row.level:SetJustifyH("RIGHT")
     row.level:SetWidth(COL_LVL)
-    row.rank = UI:Pill(row, "", "dim", { height = 18, size = 10 })
+    row.rankIcon = UI:Icon(row, 10, "shield")
+    row.rank = UI:Text(row, 11, "dim")
     row.zone = UI:Text(row, 11, "dim")
-    row.att = UI:Pill(row, "", "green", { height = 18, size = 10 })
+    row.att = UI:Text(row, 12, "text", "num")
+    row.att:SetJustifyH("RIGHT")
+    row.att:SetWidth(COL_ATT)
     row.profs = {}
     for i = 1, 2 do
-        local art = UI:FramedIcon(row, 22)
+        local art = UI:IconChip(row, 18)
         local skill = UI:Text(row, 11, "dim", "num")
-        skill:SetPoint("LEFT", art, "RIGHT", 4, 0)
+        skill:SetPoint("LEFT", art, "RIGHT", 3, 0)
         row.profs[i] = { art = art, skill = skill }
     end
     row:SetScript("OnSizeChanged", function(self, w)
@@ -368,24 +385,32 @@ local function createRow(row)
         if not e or not c then return end
         local indent = e.indent and INDENT or 0
         self.avatar:ClearAllPoints()
-        self.avatar:SetPoint("LEFT", 20 + indent, 0)
+        self.avatar:SetPoint("LEFT", AVATAR_X + indent, 0)
         local nameX, nameW = c.name + indent, max(40, c.nameW - indent)
         self.name:ClearAllPoints()
         self.name:SetPoint("LEFT", self, "LEFT", nameX, self.hasSub and 7 or 0)
-        fitText(self.name, max(20, nameW - (self.gf:IsShown() and (self.gf:GetWidth() + 6) or 0)))
+        fitText(self.name, max(20, nameW - (self.gf:IsShown() and 14 or 0)))
         self.sub:SetWidth(nameW)
         self.level:ClearAllPoints()
         self.level:SetPoint("LEFT", self, "LEFT", c.level, 0)
+        local rx = c.rank
+        self.rankIcon:ClearAllPoints()
+        if self.rankIcon:IsShown() then
+            self.rankIcon:SetPoint("LEFT", self, "LEFT", rx, 0)
+            rx = rx + 14
+        end
         self.rank:ClearAllPoints()
-        self.rank:SetPoint("LEFT", self, "LEFT", c.rank, 0)
+        self.rank:SetPoint("LEFT", self, "LEFT", rx, 0)
+        self.rank:SetWidth(COL_RANK - (rx - c.rank))
         self.zone:ClearAllPoints()
         self.zone:SetPoint("LEFT", self, "LEFT", c.zone, 0)
         self.zone:SetWidth(c.zoneW)
         self.att:ClearAllPoints()
         self.att:SetPoint("LEFT", self, "LEFT", c.att, 0)
+        self.att:SetShown(self.hasAtt and not c.narrow)
         for i, p in ipairs(self.profs) do
             p.art:ClearAllPoints()
-            p.art:SetPoint("LEFT", self, "LEFT", c.trades + (i - 1) * 52, 0)
+            p.art:SetPoint("LEFT", self, "LEFT", c.trades + (i - 1) * 50, 0)
         end
     end
 end
@@ -396,55 +421,63 @@ local function updateRow(row, e)
     local x = extras(e)
     local away = not e.online
 
+    row.pip:SetShown(e.online or e.mobile)
     if e.online then
-        row.dot:SetVertexColor(C.green[1], C.green[2], C.green[3], 1)
-    elseif e.mobile then
-        row.dot:SetVertexColor(C.blue[1], C.blue[2], C.blue[3], 0.9)
+        row.pip.dot:SetVertexColor(C.green[1], C.green[2], C.green[3], 1)
     else
-        row.dot:SetVertexColor(C.faint[1], C.faint[2], C.faint[3], 0.6)
+        row.pip.dot:SetVertexColor(C.blue[1], C.blue[2], C.blue[3], 1)
     end
-    -- dark inset rows over the card's slate (alts a shade lighter, so the fold reads)
-    row.bg:SetColorTexture(0, 0, 0, e.indent and 0.12 or 0.26)
     row.elbowV:SetShown(e.indent and true or false)
     row.elbowH:SetShown(e.indent and true or false)
 
+    -- away shows once, on the portrait; most of a roster is offline most of the time and still has to read
     row.avatar:SetClass(e.class)
-    row.avatar:SetAlpha(away and 0.55 or 1)
-    row.ring:SetAlpha(away and 0.45 or 1)
+    row.avatar.icon:SetDesaturated(away)
+    row.avatar:SetAlpha(away and 0.7 or 1)
     row.name:SetText(U.ClassName(e.key, e.class))
-    row.name:SetAlpha(away and 0.75 or 1)
     row.gf:SetShown(e.version ~= nil)
 
     local parts = {}
-    if e.main then parts[#parts + 1] = T:Wrap("faint", "alt of ") .. U.ClassName(e.main, str(GF.Roster:Class(e.main))) end
-    if x.title then parts[#parts + 1] = T:Wrap(x.shame and "red" or "gold", x.title) end
-    if e.alts and not e.indent then parts[#parts + 1] = T:Wrap("faint", e.alts .. " " .. U.Plural(e.alts, "alt")) end
+    if e.main then parts[#parts + 1] = "alt of " .. U.ClassName(e.main, str(GF.Roster:Class(e.main))) end
+    if x.title then
+        -- a secondary line colours rather than shouts
+        if x.shame then
+            parts[#parts + 1] = U.Color(x.title, BAD[1], BAD[2], BAD[3])
+        else
+            parts[#parts + 1] = U.Color(x.title, GOLD_DIM[1], GOLD_DIM[2], GOLD_DIM[3])
+        end
+    end
+    if e.alts and not e.indent then parts[#parts + 1] = e.alts .. " " .. U.Plural(e.alts, "alt") end
     row.hasSub = #parts > 0
     row.sub:SetText(concat(parts, DOT))
     row.sub:SetShown(row.hasSub)
 
     row.level:SetText(e.level > 0 and e.level or "")
     UI:SetTextColor(row.level, e.level >= 60 and "text" or "dim")
-    if e.rankName ~= "" then
-        row.rank:SetText(shorten(e.rankName, 16), rankColor(e.key, e.rankIndex))
-        row.rank:Show()
-    else
-        row.rank:Hide()
+    row.rank:SetText(shorten(e.rankName, 16))
+    UI:SetTextColor(row.rank, rankColor(e.key, e.rankIndex))
+    -- only the ranks that run the place earn a mark; 25 identical badges say nothing
+    local officer = e.rankIndex ~= 0 and GF.Roster:IsOfficer(e.key)
+    row.rankIcon:SetShown(e.rankName ~= "" and (e.rankIndex == 0 or officer))
+    if e.rankIndex == 0 then
+        UI:SetIcon(row.rankIcon, "crown")
+        row.rankIcon:SetVertexColor(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
+    elseif officer then
+        UI:SetIcon(row.rankIcon, "shield")
+        row.rankIcon:SetVertexColor(GOOD[1], GOOD[2], GOOD[3], 1)
     end
     row.zone:SetText(e.zone or (e.mobile and "On the app") or "")
-    UI:SetTextColor(row.zone, away and "faint" or "dim")
 
+    row.hasAtt = x.att ~= nil
     if x.att then
-        row.att:SetText(x.att .. "%", pctColor(x.att))
-        row.att:Show()
-    else
-        row.att:Hide()
+        row.att:SetText(x.att .. "%")
+        UI:SetTextColor(row.att, pctColor(x.att))
     end
     for i, slot in ipairs(row.profs) do
         local p = x.profs[i]
         if p then
             slot.art:SetIcon(p.icon)
-            slot.art:SetAlpha(away and 0.6 or 1)
+            slot.art:SetAlpha(away and 0.75 or 1)
             slot.skill:SetText(p.rank)
             UI:SetTextColor(slot.skill, p.rank >= 300 and "wowGold" or "dim")
             slot.art:Show()
@@ -480,17 +513,21 @@ local function rowTooltip(row, e)
     if e.note then lines[#lines + 1] = T:Wrap("dim", "Note: ") .. e.note end
     if e.officerNote then lines[#lines + 1] = T:Wrap("yellow", "Officer note: ") .. e.officerNote end
     lines[#lines + 1] = " "
-    lines[#lines + 1] = T:Wrap("faint", "Click for their profile" .. "  \194\183  " .. "Right-click for options")
+    lines[#lines + 1] = T:Wrap("dim", "Click for their profile" .. "  \194\183  " .. "Right-click for options")
     UI:Tip(row, U.ClassName(e.key, e.class), lines, "ANCHOR_CURSOR")
 end
 
 local function invite(key)
-    if not API.Invite(key) then
-        UI:Toast({ title = "No dice", text = "Couldn't send that invite right now. Try again in a sec.", icon = "warning", style = "red", key = "gf-invite-fail" })
+    local ok, why = API.Invite(key)
+    if not ok then
+        local text = why == "clash" and "Two residents answer to that name and the addon won't guess. /invite the full name yourself."
+            or "Couldn't send that invite right now. Try again in a sec."
+        UI:Toast({ title = "No dice", text = text, icon = "warning", style = "red", key = "gf-invite-fail" })
     end
 end
 
-local function contextMenu(e)
+--- The right-click menu for a resident; `e` is a roster member or a row made from one.
+function UI:ResidentMenu(e)
     local isMe = e.key == API.MyKey()
     local reachable = e.online or e.mobile
     UI:OpenMenu(nil, {
@@ -507,7 +544,7 @@ end
 -------------------------------------------------------------------------------
 local render -- forward: (page, resetScroll)
 
---- Tile state: a warm wash on hover; the active quick filter gets the gold "selected"
+--- Cell state: a warm wash on hover; the active quick filter gets the gold "selected"
 -- treatment the sidebar and tabs use (gold underline over a gold glow).
 local function tileBorder(t)
     t.hl:SetShown((t.hover and not t.active) and true or false)
@@ -538,43 +575,41 @@ local function hoverTip(f, fn, onClick)
     end
 end
 
---- Stat tile in the kit's card dress (worn slate, bronze rim) with a framed game icon.
-local function statTile(parent, art, label)
-    local t = UI:Card(parent)
+--- One cell of the summary plate: a number and what it counts, split from its neighbour by a
+-- fine rule. They share one plate so the strip reads as a single fact line, not a row of KPI boxes.
+local function statTile(parent, label)
+    local t = CreateFrame("Frame", nil, parent)
     t:SetWidth(TILE_W)
     t.isTile = true
-    t.hl = t:CreateTexture(nil, "ARTWORK", nil, -2)
-    t.hl:SetPoint("TOPLEFT", 3, -3)
-    t.hl:SetPoint("BOTTOMRIGHT", -3, 3)
-    t.hl:SetColorTexture(1, 0.86, 0.55, 0.06)
+    t.hl = t:CreateTexture(nil, "BACKGROUND", nil, 2)
+    t.hl:SetAllPoints()
+    t.hl:SetColorTexture(1, 0.86, 0.55, 0.05)
     t.hl:SetBlendMode("ADD")
     t.hl:Hide()
-    t.selWash = t:CreateTexture(nil, "ARTWORK", nil, -1)
-    t.selWash:SetTexture(T.tex.white)
-    t.selWash:SetPoint("BOTTOMLEFT", 3, 3)
-    t.selWash:SetPoint("BOTTOMRIGHT", -3, 3)
+    t.selWash = t:CreateTexture(nil, "BACKGROUND", nil, 3)
+    t.selWash:SetPoint("BOTTOMLEFT")
+    t.selWash:SetPoint("BOTTOMRIGHT")
     t.selWash:SetHeight(30)
-    local CC = rawget(_G, "CreateColor")
-    if not (t.selWash.SetGradient and type(CC) == "function"
-        and pcall(t.selWash.SetGradient, t.selWash, "VERTICAL", CC(1, 0.78, 0.25, 0.20), CC(1, 0.78, 0.25, 0))) then
-        t.selWash:SetColorTexture(1, 0.78, 0.25, 0.08)
-    end
+    UI:Gradient(t.selWash, "VERTICAL", 1, 0.78, 0.25, 0.10, 0)
     t.selWash:Hide()
-    t.selLine = t:CreateTexture(nil, "OVERLAY")
-    t.selLine:SetPoint("BOTTOMLEFT", 8, 3)
-    t.selLine:SetPoint("BOTTOMRIGHT", -8, 3)
+    t.selLine = t:CreateTexture(nil, "ARTWORK")
+    t.selLine:SetPoint("BOTTOMLEFT", 8, 1)
+    t.selLine:SetPoint("BOTTOMRIGHT", -8, 1)
     t.selLine:SetHeight(2)
     t.selLine:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
     t.selLine:Hide()
-    t.art = UI:FramedIcon(t, 30, art)
-    t.art:SetPoint("LEFT", 10, 0)
-    t.value = UI:Text(t, 24, "text", "num")
-    t.value:SetPoint("TOPLEFT", 48, -10)
+    t.sep = t:CreateTexture(nil, "ARTWORK")
+    t.sep:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.30)
+    t.sep:SetWidth(1)
+    t.sep:SetPoint("TOPRIGHT", 0, -10)
+    t.sep:SetPoint("BOTTOMRIGHT", 0, 10)
+    t.value = UI:Text(t, 20, "text", "ui")
+    t.value:SetPoint("TOPLEFT", 14, -11)
     t.extra = UI:Text(t, 11, "dim")
-    t.extra:SetPoint("BOTTOMLEFT", t.value, "BOTTOMRIGHT", 5, 3)
-    t.label = UI:Text(t, 10, GOLD_DIM, "head")
-    t.label:SetPoint("BOTTOMLEFT", 48, 11)
-    t.label:SetText(label:upper())
+    t.extra:SetPoint("BOTTOMLEFT", t.value, "BOTTOMRIGHT", 6, 2)
+    t.label = UI:Text(t, 11, "dim")
+    t.label:SetPoint("TOPLEFT", 14, -37)
+    t.label:SetText(label)
     return t
 end
 
@@ -585,7 +620,8 @@ end
 
 local function layoutMix(tile)
     local bar = tile.bar
-    local w, h = bar:GetWidth() or 0, bar:GetHeight() or 12
+    -- segments sit inside the groove's lit edge
+    local w, h = (bar:GetWidth() or 0) - 2, (bar:GetHeight() or 12) - 2
     for _, seg in pairs(tile.segs) do seg:Hide() end
     local data, total = tile.data or {}, tile.total or 0
     if w <= 0 or total <= 0 then return end
@@ -598,13 +634,33 @@ local function layoutMix(tile)
         local seg = tile.segs[d.class]
         if seg and sw >= 1 then
             seg:ClearAllPoints()
-            seg:SetPoint("TOPLEFT", bar, "TOPLEFT", x, 0)
+            seg:SetPoint("TOPLEFT", bar, "TOPLEFT", x + 1, -1)
             seg:SetSize(max(1, sw - ((i < n and sw > 2) and 1 or 0)), h)
             seg:SetAlpha((tile.page.classFilter and tile.page.classFilter ~= d.class) and 0.25 or 1)
             seg:Show()
         end
         x = x + sw
     end
+end
+
+--- As many classes as fit on one line, biggest first; the bar's segments name the rest on hover.
+local function fitLegend(tile)
+    local data = tile.data or {}
+    if (tile.total or 0) == 0 then
+        tile.legend:SetText("Nobody to count yet.")
+        return
+    end
+    local room = (tile.legend:GetWidth() or 0)
+    local text = ""
+    for i = 1, #data do
+        local bit = U.Color(API.ClassName(data[i].class) .. " " .. data[i].n, U.ClassColorHex(data[i].class))
+        local try = i == 1 and bit or (text .. "   " .. bit)
+        tile.legend:SetText(try)
+        local tw = (tile.legend.GetUnboundedStringWidth and tile.legend:GetUnboundedStringWidth()) or tile.legend:GetStringWidth() or 0
+        if i > 1 and room > 0 and tw > room then break end
+        text = try
+    end
+    tile.legend:SetText(text)
 end
 
 local function mixSegment(tile, class)
@@ -614,7 +670,7 @@ local function mixSegment(tile, class)
     s.tex:SetAllPoints()
     local r, g, b = classRGB(class)
     -- shaded status-bar fill, tinted to the class
-    s.tex:SetTexture(T.tex.bar)
+    s.tex:SetTexture(T.tex.barFill)
     s.tex:SetVertexColor(r, g, b, 1)
     s.hl = s:CreateTexture(nil, "OVERLAY")
     s.hl:SetAllPoints()
@@ -631,7 +687,7 @@ local function mixSegment(tile, class)
             { "Home now", tostring(d.online) },
             { "Share", U.Pct(d.n, tile.total) .. "%" },
             " ",
-            T:Wrap("faint", filtering and "Click to show everyone again" or ("Click to show only " .. U.Plural(2, API.ClassName(self.class)))),
+            T:Wrap("dim", filtering and "Click to show everyone again" or ("Click to show only " .. U.Plural(2, API.ClassName(self.class)))),
         })
     end)
     s:SetScript("OnLeave", function(self) self.hl:Hide(); UI:HideTip() end)
@@ -645,31 +701,27 @@ local function mixSegment(tile, class)
 end
 
 local function mixTile(parent, page)
-    local t = UI:Card(parent)
+    local t = CreateFrame("Frame", nil, parent)
     t.page = page
     t.segs = {}
-    t.title = UI:Text(t, 11, "wowGold", "ui")
-    t.title:SetPoint("TOPLEFT", 12, -10)
+    t.title = UI:Text(t, 12, "wowGold", "ui")
+    t.title:SetPoint("TOPLEFT", 14, -10)
     t.title:SetText("Street mix")
-    t.count = UI:Text(t, 10, "dim", "head")
-    t.count:SetPoint("TOPRIGHT", -12, -11)
+    t.count = UI:Text(t, 11, "dim")
+    t.count:SetPoint("TOPRIGHT", -14, -11)
     t.count:SetJustifyH("RIGHT")
     t.bar = CreateFrame("Frame", nil, t)
-    t.bar:SetPoint("TOPLEFT", 13, -28)
-    t.bar:SetPoint("TOPRIGHT", -13, -28)
-    t.bar:SetHeight(11)
-    -- bronze-edged dark well, like the game's own status bars
-    t.edge = t:CreateTexture(nil, "BORDER", nil, 1)
-    t.edge:SetPoint("TOPLEFT", t.bar, "TOPLEFT", -1, 1)
-    t.edge:SetPoint("BOTTOMRIGHT", t.bar, "BOTTOMRIGHT", 1, -1)
-    t.edge:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.85)
-    t.track = t.bar:CreateTexture(nil, "BACKGROUND")
-    t.track:SetAllPoints()
-    t.track:SetColorTexture(0.02, 0.025, 0.02, 0.95)
-    t.bar:SetScript("OnSizeChanged", function() GF:Safe("residents:mix", layoutMix, t) end)
-    t.legend = UI:Text(t, 10, "dim")
-    t.legend:SetPoint("TOPLEFT", 12, -46)
-    t.legend:SetPoint("TOPRIGHT", -12, -46)
+    t.bar:SetPoint("TOPLEFT", 14, -27)
+    t.bar:SetPoint("TOPRIGHT", -14, -27)
+    t.bar:SetHeight(10)
+    t.track = UI:Nine(t.bar, "groove", "BACKGROUND")
+    t.bar:SetScript("OnSizeChanged", function()
+        GF:Safe("residents:mix", layoutMix, t)
+        GF:Safe("residents:mix", fitLegend, t)
+    end)
+    t.legend = UI:Text(t, 11, "dim")
+    t.legend:SetPoint("TOPLEFT", 14, -42)
+    t.legend:SetPoint("TOPRIGHT", -14, -42)
     for _, class in ipairs(API.CLASSES) do mixSegment(t, class) end
     return t
 end
@@ -695,17 +747,8 @@ local function updateMix(tile, entries)
         return a.class < b.class
     end)
     tile.data, tile.byClass, tile.total = data, byClass, total
-    if total == 0 then
-        tile.legend:SetText(T:Wrap("faint", "Nobody to count yet."))
-        tile.count:SetText("")
-    else
-        local bits = {}
-        for i = 1, min(4, #data) do
-            bits[i] = U.Color(API.ClassName(data[i].class) .. " " .. data[i].n, U.ClassColorHex(data[i].class))
-        end
-        tile.legend:SetText(concat(bits, "   "))
-        tile.count:SetText(#data .. " " .. U.Plural(#data, "CLASS", "CLASSES"))
-    end
+    tile.count:SetText(total == 0 and "" or (#data .. " " .. U.Plural(#data, "class", "classes")))
+    fitLegend(tile)
     layoutMix(tile)
 end
 
@@ -723,9 +766,10 @@ local function updateSummary(page, entries)
     tiles.total.value:SetText(total)
     tiles.total.extra:SetText(alts > 0 and (alts .. " " .. U.Plural(alts, "alt")) or "")
     tiles.online.value:SetText(online)
-    tiles.online.extra:SetText(total > 0 and (U.Pct(online, total) .. "%") or "")
+    tiles.online.extra:SetText(total > 0 and ("of " .. total) or "")
     tiles.addon.value:SetText(gf)
-    tiles.addon.extra:SetText(gfHome > 0 and (gfHome .. " home") or "")
+    -- "3  3 home" just stutters: only worth saying when it's not all of them
+    tiles.addon.extra:SetText((gfHome > 0 and gfHome < gf) and (gfHome .. " home") or "")
     page.counts = { total = total, online = online, gf = gf, gfHome = gfHome, alts = alts }
     updateMix(page.mix, entries)
 end
@@ -738,17 +782,21 @@ local function setSort(page, mode)
     render(page, true)
 end
 
-local function colLabel(parent, page, text, sortKey)
+local function colLabel(parent, page, text, sortKey, alignRight)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(22)
-    b.label = UI:Text(b, 10, GOLD_DIM, "head")
-    b.label:SetPoint("LEFT", 0, 0)
+    b.label = UI:Text(b, 11, GOLD_DIM, "ui")
+    b.label:SetPoint(alignRight and "RIGHT" or "LEFT", 0, 0)
     b.label:SetText(text)
     b.sortKey = sortKey
     b:SetWidth((b.label:GetStringWidth() or 30) + (sortKey and 16 or 4))
     if sortKey then
         b.chev = UI:Icon(b, 9, "chevron_down", "OVERLAY", "wowGold")
-        b.chev:SetPoint("LEFT", b.label, "RIGHT", 3, 0)
+        if alignRight then
+            b.chev:SetPoint("RIGHT", b.label, "LEFT", -3, 0)
+        else
+            b.chev:SetPoint("LEFT", b.label, "RIGHT", 3, 0)
+        end
         b.chev:Hide()
         b:SetScript("OnEnter", function(self)
             UI:SetTextColor(self.label, "text")
@@ -770,19 +818,20 @@ end
 
 local function buildColumns(panel, page)
     local cols = CreateFrame("Frame", nil, panel)
-    cols:SetPoint("TOPLEFT", 6, -6)
-    cols:SetPoint("TOPRIGHT", -16, -6)
-    cols:SetHeight(22)
+    -- lines up with the list's rows, which stop short of its scrollbar
+    cols:SetPoint("TOPLEFT", 8, -3)
+    cols:SetPoint("TOPRIGHT", -18, -3)
+    cols:SetHeight(24)
     cols.labels = {
         online = colLabel(cols, page, "", "online"),
-        name = colLabel(cols, page, "RESIDENT", "name"),
-        level = colLabel(cols, page, "LVL", "level"),
-        rank = colLabel(cols, page, "RANK", "rank"),
-        zone = colLabel(cols, page, "WHEREABOUTS"),
-        att = colLabel(cols, page, "ROLL CALL"),
-        trades = colLabel(cols, page, "TRADES"),
+        name = colLabel(cols, page, "Resident", "name"),
+        level = colLabel(cols, page, "Lvl", "level", true),
+        rank = colLabel(cols, page, "Rank", "rank"),
+        zone = colLabel(cols, page, "Whereabouts"),
+        att = colLabel(cols, page, "Roll call", nil, true),
+        trades = colLabel(cols, page, "Trades"),
     }
-    -- the presence column is headed by a tiny dot instead of a word
+    -- online-first is headed by a tiny pip over the portraits instead of a word
     local on = cols.labels.online
     on.dot = on:CreateTexture(nil, "ARTWORK")
     on.dot:SetTexture(T.tex.circle)
@@ -795,12 +844,14 @@ local function buildColumns(panel, page)
     local function place(self, w)
         local c = columns(w or self:GetWidth())
         local L = self.labels
-        L.online:SetPoint("LEFT", self, "LEFT", 8, 0)
+        for _, b in pairs(L) do b:ClearAllPoints() end
+        L.online:SetPoint("LEFT", self, "LEFT", AVATAR_X + 6, 0)
         L.name:SetPoint("LEFT", self, "LEFT", c.name, 0)
-        L.level:SetPoint("LEFT", self, "LEFT", c.level + 4, 0)
+        L.level:SetPoint("RIGHT", self, "LEFT", c.level + COL_LVL, 0)
         L.rank:SetPoint("LEFT", self, "LEFT", c.rank, 0)
         L.zone:SetPoint("LEFT", self, "LEFT", c.zone, 0)
-        L.att:SetPoint("LEFT", self, "LEFT", c.att, 0)
+        L.att:SetPoint("RIGHT", self, "LEFT", c.att + COL_ATT, 0)
+        L.att:SetShown(not c.narrow)
         L.trades:SetPoint("LEFT", self, "LEFT", c.trades, 0)
     end
     cols:SetScript("OnSizeChanged", place)
@@ -911,15 +962,20 @@ render = function(page, resetScroll, rebuild)
     page.header:SetSubtitle(subtitle(page, p, #shown))
     page.cols:Highlight(p.sort)
     page.filterDD:Refresh()
-    page.sortDD:Refresh()
 end
 
+--- Who to show, then how to order them: the column headers cover most sorts, this covers them all.
 local function filterItems()
     local p = prefs()
     local items = { { text = "Show", title = true } }
     for _, f in ipairs(FILTERS) do items[#items + 1] = f end
     items[#items + 1] = { separator = true }
     items[#items + 1] = { text = "Group alts under mains", value = GROUP_ALTS, icon = "minus", checked = p.groupAlts and true or false }
+    items[#items + 1] = { separator = true }
+    items[#items + 1] = { text = "Sort", title = true }
+    for _, s in ipairs(SORTS) do
+        items[#items + 1] = { text = s.text, value = SORT_PICK .. s.value, checked = p.sort == s.value }
+    end
     return items
 end
 
@@ -942,50 +998,54 @@ local function build(page)
     page.refresh = refresh
     header:AddAction(refresh)
 
-    page.sortDD = UI:Dropdown(header, {
-        width = 122, items = SORTS, tooltip = "Sort order",
-        get = function() return prefs().sort end,
-        set = function(v) if SORT_BY[v] then prefs().sort = v; render(page, true) end end,
-    })
-    header:AddAction(page.sortDD)
-
     page.filterDD = UI:Dropdown(header, {
-        width = 142, items = filterItems, tooltip = "Who to show",
+        width = 142, items = filterItems, tooltip = "Who to show, and in what order",
         get = function() return prefs().filter end,
         set = function(v)
             local p = prefs()
-            if v == GROUP_ALTS then p.groupAlts = not p.groupAlts elseif FILTER_BY[v] then p.filter = v end
+            if v == GROUP_ALTS then
+                p.groupAlts = not p.groupAlts
+            elseif FILTER_BY[v] then
+                p.filter = v
+            elseif type(v) == "string" and v:sub(1, #SORT_PICK) == SORT_PICK and SORT_BY[v:sub(#SORT_PICK + 1)] then
+                p.sort = v:sub(#SORT_PICK + 1)
+            end
             render(page, true)
         end,
     })
     header:AddAction(page.filterDD)
 
     page.searchBox = UI:Search(header, {
-        width = 150, placeholder = "Search the street...",
+        width = 180, placeholder = "Search the street...",
         onChange = function(text)
             page.search = U.Trim(text or "")
             render(page, true)
         end,
     })
     header:AddAction(page.searchBox)
+    -- the well art is see-through, and the street's lit windows were showing through the box
+    local solid = page.searchBox:CreateTexture(nil, "BACKGROUND", nil, -7)
+    solid:SetPoint("TOPLEFT", 2, -2)
+    solid:SetPoint("BOTTOMRIGHT", -2, 2)
+    solid:SetColorTexture(0.03, 0.035, 0.05, 1)
 
-    -- summary strip: three stat tiles plus the class mix, which takes the rest of the width
-    local strip = CreateFrame("Frame", nil, page)
-    strip:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
-    strip:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -8)
+    -- the summary plate: three counts plus the class mix, which takes the rest of the width
+    local strip = UI:Card(page)
+    strip:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -14)
+    strip:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -14)
     strip:SetHeight(64)
     local tiles = {
-        total = statTile(strip, (T.navArt and T.navArt.roster) or "roster", "Residents"),
-        online = statTile(strip, TILE_ART.online, "Home now"),
-        addon = statTile(strip, TILE_ART.addon, "On Greenfields"),
+        total = statTile(strip, "Residents"),
+        online = statTile(strip, "Home now"),
+        addon = statTile(strip, "On Greenfields"),
     }
     tiles.total:SetPoint("TOPLEFT", 0, 0)
     tiles.total:SetPoint("BOTTOMLEFT", 0, 0)
-    tiles.online:SetPoint("TOPLEFT", tiles.total, "TOPRIGHT", 12, 0)
-    tiles.online:SetPoint("BOTTOMLEFT", tiles.total, "BOTTOMRIGHT", 12, 0)
-    tiles.addon:SetPoint("TOPLEFT", tiles.online, "TOPRIGHT", 12, 0)
-    tiles.addon:SetPoint("BOTTOMLEFT", tiles.online, "BOTTOMRIGHT", 12, 0)
-    -- the tiles double as quick filters (click again to show everyone)
+    tiles.online:SetPoint("TOPLEFT", tiles.total, "TOPRIGHT", 0, 0)
+    tiles.online:SetPoint("BOTTOMLEFT", tiles.total, "BOTTOMRIGHT", 0, 0)
+    tiles.addon:SetPoint("TOPLEFT", tiles.online, "TOPRIGHT", 0, 0)
+    tiles.addon:SetPoint("BOTTOMLEFT", tiles.online, "BOTTOMRIGHT", 0, 0)
+    -- the cells double as quick filters (click again to show everyone)
     tiles.total.filter, tiles.online.filter, tiles.addon.filter = "all", "online", "addon"
     local function quickFilter(t)
         local p = prefs()
@@ -996,53 +1056,49 @@ local function build(page)
     hoverTip(tiles.total, function()
         local c = page.counts or {}
         return "Residents", { "Everyone on the guild roster, mains and alts.", { "Alts", tostring(c.alts or 0) },
-            " ", T:Wrap("faint", "Click to show everyone, every class") }
+            " ", T:Wrap("dim", "Click to show everyone, every class") }
     end, quickFilter)
     hoverTip(tiles.online, function(t)
-        return "Home now", { "Logged in right this minute.",
-            " ", T:Wrap("faint", t.active and "Click to show everyone again" or "Click to show only who's home") }
+        local c = page.counts or {}
+        return "Home now", { "Logged in right this minute.", { "Share of the street", U.Pct(c.online or 0, c.total or 0) .. "%" },
+            " ", T:Wrap("dim", t.active and "Click to show everyone again" or "Click to show only who's home") }
     end, quickFilter)
     hoverTip(tiles.addon, function(t)
         local c = page.counts or {}
         return "On Greenfields", { "Residents running the addon. Titles, roll call and trades only show up for them.",
             { "Home right now", tostring(c.gfHome or 0) },
-            " ", T:Wrap("faint", t.active and "Click to show everyone again" or "Click to show only Greenfields users") }
+            " ", T:Wrap("dim", t.active and "Click to show everyone again" or "Click to show only Greenfields users") }
     end, quickFilter)
     page.tiles = tiles
     page.mix = mixTile(strip, page)
-    page.mix:SetPoint("TOPLEFT", tiles.addon, "TOPRIGHT", 12, 0)
+    page.mix:SetPoint("TOPLEFT", tiles.addon, "TOPRIGHT", 0, 0)
     page.mix:SetPoint("BOTTOMRIGHT", strip, "BOTTOMRIGHT", 0, 0)
 
-    -- the list itself: a card with a tooled-leather column band, like the game's roster frames
+    -- the list itself: a card whose top edge is a darker column band, like the game's roster frames
     local panel = UI:Card(page)
-    panel:SetPoint("TOPLEFT", strip, "BOTTOMLEFT", 0, -12)
+    panel:SetPoint("TOPLEFT", strip, "BOTTOMLEFT", 0, -16)
     panel:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     panel.band = panel:CreateTexture(nil, "BACKGROUND", nil, 3)
-    panel.band:SetPoint("TOPLEFT", 3, -3)
-    panel.band:SetPoint("TOPRIGHT", -3, -3)
+    panel.band:SetPoint("TOPLEFT", 1, -1)
+    panel.band:SetPoint("TOPRIGHT", -1, -1)
     panel.band:SetHeight(27)
-    panel.band:SetTexture(T.tex.leather, "REPEAT", "REPEAT")
-    panel.band:SetHorizTile(true)
-    panel.band:SetVertTile(true)
-    panel.band:SetVertexColor(0.72, 0.66, 0.6, 0.95)
+    panel.band:SetColorTexture(0, 0, 0, 0.28)
     page.cols = buildColumns(panel, page)
-    local div = panel:CreateTexture(nil, "ARTWORK")
-    div:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.9)
-    div:SetHeight(1)
-    div:SetPoint("TOPLEFT", 3, -30)
-    div:SetPoint("TOPRIGHT", -3, -30)
+    local div = UI:Hairline(panel, "bronze", 0.5, "none")
+    div:SetPoint("TOPLEFT", 1, -28)
+    div:SetPoint("TOPRIGHT", -1, -28)
     page.list = UI:List(panel, {
-        rowHeight = ROW_H, spacing = 2,
+        rowHeight = ROW_H, spacing = 0,
         createRow = createRow, updateRow = updateRow,
         onEnter = rowTooltip,
         onClick = function(e, row, button)
             UI:HideTip()
-            if button == "RightButton" then contextMenu(e) else openProfile(e.key) end
+            if button == "RightButton" then UI:ResidentMenu(e) else openProfile(e.key) end
         end,
     })
-    page.list:SetPoint("TOPLEFT", 6, -34)
-    page.list:SetPoint("BOTTOMRIGHT", -6, 6)
-    page.empty = UI:Empty(panel, "", "roster")
+    page.list:SetPoint("TOPLEFT", 8, -29)
+    page.list:SetPoint("BOTTOMRIGHT", -8, 8)
+    page.empty = UI:Empty(panel, "", "roster", { width = 500 })
     page.empty:Hide()
 end
 

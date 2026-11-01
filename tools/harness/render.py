@@ -2,23 +2,28 @@
 
 Runs on the SYSTEM Python with PIL (the venv has no PIL):
 
-    C:\\Python313\\python.exe -I tools\\harness\\render.py scene.json out.png [--crop x,y,w,h] [--ss 2]
+    C:\\Python313\\python.exe -I tools\\harness\\render.py scene.json out.png [--crop x,y,w,h] [--ss 2] [--scale 1.33]
     C:\\Python313\\python.exe -I tools\\harness\\render.py --batch jobs.json
     C:\\Python313\\python.exe -I tools\\harness\\render.py --metrics [font_metrics.json]
+
+--scale N gives N output pixels per scene pixel, drawing every coordinate and font larger
+rather than stretching the picture (the owner's screen is about 1.33). The GF_RENDER_SCALE
+environment variable sets the same thing, which is how a run.py batch gets it.
 
 Scene coordinates are screen pixels with the origin at the top-left and y down (see
 wow_mock_scene.lua). Items arrive already sorted back-to-front (strata, frame level, draw
 layer, sublevel, creation order); HIGHLIGHT layers are never exported.
 
 Textures: Interface\\AddOns\\Greenfields\\Media\\x -> Greenfields\\Media\\x.tga; WHITE8X8 is a
-solid white; game icons, atlases and fileIDs become placeholders (a dark square tinted by a
-hash of the path with a 1px border). Vertex colour * alpha, texcoord crops (any quad),
-rotation, gradients, 9-slice (SetTextureSliceMargins), tiling (SetHoriz/VertTile, REPEAT
-wrap), ADD blending, desaturation and masks (circle masks / media alpha masks) are applied.
-FontStrings use fonts.py's stand-ins with |c colour runs, |T|t / |A|a inline icons, |H|h
-links, justify H/V, word wrap within the width, ellipsis truncation, OUTLINE and a 1px
-shadow. Clip rects (SetClipsChildren / ScrollFrame) are honoured. Everything is drawn at
-2x (supersampling) and downscaled with LANCZOS.
+solid white; game icons, atlases and fileIDs come from gamefiles\\icons\\ when this PC has
+them (see gamefiles\\extract.py), otherwise placeholders (a dark square tinted by a hash of
+the path with a 1px border). Vertex colour * alpha, texcoord crops (any quad), rotation,
+gradients, 9-slice (SetTextureSliceMargins), tiling (SetHoriz/VertTile, REPEAT wrap), ADD
+blending, desaturation and masks (circle masks / media alpha masks) are applied.
+FontStrings use fonts.py's real fonts or stand-ins with |c colour runs, |T|t / |A|a inline
+icons, |H|h links, justify H/V, word wrap within the width, ellipsis truncation, OUTLINE and
+the exported shadow. Clip rects (SetClipsChildren / ScrollFrame) are honoured. Everything is
+drawn at 2x (supersampling) and downscaled with LANCZOS.
 """
 import hashlib
 import json
@@ -48,6 +53,24 @@ CIRCLE_MASKS = {"interface\\characterframe\\tempportraitalphamask", "interface\\
                 "interface\\characterframe\\tempportraitalphamasksmall"}
 BG_TOP = (24, 30, 27)
 BG_BOTTOM = (9, 11, 10)
+GAME_ICONS = os.path.join(HERE, "gamefiles", "icons")
+
+
+def load_game_index():
+    """gamefiles\\icons\\index.json, or an empty one on machines without the extracted files."""
+    try:
+        with open(os.path.join(GAME_ICONS, "index.json"), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def env_scale():
+    try:
+        v = float(os.environ.get("GF_RENDER_SCALE") or 1.0)
+    except ValueError:
+        v = 1.0
+    return v if v > 0 else 1.0
 
 
 def norm_path(p):
@@ -68,15 +91,39 @@ def hash_color(key):
 
 
 class Renderer:
-    def __init__(self, media_dir=DEFAULT_MEDIA, ss=2):
+    def __init__(self, media_dir=DEFAULT_MEDIA, ss=2, scale=1.0):
         self.media = media_dir
-        self.ss = ss
+        self.scale = scale
+        self.ss = ss * scale      # working pixels per scene pixel
         self.tex_cache = {}
         self.font_cache = {}
         self.adv_cache = {}
         self.missing = set()
+        self.game = load_game_index()
 
     # ------------------------------------------------------------------ textures
+    def game_image(self, name):
+        """an extracted game file by its index.json name -> ('image', Image) or None"""
+        key = "gamefile:" + name
+        if key not in self.tex_cache:
+            try:
+                self.tex_cache[key] = ("image", Image.open(os.path.join(GAME_ICONS, name)).convert("RGBA"))
+            except OSError:
+                self.tex_cache[key] = None
+        return self.tex_cache[key]
+
+    def texture_id(self, fid):
+        """A fileID. The mock's made-up spell icons are mapped back to the spell's real icon."""
+        sid = str(fid)
+        real = (self.game.get("fake_fdids") or {}).get(sid)
+        name = (self.game.get("fdids") or {}).get(str(real) if real else sid)
+        res = self.game_image(name) if name else None
+        return res or ("placeholder", "fileid:%s" % sid)
+
+    def texture_atlas(self, atlas):
+        name = (self.game.get("atlases") or {}).get(str(atlas).lower())
+        return self.game_image(name) if name else None
+
     def texture(self, path):
         """-> ('white', None) | ('image', Image) | ('placeholder', key)"""
         key = norm_path(path)
@@ -85,6 +132,11 @@ class Renderer:
         res = ("placeholder", key)
         if key in WHITE_FILES:
             res = ("white", None)
+        elif key.isdigit():
+            res = self.texture_id(key)
+        elif not key.startswith(MEDIA_PREFIX):
+            name = (self.game.get("paths") or {}).get(re.sub(r"\.(tga|blp|png)$", "", key))
+            res = (self.game_image(name) if name else None) or res
         elif key.startswith(MEDIA_PREFIX):
             name = key[len(MEDIA_PREFIX):]
             name = re.sub(r"\.(tga|blp|png)$", "", name)
@@ -266,7 +318,7 @@ class Renderer:
                 x, y, w, h = self.to_px(f["rect"])
                 if x + w > 0 and y + h > 0 and x < W and y < H:
                     d = ImageDraw.Draw(canvas)
-                    d.ellipse([x, y, x + w, y + h], fill=(22, 30, 26, 255), outline=(70, 78, 72, 255), width=max(1, ss * 2))
+                    d.ellipse([x, y, x + w, y + h], fill=(22, 30, 26, 255), outline=(70, 78, 72, 255), width=max(1, int(round(ss * 2))))
         for it in scene.get("items", []):
             try:
                 k = it.get("kind")
@@ -278,7 +330,7 @@ class Renderer:
                     self.draw_line(canvas, it)
             except Exception as e:  # never let one item kill the image
                 sys.stderr.write("render: item %s failed: %s\n" % (it.get("id"), e))
-        out = canvas.resize((max(1, int(round(cw))), max(1, int(round(ch)))), Image.LANCZOS).convert("RGB")
+        out = canvas.resize((max(1, int(round(cw * self.scale))), max(1, int(round(ch * self.scale)))), Image.LANCZOS).convert("RGB")
         if out_path:
             out.save(out_path)
         return out
@@ -342,12 +394,15 @@ class Renderer:
         else:
             kind, src = ("placeholder", None)
             path = t.get("file")
+            atlas = self.texture_atlas(t["atlas"]) if t.get("atlas") else None
             if t.get("atlas"):
                 path = t.get("atlasFile") or ("atlas:" + t["atlas"])
-            if path is not None:
+            if atlas:
+                kind, src = atlas
+            elif path is not None:
                 kind, src = self.texture(path)
             elif t.get("fileID") is not None:
-                kind, src = ("placeholder", "fileid:%s" % t["fileID"])
+                kind, src = self.texture_id(t["fileID"])
             if kind == "white":
                 img = Image.new("RGBA", (iw, ih), (255, 255, 255, 255))
             elif kind == "image":
@@ -547,19 +602,12 @@ class Renderer:
         flags = (f.get("flags") or "").upper()
         stroke = 0
         if "THICKOUTLINE" in flags:
-            stroke = 2 * ss
+            stroke = int(round(2 * ss))
         elif "OUTLINE" in flags:
-            stroke = 1 * ss
+            stroke = int(round(1 * ss))
         shadow = f.get("shadow")
         icon_i = 0
         for li, line in enumerate(lines):
-            lw = sum(cw(c[0]) for c in line)
-            if jh == "LEFT":
-                lx = x
-            elif jh == "RIGHT":
-                lx = x + w - lw
-            else:
-                lx = x + (w - lw) / 2.0
             by = ty + li * (line_h + spacing) + baseline_off
             # group same-colour runs
             runs, run, rc = [], [], None
@@ -578,8 +626,16 @@ class Renderer:
                     run.append(ch)
             if run:
                 runs.append(("".join(run), rc))
-            px = lx
-            for text, col in runs:
+            # one advance rule for measuring and drawing, or runs drift apart
+            widths = [icon_w if t == "\x02" else self.run_width(fobj, t) for t, _ in runs]
+            lw = sum(widths)
+            if jh == "LEFT":
+                px = x
+            elif jh == "RIGHT":
+                px = x + w - lw
+            else:
+                px = x + (w - lw) / 2.0
+            for (text, col), tw in zip(runs, widths):
                 if text == "\x02":
                     payload = icons[icon_i] if icon_i < len(icons) else ""
                     icon_i += 1
@@ -588,41 +644,80 @@ class Renderer:
                     continue
                 a = clamp(col[3] * alpha, 0, 1)
                 fill = tuple(int(255 * clamp(v, 0, 1) + 0.5) for v in (col[0], col[1], col[2])) + (int(255 * a + 0.5),)
-                tw = sum(self.adv(fobj, ch) for ch in text)
-                if shadow and not stroke:
+                if shadow:
                     sc = shadow.get("color") or [0, 0, 0, 1]
                     so = shadow.get("offset") or [1, -1]
                     sa = clamp(sc[3] * a, 0, 1)
                     sfill = tuple(int(255 * clamp(v, 0, 1)) for v in sc[:3]) + (int(255 * sa),)
-                    self.text_run(d, (px - box_x0 + so[0] * ss, by - box_y0 - so[1] * ss), text, font, sfill, tracking, fobj)
-                self.text_run(d, (px - box_x0, by - box_y0), text, font, fill, tracking, fobj, stroke)
+                    self.text_run(layer, (px - box_x0 + so[0] * ss, by - box_y0 - so[1] * ss), text, font, sfill, tracking, fobj, stroke)
+                self.text_run(layer, (px - box_x0, by - box_y0), text, font, fill, tracking, fobj, stroke)
                 px += tw
         self.composite(canvas, layer, box_x0, box_y0, it)
 
-    def text_run(self, d, pos, text, font, fill, tracking, fobj, stroke=0):
-        if tracking >= 0.999:
-            kw = {"anchor": "ls", "fill": fill}
-            if stroke:
-                kw["stroke_width"] = stroke
-                kw["stroke_fill"] = (0, 0, 0, fill[3])
-            d.text(pos, text, font=font, **kw)
+    def run_width(self, fobj, text):
+        font, tracking = fobj
+        if abs(tracking - 1.0) < 0.001:
+            return font.getlength(text)      # kerned, exactly what d.text will draw
+        return sum(self.adv(fobj, ch) for ch in text)
+
+    def text_run(self, layer, pos, text, font, fill, tracking, fobj, stroke=0):
+        if abs(tracking - 1.0) < 0.001:
+            self.stamp(layer, pos, text, font, fill, stroke)
             return
         x, y = pos
         for ch in text:
-            kw = {"anchor": "ls", "fill": fill}
-            if stroke:
-                kw["stroke_width"] = stroke
-                kw["stroke_fill"] = (0, 0, 0, fill[3])
-            d.text((x, y), ch, font=font, **kw)
+            self.stamp(layer, (x, y), ch, font, fill, stroke)
             x += self.adv(fobj, ch)
 
+    def stamp(self, layer, pos, text, font, fill, stroke=0):
+        """Draws text as a coverage mask and composites it. ImageDraw writes straight into RGBA,
+        which darkens antialiased edges (colour and alpha both fade), so type came out thin."""
+        x, y = pos
+        bx0, by0, bx1, by1 = font.getbbox(text, anchor="ls", stroke_width=stroke)
+        x0, y0 = int(math.floor(x + bx0)) - 2, int(math.floor(y + by0)) - 2
+        mw, mh = int(bx1 - bx0) + 5, int(by1 - by0) + 5
+        if mw <= 0 or mh <= 0:
+            return
+        cl0, ct0 = max(0, -x0), max(0, -y0)
+
+        def put(rgb, opacity, use_stroke):
+            mask = Image.new("L", (mw, mh), 0)
+            md = ImageDraw.Draw(mask)
+            md.text((x - x0, y - y0), text, font=font, fill=255, anchor="ls", stroke_width=stroke if use_stroke else 0)
+            if opacity < 255:
+                mask = mask.point(lambda v, o=opacity: int(v * o / 255.0 + 0.5))
+            piece = Image.new("RGBA", (mw, mh), rgb + (0,))
+            piece.putalpha(mask)
+            if cl0 or ct0:
+                piece = piece.crop((cl0, ct0, mw, mh))
+            layer.alpha_composite(piece, (x0 + cl0, y0 + ct0))
+
+        if stroke:
+            put((0, 0, 0), fill[3], True)
+        put(tuple(fill[:3]), fill[3], False)
+
     def draw_inline_icon(self, layer, payload, x, y, size, alpha):
+        # path:height:width:offX:offY:texW:texH:left:right:top:bottom:r:g:b
         parts = payload.split(":")
         path = parts[0]
         s = max(2, int(size))
         kind, src = self.texture(path) if path and not path.startswith("atlas") else ("placeholder", path)
         if kind == "image":
-            img = src.resize((s, s), Image.BILINEAR)
+            box = None
+            try:
+                if len(parts) >= 11:
+                    tw, th, l, r, t, b = (float(v) for v in parts[5:11])
+                    k = (src.size[0] / tw, src.size[1] / th)
+                    box = (l * k[0], t * k[1], r * k[0], b * k[1])
+            except (ValueError, ZeroDivisionError):
+                box = None
+            img = src.resize((s, s), Image.BILINEAR, box=box)
+            if len(parts) >= 14:
+                try:
+                    tint = tuple(int(v) / 255.0 for v in parts[11:14])
+                    img = self.tinted(img, tint + (1.0,))
+                except ValueError:
+                    pass
         elif kind == "white":
             img = Image.new("RGBA", (s, s), (255, 255, 255, 255))
         else:
@@ -668,7 +763,7 @@ def write_metrics(out_path):
 def run_batch(manifest):
     with open(manifest, encoding="utf-8") as fh:
         spec = json.load(fh)
-    r = Renderer(spec.get("media") or DEFAULT_MEDIA, spec.get("ss", 2))
+    r = Renderer(spec.get("media") or DEFAULT_MEDIA, spec.get("ss", 2), env_scale())
     scenes = {}
     ok = 0
     for job in spec["jobs"]:
@@ -697,7 +792,7 @@ def main(argv):
     if len(argv) < 2:
         print(__doc__)
         return 2
-    crop, ss = None, 2
+    crop, ss, scale = None, 2, env_scale()
     rest = argv[2:]
     i = 0
     while i < len(rest):
@@ -707,11 +802,14 @@ def main(argv):
         elif rest[i] == "--ss":
             ss = int(rest[i + 1])
             i += 2
+        elif rest[i] == "--scale":
+            scale = float(rest[i + 1])
+            i += 2
         else:
             i += 1
     with open(argv[0], encoding="utf-8") as fh:
         scene = json.load(fh)
-    Renderer(DEFAULT_MEDIA, ss).render(scene, crop, argv[1])
+    Renderer(DEFAULT_MEDIA, ss, scale).render(scene, crop, argv[1])
     print("wrote", argv[1])
     return 0
 

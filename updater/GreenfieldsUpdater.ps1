@@ -755,11 +755,11 @@ try {
     }
     Say ''
     if ($wowRunning) {
-        Say 'WoW is running: type /reload in game to load the new version (restart WoW if anything looks missing).' 'Yellow'
+        Say 'WoW is running: quit and reopen it to load the new version (a /reload may not find new art).' 'Yellow'
     } else {
         Say 'Done. It loads next time you start WoW.' 'Green'
     }
-    Notify 'Greenfields updated' ("Greenfields {0} installed. /reload in game to load it." -f $latest)
+    Notify 'Greenfields updated' ("Greenfields {0} installed. Restart WoW to load it." -f $latest)
     Finish $exitCode
 } catch {
     Say ("Problem: " + (Get-Why $_)) 'Red'

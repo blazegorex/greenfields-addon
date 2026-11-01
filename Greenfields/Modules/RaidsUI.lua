@@ -26,27 +26,25 @@ local tsort, tinsert, tremove, concat = table.sort, table.insert, table.remove, 
 -- Layout
 -------------------------------------------------------------------------------
 local GAP = 16
-local BANNER_H = 92
-local TABS_Y = BANNER_H + 8            -- tabs row sits under the banner
-local VIEW_Y = TABS_Y + 30 + 10        -- the two views start under the tabs
-local MY_H = 104
-local EVENT_ROW_H = 60
-local CHIP_ROW_H = 26
-local CHIP_MIN_W = 128
+local BANNER_H, BANNER_COMPACT_H = 92, 56
+local SHORT_H = 430                    -- under this much page, the sign shrinks so the names get the room
+local SIGN_LIFT, SIGN_BLEED = 5, 3      -- the sign art's soft edge: hung past the page so the metal meets the cards' edges
+local TABS_H = 30
+local MY_H = 96
+local EVENT_ROW_H = 64
+local CHIP_ROW_H = 22
+local CHIP_MIN_W = 120
 local MAX_CHIP_COLS = 5
-local POOL_W, BENCH_W, COMP_H = 168, 150, 74
-local SLOT_H = 18
-local GROUP_H = 22 + 5 * (SLOT_H + 2) + 4
+local POOL_W, BENCH_W = 176, 152
+local SLOT_H = 20
+local GROUP_H = 28 + 5 * SLOT_H + 6
 local GROUP_GAP = 8
-local GROUP_MIN_W = 104
+local GROUP_MIN_W = 112
+local COMP_ONE_ROW, COMP_TWO_ROWS = 44, 74
 
--- Warcraft chrome bits used on this page
-local REST_GOLD = { 0.84, 0.70, 0.36, 1 }     -- gold lettering on an unpicked dark button
-local GOLD_INK = { 0.12, 0.08, 0.02, 1 }      -- dark ink on the gold button
-local INK = { 0.20, 0.12, 0.04, 1 }           -- ink on parchment
-local INK_SOFT = { 0.36, 0.25, 0.12, 1 }
---- The answer button that lights up when picked (maybe and bench get a tinted dark one).
-local STATUS_FACE = { yes = T.tex.btnGreen, late = T.tex.btnGold, no = T.tex.btnRed }
+--- The answer button that takes a full coloured face when picked (maybe and bench stay dark
+-- and wear their colour on the lettering).
+local STATUS_STYLE = { yes = "primary", late = "warn", no = "danger" }
 
 local DOT = "  \194\183  "
 local DOW = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" }
@@ -122,102 +120,20 @@ local function setRoleIcon(tex, role)
     tex:SetVertexColor(meta.color[1], meta.color[2], meta.color[3], 1)
 end
 
---- Role glyph in its role colour, set into a little gold frame (UI:FramedIcon).
-local function setRoleArt(fi, role)
-    local meta = T.roles[role] or T.roles.ranged
-    fi:SetIcon(meta.icon)
-    fi.icon:SetVertexColor(meta.color[1], meta.color[2], meta.color[3], 1)
-end
-
---- A 9-sliced rim (frameBronze / iconFrame) over a frame's own background.
-local function rim(f, path, margin, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BORDER", nil, sub)
-    t:SetAllPoints()
-    UI.Sliced(t, path, margin)
+--- A small bare dot (who's online, a slot's answer).
+local function makeDot(f, size, layer)
+    local t = f:CreateTexture(nil, layer or "ARTWORK")
+    t:SetTexture(T.tex.circle)
+    t:SetSize(size, size)
     return t
 end
 
---- A tiled chrome texture (stone, parchment) filling a frame.
-local function tiled(f, path, inset, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub)
-    inset = inset or 0
-    t:SetPoint("TOPLEFT", inset, -inset)
-    t:SetPoint("BOTTOMRIGHT", -inset, inset)
-    t:SetTexture(path, "REPEAT", "REPEAT")
-    t:SetHorizTile(true)
-    t:SetVertTile(true)
-    return t
-end
-
---- A hairline that fades out to the right (section heads).
-local function fadeLine(t, c, a)
-    c = col(c)
-    t:SetTexture(T.tex.white)
-    if t.SetGradient and CreateColor then
-        t:SetGradient("HORIZONTAL", CreateColor(c[1], c[2], c[3], a or 0.8), CreateColor(c[1], c[2], c[3], 0))
-    else
-        t:SetVertexColor(c[1], c[2], c[3], (a or 0.8) * 0.5)
-    end
-end
-
---- A soft halo hugging a frame's edges, brightest at the rim: the glow texture cut into
--- its four quarters (corners) and centre slivers (edges), drawn just outside the frame.
--- Returns a hidden holder frame; :Show() / :Hide() it.
-local function makeHalo(f, size, c, a)
-    local h = CreateFrame("Frame", nil, f)
-    h:SetPoint("TOPLEFT", -size, size)
-    h:SetPoint("BOTTOMRIGHT", size, -size)
-    local function piece(l, r, t, b)
-        local tex = h:CreateTexture(nil, "BACKGROUND")
-        tex:SetTexture(T.tex.glow)
-        tex:SetTexCoord(l, r, t, b)
-        tex:SetBlendMode("ADD")
-        tex:SetVertexColor(c[1], c[2], c[3], a)
-        return tex
-    end
-    local tl = piece(0, 0.5, 0, 0.5)
-    tl:SetSize(size, size)
-    tl:SetPoint("BOTTOMRIGHT", f, "TOPLEFT")
-    local tr = piece(0.5, 1, 0, 0.5)
-    tr:SetSize(size, size)
-    tr:SetPoint("BOTTOMLEFT", f, "TOPRIGHT")
-    local bl = piece(0, 0.5, 0.5, 1)
-    bl:SetSize(size, size)
-    bl:SetPoint("TOPRIGHT", f, "BOTTOMLEFT")
-    local br = piece(0.5, 1, 0.5, 1)
-    br:SetSize(size, size)
-    br:SetPoint("TOPLEFT", f, "BOTTOMRIGHT")
-    local top = piece(0.49, 0.51, 0, 0.5)
-    top:SetPoint("BOTTOMLEFT", f, "TOPLEFT")
-    top:SetPoint("BOTTOMRIGHT", f, "TOPRIGHT")
-    top:SetHeight(size)
-    local bottom = piece(0.49, 0.51, 0.5, 1)
-    bottom:SetPoint("TOPLEFT", f, "BOTTOMLEFT")
-    bottom:SetPoint("TOPRIGHT", f, "BOTTOMRIGHT")
-    bottom:SetHeight(size)
-    local left = piece(0, 0.5, 0.49, 0.51)
-    left:SetPoint("TOPRIGHT", f, "TOPLEFT")
-    left:SetPoint("BOTTOMRIGHT", f, "BOTTOMLEFT")
-    left:SetWidth(size)
-    local right = piece(0.5, 1, 0.49, 0.51)
-    right:SetPoint("TOPLEFT", f, "TOPRIGHT")
-    right:SetPoint("BOTTOMLEFT", f, "BOTTOMRIGHT")
-    right:SetWidth(size)
-    h:Hide()
-    return h
-end
-
---- Gold-rimmed textured face on a plain button: face + additive hover sheen.
-local function texturedFace(b)
-    b.face = b:CreateTexture(nil, "BACKGROUND", nil, 1)
-    b.face:SetAllPoints()
-    UI.Sliced(b.face, T.tex.btnDark, 10)
-    b.hl = b:CreateTexture(nil, "ARTWORK", nil, -1)
-    b.hl:SetPoint("TOPLEFT", 3, -3)
-    b.hl:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.hl:SetColorTexture(1, 1, 1, 0.12)
-    b.hl:SetBlendMode("ADD")
-    b.hl:Hide()
+--- A field label, the way the game labels its own forms.
+local function fieldLabel(parent, text, x, y)
+    local fs = UI:Text(parent, 11, "bronze", "ui")
+    fs:SetPoint("TOPLEFT", x, y)
+    fs:SetText(text)
+    return fs
 end
 
 local function nameOf(key, class) return U.ClassName(key or "?", class) end
@@ -265,12 +181,6 @@ end
 
 local function selectedEvent() return S.selected and R:Get(S.selected) or nil end
 
-local function fitEmpty(e, w)
-    w = max(140, (w or 300) - 20)
-    e:SetSize(w, 150)
-    e.text:SetWidth(w)
-end
-
 local function setPill(p, text, color, icon)
     if p.icon then UI:SetIcon(p.icon, icon or "dot") end
     p:SetText(text, color)
@@ -296,33 +206,17 @@ end
 -- Upcoming list (left)
 -------------------------------------------------------------------------------
 local function createEventRow(row)
-    -- a dark plaque with a bronze rim; the picked raid swaps it for a gold one
-    row.card = row:CreateTexture(nil, "BACKGROUND", nil, -1)
-    row.card:SetAllPoints()
-    row.card:SetColorTexture(0, 0, 0, 0.26)
-    row.rim = rim(row, T.tex.frameBronze, 8, "BORDER", 1)
-    row.rim:SetAlpha(0.85)
-    row.gold = rim(row, T.tex.iconFrame, 6, "BORDER", 2)
-    row.gold:Hide()
-    -- the kit's selection wash in the game's gold (the gold rim replaces its bar)
-    row.sel:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.07)
-    row.selBar:SetAlpha(0)
-    row.accent = row:CreateTexture(nil, "ARTWORK", nil, -1)
-    row.accent:SetPoint("TOPLEFT", 3, -4)
-    row.accent:SetPoint("BOTTOMLEFT", 3, 4)
-    row.accent:SetWidth(2)
-    -- a little parchment calendar page
+    -- a line in the list: the kit's gold wash and edge say which raid is picked, so the only
+    -- ornament on it is the little parchment calendar page
     row.page = CreateFrame("Frame", nil, row)
-    row.page:SetSize(40, 46)
-    row.page:SetPoint("LEFT", row, "LEFT", 9, 0)
-    row.paper = tiled(row.page, T.tex.parchment, 1)
-    row.paper:SetVertexColor(0.95, 0.88, 0.72, 1)
-    row.pageRim = rim(row.page, T.tex.frameBronze, 8)
-    row.dow = UI:Text(row.page, 9, INK_SOFT, "head")
+    row.page:SetSize(40, 48)
+    row.page:SetPoint("LEFT", row, "LEFT", 8, 0)
+    UI:Parchment(row.page, 1)
+    row.dow = UI:Text(row.page, 10, UI.INK.dim, "head")
     row.dow:SetPoint("TOP", row.page, "TOP", 0, -5)
-    row.day = UI:Text(row.page, 18, INK, "title")
-    row.day:SetPoint("CENTER", row.page, "CENTER", 0, -1)
-    row.mon = UI:Text(row.page, 9, INK_SOFT, "head")
+    row.day = UI:Text(row.page, 18, UI.INK.dark, "ui")
+    row.day:SetPoint("CENTER", row.page, "CENTER", 0, 0)
+    row.mon = UI:Text(row.page, 10, UI.INK.dim, "head")
     row.mon:SetPoint("BOTTOM", row.page, "BOTTOM", 0, 5)
     for _, fs in ipairs({ row.dow, row.day, row.mon }) do
         fs:SetJustifyH("CENTER")
@@ -331,16 +225,16 @@ local function createEventRow(row)
     -- line 1: title, countdown on the right; line 2: where + time (full width);
     -- line 3: answer counts, your pill on the right
     row.when = UI:Text(row, 11, "dim", "num")
-    row.when:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -9)
+    row.when:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -10)
     row.when:SetJustifyH("RIGHT")
-    row.title = UI:Text(row, 12, "text", "ui")
-    row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 59, -8)
+    row.title = UI:Text(row, 13, "text", "ui")
+    row.title:SetPoint("TOPLEFT", row, "TOPLEFT", 60, -9)
     row.title:SetPoint("TOPRIGHT", row.when, "TOPLEFT", -8, 1)
     row.sub = UI:Text(row, 11, "dim")
-    row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", 59, -24)
-    row.sub:SetPoint("TOPRIGHT", row, "TOPRIGHT", -10, -24)
-    row.pill = UI:Pill(row, "", "yellow", { icon = "dot", height = 18, size = 10 })
-    row.pill:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -10, 6)
+    row.sub:SetPoint("TOPLEFT", row, "TOPLEFT", 60, -27)
+    row.sub:SetPoint("TOPRIGHT", row, "TOPRIGHT", -8, -27)
+    row.pill = UI:Pill(row, "", "yellow", { icon = "dot", height = 18 })
+    row.pill:SetPoint("BOTTOMRIGHT", row, "BOTTOMRIGHT", -8, 6)
     row.counts = {}
     for i, s in ipairs(T.statusOrder) do
         local meta = T.status[s]
@@ -350,17 +244,13 @@ local function createEventRow(row)
         row.counts[i] = { icon = icon, text = text, status = s }
     end
     row.none = UI:Text(row, 11, "faint")
-    row.none:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 59, 9)
+    row.none:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 60, 9)
     row.none:SetText("No answers yet")
 end
 
 local function updateEventRow(row, ev)
     local t = now()
-    local ac = col(R.InstanceInfo(ev.instance).color)
-    row.accent:SetColorTexture(ac[1], ac[2], ac[3], 1)
     local picked = ev.id == S.selected
-    row.gold:SetShown(picked)
-    row.rim:SetShown(not picked)
     local d = R.DateParts(ev.time)
     row.dow:SetText(d and DOW[d.wday] or "")
     row.day:SetText(d and tostring(d.day) or "?")
@@ -371,7 +261,8 @@ local function updateEventRow(row, ev)
     local where = (ev.title ~= ev.instance) and ev.instance or (ev.size .. "-man")
     row.sub:SetText(where .. DOT .. timeOf(ev.time))
     local cd, cdColor, kind = countdown(ev, t)
-    row.when:SetText(kind == "future" and ("in " .. cd) or cd)
+    -- called off: the pill just below says so
+    row.when:SetText(kind == "future" and ("in " .. cd) or kind == "cancelled" and "" or cd)
     UI:SetTextColor(row.when, cdColor)
 
     local mine = R:MySignup(ev.id)
@@ -388,7 +279,7 @@ local function updateEventRow(row, ev)
 
     -- answer counts along the bottom, as many as fit beside the pill
     local c = R:Counts(ev.id)
-    local room = (row:GetWidth() or 240) - 59 - (row.pill:GetWidth() or 70) - 16
+    local room = (row:GetWidth() or 240) - 60 - (row.pill:GetWidth() or 70) - 16
     local x = 0
     for _, e in ipairs(row.counts) do
         local n = c[e.status] or 0
@@ -396,7 +287,7 @@ local function updateEventRow(row, ev)
         local w = 13 + (e.text:GetStringWidth() or 8)
         if n > 0 and x + w <= room then
             e.icon:ClearAllPoints()
-            e.icon:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 59 + x, 10)
+            e.icon:SetPoint("BOTTOMLEFT", row, "BOTTOMLEFT", 60 + x, 10)
             e.icon:Show()
             e.text:Show()
             x = x + w + 8
@@ -406,7 +297,7 @@ local function updateEventRow(row, ev)
         end
     end
     row.none:SetShown(c.total == 0)
-    row:SetAlpha(ev.cancelled and 0.6 or 1)
+    row:SetAlpha(ev.cancelled and 0.85 or 1)
 end
 
 local function eventTooltip(row, ev)
@@ -429,22 +320,31 @@ end
 local function buildLeft(page)
     local card = UI:Card(page.body, { title = "Upcoming", icon = "calendar" })
     card:SetPoint("TOPLEFT")
-    card:SetPoint("BOTTOMLEFT")
     card:SetWidth(290)
-    card.count = UI:Pill(card.right, "", "dim", { height = 18, size = 10 })
+    card:SetHeight(120)
+    card.count = UI:Pill(card.right, "", "dim", { height = 18 })
     card.count:SetPoint("RIGHT", card.right, "RIGHT")
     page.left = card
     page.evList = UI:List(card.body, {
-        rowHeight = EVENT_ROW_H, spacing = 4, zebra = false,
+        rowHeight = EVENT_ROW_H, spacing = 0,
         createRow = createEventRow, updateRow = updateEventRow,
         onClick = function(ev) selectEvent(ev.id) end,
         isSelected = function(ev) return ev.id == S.selected end,
         onEnter = eventTooltip,
     })
-    page.evList:SetAllPoints(card.body)
+    -- the kit keeps 10 spare on a row's right for a scrollbar: hang that in the card's margin
+    page.evList:SetPoint("TOPLEFT", card.body, "TOPLEFT")
+    page.evList:SetPoint("BOTTOMRIGHT", card.body, "BOTTOMRIGHT", 10, 0)
     page.evEmpty = UI:Empty(card.body, "", "calendar")
     page.evEmpty:Hide()
-    card.body:HookScript("OnSizeChanged", function(_, w) fitEmpty(page.evEmpty, w) end)
+end
+
+--- The card ends where its raids end: a tall empty panel under one raid says nothing.
+local function fitLeft()
+    local n = P.evList.items and #P.evList.items or 0
+    local want = (n == 0) and 200 or (38 + n * EVENT_ROW_H + 10)
+    local room = P.body:GetHeight() or 0
+    P.left:SetHeight((room > 0) and min(want, room) or want)
 end
 
 -------------------------------------------------------------------------------
@@ -466,37 +366,55 @@ end
 local function buildBanner(parent)
     local b = CreateFrame("Button", nil, parent)
     b:SetHeight(BANNER_H)
-    b:SetPoint("TOPLEFT")
-    b:SetPoint("TOPRIGHT")
-    b.sign = b:CreateTexture(nil, "BACKGROUND")
-    b.sign:SetAllPoints()
-    UI.Sliced(b.sign, T.tex.signGreen, 22)
+    -- the art carries its own soft edge: lifted so the metal, not the shadow, lines up with the cards
+    b:SetPoint("TOPLEFT", -SIGN_BLEED, SIGN_LIFT)
+    b:SetPoint("TOPRIGHT", SIGN_BLEED, SIGN_LIFT)
+    b.sign = UI:SignPlate(b, T.tex.signGreen)
     -- the road sign is the guild's brand: its type stays sign lettering, and every line
     -- sits inside the sign's white border (13px in from the top, 15px up from the bottom)
-    b.kicker = UI:Text(b, 11, "text", "head")
-    b.kicker:SetPoint("TOPLEFT", b, "TOPLEFT", 22, -14)
-    b.kicker:SetPoint("TOPRIGHT", b, "TOPRIGHT", -150, -14)
-    b.title = UI:Text(b, 22, "text", "head")
-    b.title:SetPoint("TOPLEFT", b, "TOPLEFT", 22, -25)
-    b.title:SetPoint("TOPRIGHT", b, "TOPRIGHT", -150, -25)
-    -- sits under the countdown, so it only has to clear the edit cog
+    b.title = UI:Text(b, 24, "text", "head")
     b.when = UI:Text(b, 12, "text")
-    b.when:SetPoint("TOPLEFT", b, "TOPLEFT", 22, -48)
-    b.when:SetPoint("TOPRIGHT", b, "TOPRIGHT", -48, -48)
-    b.notes = UI:Text(b, 11, "text")
-    b.notes:SetPoint("TOPLEFT", b, "TOPLEFT", 22, -62)
-    b.notes:SetPoint("TOPRIGHT", b, "TOPRIGHT", -56, -62)
+    b.facts = UI:Text(b, 11, "text")
     b.count = UI:Text(b, 24, "text", "num")
-    b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", -24, -16)
     b.count:SetJustifyH("RIGHT")
-    b.countLbl = UI:Text(b, 10, "text", "head")
-    b.countLbl:SetPoint("TOPRIGHT", b.count, "BOTTOMRIGHT", 0, -3)
+    b.countLbl = UI:Text(b, 11, "text", "head")
     b.countLbl:SetJustifyH("RIGHT")
     b.edit = UI:IconButton(b, "gear", 24, "Edit this raid", function() openEditor(S.selected) end, { 1, 1, 1, 0.85 })
-    b.edit:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -16, 12)
     b:SetScript("OnEnter", function(self) GF:Safe("raids:banner", bannerTooltip, self) end)
     b:SetScript("OnLeave", function() UI:HideTip() end)
     return b
+end
+
+--- Three lines with air in them, or (short window, or building a roster) just the raid's name and
+-- the countdown on one line. The full details stay in the sign's tooltip.
+local function setBannerCompact(b, on)
+    if b.compact == on then return end
+    b.compact = on
+    b:SetHeight(on and BANNER_COMPACT_H or BANNER_H)
+    for _, fs in ipairs({ b.title, b.when, b.facts, b.count, b.countLbl, b.edit }) do fs:ClearAllPoints() end
+    b.when:SetShown(not on)
+    b.facts:SetShown(not on)
+    if on then
+        T:Font(b.title, "head", 20)
+        T:Font(b.count, "num", 20)
+        b.title:SetPoint("TOPLEFT", b, "TOPLEFT", 28, -18)
+        b.title:SetPoint("TOPRIGHT", b, "TOPRIGHT", -207, -18)
+        b.edit:SetPoint("RIGHT", b, "RIGHT", -23, 0)
+        b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", -57, -18)
+        b.countLbl:SetPoint("BOTTOMRIGHT", b.count, "BOTTOMLEFT", -6, 2)
+    else
+        T:Font(b.title, "head", 24)
+        T:Font(b.count, "num", 24)
+        b.title:SetPoint("TOPLEFT", b, "TOPLEFT", 28, -15)
+        b.title:SetPoint("TOPRIGHT", b, "TOPRIGHT", -136, -15)
+        b.when:SetPoint("TOPLEFT", b, "TOPLEFT", 28, -44)
+        b.when:SetPoint("TOPRIGHT", b, "TOPRIGHT", -136, -44)
+        b.facts:SetPoint("TOPLEFT", b, "TOPLEFT", 28, -61)
+        b.facts:SetPoint("TOPRIGHT", b, "TOPRIGHT", -55, -61)
+        b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", -28, -15)
+        b.countLbl:SetPoint("TOPRIGHT", b.count, "BOTTOMRIGHT", 0, -2)
+        b.edit:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -23, 12)
+    end
 end
 
 --- The sign catches the light once whenever a raid lands on it (picked, or page opened).
@@ -513,25 +431,27 @@ local function updateBanner(ev)
     local cd, _, kind = countdown(ev)
     local style = (kind == "cancelled" and "red") or (kind == "live" and "yellow") or (kind == "done" and "blue") or "green"
     local sign = SIGNS[style]
-    UI.Sliced(b.sign, sign.tex, 22)
+    b.sign:SetTexture(sign.tex)
     local ink = sign.ink
-    b.kicker:SetTextColor(ink[1], ink[2], ink[3], 0.75)
     b.title:SetTextColor(ink[1], ink[2], ink[3], 1)
-    b.when:SetTextColor(ink[1], ink[2], ink[3], 0.92)
-    b.notes:SetTextColor(ink[1], ink[2], ink[3], 0.72)
+    b.when:SetTextColor(ink[1], ink[2], ink[3], 1)
+    b.facts:SetTextColor(ink[1], ink[2], ink[3], 0.88)
     b.count:SetTextColor(ink[1], ink[2], ink[3], 1)
-    b.countLbl:SetTextColor(ink[1], ink[2], ink[3], 0.7)
+    b.countLbl:SetTextColor(ink[1], ink[2], ink[3], 0.88)
     b.edit:SetColor({ ink[1], ink[2], ink[3], 0.85 })
-    b.kicker:SetText(("%s" .. DOT .. "%d-man"):format(ev.instance, ev.size):upper())
     b.title:SetText(ev.title:upper())
-    b.when:SetText(whenText(ev) .. DOT .. srText(ev))
+    b.when:SetText(whenText(ev))
+    -- what the raid is, then what to bring; default titles are the instance name, so don't say it twice
+    local facts = {}
+    if ev.title ~= ev.instance then facts[1] = ev.instance end
+    facts[#facts + 1] = ev.size .. "-man"
+    facts[#facts + 1] = srText(ev)
     if ev.notes then
-        b.notes:SetText(ev.notes)
+        facts[#facts + 1] = ev.notes
     elseif ev.leader then
-        b.notes:SetText("Run by " .. U.ShortName(ev.leader))
-    else
-        b.notes:SetText("")
+        facts[#facts + 1] = "Run by " .. U.ShortName(ev.leader)
     end
+    b.facts:SetText(concat(facts, DOT))
     if kind == "future" then
         b.count:SetText(cd:upper())
         b.countLbl:SetText("TILL THE PULL")
@@ -567,9 +487,8 @@ local function chooseStatus(status)
         -- you're coming: the button catches the light
         if b.status == status and (status == "yes" or status == "late") then UI:Shine(b, 0.6) end
     end
-    P.my.flavor:SetText(FLAVOR[status])
-    local c = col(T.status[status].color)
-    P.my.stripe:SetColorTexture(c[1], c[2], c[3], 1)
+    P.my.subtitle:SetText(FLAVOR[status])
+    P.my.PaintCall(status, false)
 end
 
 local function chooseRole(role)
@@ -630,84 +549,61 @@ local function charItems()
     return out
 end
 
---- One of the five answers: a gold-rimmed game button. Unpicked ones are dark with gold
--- lettering and the answer's colour on the icon; the picked one takes the answer's own
--- button face (green, gold, red; maybe and bench tint the dark one) under a gold halo.
+--- One of the five answers, on the kit's button. Unpicked ones are dark with the answer's colour on
+-- the icon; the picked one takes its colour's face (maybe and bench wear it on their lettering
+-- instead). The kit repaints the icon in the text colour on every hover, hence the hooks.
 local function makeStatusButton(parent, status)
     local meta = T.status[status]
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(28)
+    local b = UI:Button(parent, meta.label, {
+        icon = meta.icon, iconSize = 12, height = 28, width = 80,
+        onClick = function(self) chooseStatus(self.status) end,
+        tooltip = { meta.long, { STATUS_TIP[status] } },
+    })
     b.status = status
-    -- picked: a gold halo round the rim
-    b.glow = makeHalo(b, 7, { 1, 0.78, 0.18 }, 0.95)
-    texturedFace(b)
-    b.wash = b:CreateTexture(nil, "BORDER")
-    b.wash:SetPoint("TOPLEFT", 3, -3)
-    b.wash:SetPoint("BOTTOMRIGHT", -3, 3)
-    b.wash:SetTexture(T.tex.white)
-    b.wash:SetBlendMode("ADD")
-    b.wash:Hide()
-    b.icon = UI:Icon(b, 12, meta.icon)
-    -- Friz in title case, the way the game's own buttons read
-    b.label = UI:Text(b, 12, REST_GOLD, "ui")
-    b.label:SetText(meta.label)
-    --- Room for icon + label inside the rim at this width?
-    function b:IconFits(w)
-        return (w or self:GetWidth() or 0) >= (self.label:GetStringWidth() or 30) + 17 + 16
-    end
-    --- icon + label centred; narrow buttons drop the icon rather than crowd the rim
-    -- (layoutMyPanel decides for all five at once, so the row stays uniform)
-    function b:Fit(withIcon)
-        local tw = self.label:GetStringWidth() or 30
-        if withIcon == nil then withIcon = self:IconFits() end
-        self.icon:ClearAllPoints()
-        self.label:ClearAllPoints()
-        if withIcon then
-            self.icon:SetPoint("LEFT", self, "CENTER", -(tw + 17) / 2, 0)
-            self.label:SetPoint("LEFT", self.icon, "RIGHT", 5, 0)
-            self.icon:Show()
-        else
-            self.icon:Hide()
-            self.label:SetPoint("CENTER", self, "CENTER", 0, 0)
+    b.tinted = UI:Nine(b, "btnHl", "ARTWORK", -2)
+    b.tinted:SetBlendMode("ADD")
+    b.tinted:Hide()
+    local kitLayout = b.Layout
+    --- Narrow buttons drop the icon rather than crowd the rim (layoutMyPanel decides for all
+    -- five at once, so the row stays uniform).
+    function b:Layout()
+        kitLayout(self)
+        self.icon:SetShown(not self.noIcon)
+        if self.noIcon then
+            self.label:ClearAllPoints()
+            self.label:SetPoint("CENTER", 0, 0)
         end
     end
-    function b:Paint(hover)
+    function b:IconFits(w)
+        return (w or self:GetWidth() or 0) >= (self.label:GetStringWidth() or 30) + 18 + 16
+    end
+    function b:Fit(withIcon)
+        self.noIcon = not withIcon
+        self:Layout()
+    end
+    function b:Tint()
         local c = col(meta.color)
+        local flat = self.on and not STATUS_STYLE[status]
         local enabled = self:IsEnabled()
-        if not enabled then hover = false end   -- locked raids don't light up
-        self.hl:SetShown(hover and true or false)
-        self.face:SetDesaturated(not enabled)
-        if self.on then
-            UI.Sliced(self.face, STATUS_FACE[status] or T.tex.btnDark, 10)
-            self.glow:SetShown(enabled)
-            local washed = STATUS_FACE[status] == nil
-            self.wash:SetShown(washed)
-            if washed then self.wash:SetVertexColor(c[1], c[2], c[3], status == "bench" and 0.16 or 0.32) end
-            local ink = status == "late" and GOLD_INK or C.text
-            self.label:SetTextColor(ink[1], ink[2], ink[3], 1)
-            self.icon:SetVertexColor(ink[1], ink[2], ink[3], 1)
-        else
-            UI.Sliced(self.face, T.tex.btnDark, 10)
-            self.glow:Hide()
-            self.wash:Hide()
-            local tc = hover and C.wowGold or REST_GOLD
-            self.label:SetTextColor(tc[1], tc[2], tc[3], 1)
-            self.icon:SetVertexColor(c[1], c[2], c[3], hover and 1 or 0.85)
+        self.tinted:SetShown(flat and enabled)
+        if flat then
+            self.tinted:SetVertexColor(c[1], c[2], c[3], 1)
+            if enabled then self.label:SetTextColor(c[1], c[2], c[3], 1) end
+        end
+        if not self.on then
+            self.icon:SetVertexColor(c[1], c[2], c[3], enabled and 1 or 0.6)
+        elseif flat and enabled then
+            self.icon:SetVertexColor(c[1], c[2], c[3], 1)
         end
     end
     function b:SetOn(on)
         self.on = on and true or false
-        self:Paint(self:IsMouseOver())
+        self:SetStyle(self.on and STATUS_STYLE[status] or "secondary")
+        self:Tint()
     end
-    b:SetScript("OnEnter", function(self) self:Paint(true) end)
-    b:SetScript("OnLeave", function(self) self:Paint(false) end)
-    b:SetScript("OnClick", function(self)
-        UI.Sound(856)
-        GF:Safe("raids:status", chooseStatus, self.status)
-    end)
-    UI.AttachTip(b, { meta.long, { STATUS_TIP[status] } })
+    b:HookScript("OnEnter", function(self) self:Tint() end)
+    b:HookScript("OnLeave", function(self) self:Tint() end)
     b:SetOn(false)
-    b:Fit()
     return b
 end
 
@@ -715,41 +611,46 @@ local function layoutMyPanel(w)
     local mp = P.my
     w = (w and w > 0) and w or mp:GetWidth() or 400
     local inner = max(200, w - 24)
-    local bw = floor((inner - 4 * 6) / 5)
+    -- long lozenges read as bars, not buttons
+    local bw = min(160, floor((inner - 4 * 8) / 5))
+    local row = bw * 5 + 4 * 8
     local icons = true
     for _, b in ipairs(mp.status) do
         if not b:IconFits(bw) then icons = false end
     end
     for i, b in ipairs(mp.status) do
         b:ClearAllPoints()
-        b:SetPoint("TOPLEFT", mp, "TOPLEFT", 12 + (i - 1) * (bw + 6), -31)
+        b:SetPoint("TOPLEFT", mp, "TOPLEFT", 12 + (i - 1) * (bw + 8), -30)
         b:SetWidth(bw)
         b:Fit(icons)
     end
-    local rw = floor(inner * 0.27)
-    local cw = floor(inner * 0.33)
+    local rw = max(100, floor(row * 0.24))
+    local cw = max(100, floor(row * 0.3))
     mp.role:SetWidth(rw)
     mp.char:SetWidth(cw)
-    mp.note:SetWidth(max(60, inner - rw - cw - 12))
+    local nw = max(60, row - rw - cw - 16)
+    mp.note:SetWidth(nw)
+    mp.note.placeholder:SetText(nw >= 190 and "Note (late, swapping toons...)" or "Add a note")
 end
 
 local function buildMyPanel(parent)
-    -- a card (slate + bronze rim) with no kit title: the answer buttons are the content
-    local mp = UI:Card(parent)
+    -- the kit card's title, minus its rule: the answers sit right under the words asking for them
+    local mp = UI:Card(parent, { title = "Your call", subtitle = " ", icon = "bell" })
     mp:SetPoint("TOPLEFT")
     mp:SetPoint("TOPRIGHT")
     mp:SetHeight(MY_H)
+    mp.rule:Hide()
+    mp.subtitle:ClearAllPoints()
+    mp.subtitle:SetPoint("TOPLEFT", mp.title, "TOPRIGHT", 10, -2)
+    mp.subtitle:SetPoint("TOPRIGHT", mp, "TOPRIGHT", -12, -13)
     P.my = mp
-    -- the card accent notch, in the colour of your answer
-    mp.stripe = mp:CreateTexture(nil, "ARTWORK")
-    mp.stripe:SetSize(22, 2)
-    mp.stripe:SetPoint("TOPLEFT", 9, -3)
-    mp.lbl = UI:Text(mp, 12, "wowGold", "ui")
-    mp.lbl:SetPoint("TOPLEFT", mp, "TOPLEFT", 12, -11)
-    mp.lbl:SetText("Your call")
-    mp.flavor = UI:Text(mp, 11, "dim")
-    mp.flavor:SetPoint("TOPLEFT", mp.lbl, "TOPRIGHT", 10, -1)
-    mp.flavor:SetPoint("TOPRIGHT", mp, "TOPRIGHT", -12, -12)
+    --- The card's icon says where you stand: your answer, or a yellow bell if you haven't given one.
+    function mp.PaintCall(status, locked)
+        local m = status and T.status[status]
+        UI:SetIcon(mp.icon, m and m.icon or "bell")
+        tint(mp.icon, (locked and "faint") or (m and m.color) or "yellow")
+        UI:SetTextColor(mp.subtitle, (m or locked) and "dim" or "text")
+    end
     mp.status = {}
     for i, s in ipairs(T.statusOrder) do mp.status[i] = makeStatusButton(mp, s) end
     mp.role = UI:Dropdown(mp, {
@@ -758,16 +659,23 @@ local function buildMyPanel(parent)
         set = function(v) GF:Safe("raids:role", chooseRole, v) end,
         tooltip = "Your role for this one. Remembered per toon.",
     })
-    mp.role:SetPoint("TOPLEFT", mp, "TOPLEFT", 12, -66)
+    -- the kit tints a picked item's text but not its icon, and a white sword beside orange "Melee" looks wrong
+    local refreshRole = mp.role.Refresh
+    function mp.role:Refresh()
+        refreshRole(self)
+        local m = S.cur and T.roles[S.cur.role]
+        if m then self.icon:SetVertexColor(m.color[1], m.color[2], m.color[3], 1) end
+    end
+    mp.role:SetPoint("TOPLEFT", mp, "TOPLEFT", 12, -62)
     mp.char = UI:Dropdown(mp, {
         width = 150, items = charItems, placeholder = "Which toon?",
         get = function() return S.cur and S.cur.char end,
         set = function(v) GF:Safe("raids:char", chooseChar, v) end,
         tooltip = "Which toon you're bringing. Every character you've logged in shows up here.",
     })
-    mp.char:SetPoint("LEFT", mp.role, "RIGHT", 6, 0)
-    mp.note = UI:Input(mp, { placeholder = "Add a note (late, swapping toons...)", max = 60, onEnter = function(text) saveNote(text) end })
-    mp.note:SetPoint("LEFT", mp.char, "RIGHT", 6, 0)
+    mp.char:SetPoint("LEFT", mp.role, "RIGHT", 8, 0)
+    mp.note = UI:Input(mp, { placeholder = "Add a note", max = 60, onEnter = function(text) saveNote(text) end })
+    mp.note:SetPoint("LEFT", mp.char, "RIGHT", 8, 0)
     mp.note:HookScript("OnEditFocusLost", function(self) GF:Safe("raids:note", saveNote, self:GetText()) end)
     mp:HookScript("OnSizeChanged", function(_, w) layoutMyPanel(w) end)
     layoutMyPanel(400)
@@ -781,27 +689,25 @@ local function refreshMyPanel(ev)
     local role = (mine and mine.role) or p.role or R:RoleFor(char)
     S.cur = { id = ev.id, status = mine and mine.status or nil, char = char, role = role }
     local over = R:IsOver(ev)
-    local locked = ev.cancelled or over
+    local locked = (ev.cancelled or over) and true or false
     for _, b in ipairs(mp.status) do
-        b:SetEnabled(not locked)        -- before painting: a locked raid's buttons stay unlit
+        b:SetActive(not locked)         -- before painting: a locked raid's buttons stay unlit
         b:SetOn(S.cur.status == b.status)
-        b:SetAlpha(locked and 0.45 or 1)
     end
     mp.role:Refresh()
     mp.char:Refresh()
-    for _, w in ipairs({ mp.role, mp.char, mp.note }) do
-        w:SetEnabled(not locked)
-        w:SetAlpha(locked and 0.5 or 1)
-    end
+    mp.role:SetLocked(locked)
+    mp.char:SetLocked(locked)
+    mp.note:SetEnabled(not locked)
+    -- locked, not gone: what you answered should still be readable
+    for _, w in ipairs({ mp.role, mp.char, mp.note }) do w:SetAlpha(locked and 0.8 or 1) end
     if not mp.note:HasFocus() then
         mp.note:SetText((mine and mine.note) or p.note or "")
         mp.note:RefreshPlaceholder()
     end
     local key = (ev.cancelled and "cancelled") or (over and "over") or S.cur.status or "none"
-    mp.flavor:SetText(FLAVOR[key])
-    local stripe = (locked and "faint") or (S.cur.status and T.status[S.cur.status].color) or "yellow"
-    local c = col(stripe)
-    mp.stripe:SetColorTexture(c[1], c[2], c[3], 1)
+    mp.subtitle:SetText(FLAVOR[key])
+    mp.PaintCall(S.cur.status, locked)
 end
 
 -------------------------------------------------------------------------------
@@ -839,20 +745,10 @@ local function chipMenu(chip, e)
     UI:OpenMenu(chip, items, { width = 170 })
 end
 
-local CHIP_BG, CHIP_BG_HOVER = { 0, 0, 0, 0.30 }, { 0.16, 0.13, 0.08, 0.92 }
-local CHIP_EDGE = { C.bronze[1], C.bronze[2], C.bronze[3], 0.55 }
-
-local function paintChip(chip, hover)
-    local bg = hover and CHIP_BG_HOVER or CHIP_BG
-    local edge = hover and C.wowGold or CHIP_EDGE
-    chip:SetBackdropColor(bg[1], bg[2], bg[3], bg[4])
-    chip:SetBackdropBorderColor(edge[1], edge[2], edge[3], hover and 0.9 or edge[4])
-end
-
 local function chipEnter(self)
     local e = self.entry
     if not e then return end
-    paintChip(self, true)
+    self.wash:Show()
     local lines = {}
     local s = e.signup
     if s then
@@ -875,7 +771,7 @@ local function chipEnter(self)
 end
 
 local function chipLeave(self)
-    paintChip(self, false)
+    self.wash:Hide()
     UI:HideTip()
 end
 
@@ -889,18 +785,24 @@ local function chipClick(self, button)
     end
 end
 
---- A name plate: dark, bronze-edged, the role framed in gold.
+--- A name on the page, not a box: bare role glyph in its colour, then the name in its class
+-- colour. A 40-man list reads as names; hover is the only thing that lights one up.
 local function makeChip(row)
-    local b = CreateFrame("Button", nil, row, "BackdropTemplate")
-    b:SetHeight(CHIP_ROW_H - 4)
-    UI:SetBackdrop(b, CHIP_BG, CHIP_EDGE)
-    b.role = UI:FramedIcon(b, 18)
-    b.role:SetPoint("LEFT", 2, 0)
-    b.name = UI:Text(b, 11, "text", "ui")
-    b.name:SetPoint("LEFT", b, "LEFT", 26, 0)
-    b.name:SetPoint("RIGHT", b, "RIGHT", -18, 0)
-    b.flag = UI:Icon(b, 10, "bubble", "OVERLAY", "faint")
-    b.flag:SetPoint("RIGHT", -6, 0)
+    local b = CreateFrame("Button", nil, row)
+    b:SetHeight(CHIP_ROW_H)
+    b.wash = b:CreateTexture(nil, "BACKGROUND")
+    b.wash:SetAllPoints()
+    b.wash:SetColorTexture(1, 1, 1, 0.06)
+    b.wash:Hide()
+    b.role = UI:Icon(b, 13, nil)
+    b.role:SetPoint("LEFT", 3, 0)
+    b.dot = makeDot(b, 6)
+    b.dot:SetPoint("LEFT", 6, 0)
+    b.name = UI:Text(b, 12, "text", "ui")
+    b.name:SetPoint("LEFT", b, "LEFT", 21, 0)
+    b.name:SetPoint("RIGHT", b, "RIGHT", -16, 0)
+    b.flag = UI:Icon(b, 10, "bubble", "OVERLAY", "dim")
+    b.flag:SetPoint("LEFT", b.name, "LEFT", 0, 0)
     b:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     b:SetScript("OnEnter", GF:Wrap("raids:chip", chipEnter))
     b:SetScript("OnLeave", GF:Wrap("raids:chip", chipLeave))
@@ -925,24 +827,23 @@ local function createChipRow(row)
     local h = CreateFrame("Frame", nil, row)
     h:SetAllPoints()
     row.head = h
-    -- section head: the answer's icon, its name in Friz gold, a bronze rule fading out
+    -- section head: the answer's icon, its name, a bronze rule fading out. Sits low in its row, so
+    -- the air above it parts the groups.
     h.icon = UI:Icon(h, 12, "check")
-    h.icon:SetPoint("LEFT", 2, -1)
+    h.icon:SetPoint("LEFT", 2, -2)
     h.label = UI:Text(h, 12, "wowGold", "ui")
     h.label:SetPoint("LEFT", h.icon, "RIGHT", 6, 0)
-    h.count = UI:Text(h, 11, "dim", "num")
+    h.count = UI:Text(h, 12, "dim", "num")
     h.count:SetPoint("LEFT", h.label, "RIGHT", 6, 0)
-    h.line = h:CreateTexture(nil, "ARTWORK")
-    fadeLine(h.line, "bronze", 0.85)
-    h.line:SetHeight(1)
-    h.line:SetPoint("BOTTOMLEFT", 0, 1)
-    h.line:SetPoint("BOTTOMRIGHT", 0, 1)
+    h.line = UI:Hairline(h, "bronze", 0.42)
+    h.line:SetPoint("BOTTOMLEFT", 0, 0)
+    h.line:SetPoint("BOTTOMRIGHT", 0, 0)
     h.roles = {}
     local prev
     for i = #T.roleOrder, 1, -1 do
         local r = T.roleOrder[i]
         local text = UI:Text(h, 11, "dim", "num")
-        if prev then text:SetPoint("RIGHT", prev, "LEFT", -9, 0) else text:SetPoint("RIGHT", h, "RIGHT", -4, -1) end
+        if prev then text:SetPoint("RIGHT", prev, "LEFT", -9, 0) else text:SetPoint("RIGHT", h, "RIGHT", 0, -2) end
         local icon = UI:Icon(h, 11, T.roles[r].icon)
         icon:SetPoint("RIGHT", text, "LEFT", -3, 0)
         setRoleIcon(icon, r)
@@ -950,10 +851,10 @@ local function createChipRow(row)
         prev = icon
     end
     h.nudge = UI:Button(h, "Nudge", {
-        style = "ghost", icon = "bell", height = 20, size = 11, onClick = function() doNudge() end,
+        style = "ghost", icon = "bell", iconSize = 12, height = 20, size = 11, onClick = function() doNudge() end,
         tooltip = { "Nudge", { "Pokes everyone who hasn't answered with a toast. Officers only, once every ten minutes." } },
     })
-    h.nudge:SetPoint("RIGHT", h, "RIGHT", -2, 0)
+    h.nudge:SetPoint("RIGHT", h, "RIGHT", 0, -1)
     row.chips = {}
     for i = 1, MAX_CHIP_COLS do row.chips[i] = makeChip(row) end
 end
@@ -967,11 +868,12 @@ local function updateChipRow(row, item)
             c:Hide()
         end
         if item.status == "none" then
+            -- the least important group on the page, and it reads that way
             UI:SetIcon(h.icon, "eye")
             tint(h.icon, "faint")
             h.label:SetText("Not answered yet")
-            UI:SetTextColor(h.label, REST_GOLD)
-            UI:SetTextColor(h.count, "faint")
+            UI:SetTextColor(h.label, "dim")
+            UI:SetTextColor(h.count, "dim")
         else
             local meta = T.status[item.status]
             UI:SetIcon(h.icon, meta.icon)
@@ -993,25 +895,31 @@ local function updateChipRow(row, item)
     h:Hide()
     local cols = max(1, S.chipCols)
     local w = max(60, (P.signList:GetWidth() or 300) - 10)
-    local cw = floor((w - (cols - 1) * 6) / cols)
+    local cw = floor((w - (cols - 1) * 8) / cols)
     for i, chip in ipairs(row.chips) do
         local e = item[i]
         if e and i <= cols then
             chip.entry = e
             chip:ClearAllPoints()
-            chip:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * (cw + 6), -2)
+            chip:SetPoint("TOPLEFT", row, "TOPLEFT", (i - 1) * (cw + 8), 0)
             chip:SetWidth(cw)
-            chip.name:SetText(nameOf(e.key, e.class))
-            paintChip(chip, chip:IsMouseOver())
+            chip.wash:SetShown(chip:IsMouseOver())
             if e.signup then
-                setRoleArt(chip.role, e.signup.role)
+                setRoleIcon(chip.role, e.signup.role)
+                chip.role:Show()
+                chip.dot:Hide()
+                chip.name:SetText(nameOf(e.key, e.class))
                 chip.flag:SetShown(e.signup.note ~= nil)
-                chip:SetAlpha(1)
+                -- the bubble trails its own name; out at the column's edge it reads as the next name's
+                chip.flag:SetPoint("LEFT", chip.name, "LEFT", min((chip.name:GetStringWidth() or 0) + 5, cw - 34), 0)
             else
-                chip.role:SetIcon("dot")
-                tint(chip.role.icon, e.online and "green" or "faint")
+                -- no glyph and no class colour: a plain run of names, a dot for who's on right now
+                chip.role:Hide()
+                tint(chip.dot, e.online and "green" or "faint", e.online and 1 or 0.5)
+                chip.dot:Show()
+                chip.name:SetText(U.ShortName(e.key))
+                UI:SetTextColor(chip.name, e.online and "dim" or "faint")
                 chip.flag:Hide()
-                chip:SetAlpha(e.online and 0.95 or 0.6)
             end
             chip:Show()
         else
@@ -1023,7 +931,7 @@ end
 
 local function chipCols(w)
     w = (w or P.signList:GetWidth() or 0) - 10
-    return U.Clamp(floor((w + 6) / (CHIP_MIN_W + 6)), 1, MAX_CHIP_COLS)
+    return U.Clamp(floor((w + 8) / (CHIP_MIN_W + 8)), 1, MAX_CHIP_COLS)
 end
 
 local function buildSignupItems(ev, cols)
@@ -1081,7 +989,7 @@ refreshSignupList = function()
     local going = c.yes + c.late
     P.whoCard.pill:SetText(("%d / %d"):format(going, ev.size), going >= ev.size and "green" or "yellow")
     if #items == 0 then
-        local line = "Nobody's answered yet. Be first - the bin chickens are watching."
+        local line = "Nobody's answered yet. Be first - the neighbours are watching."
         if ev.cancelled then
             line = "Called off before anyone answered. Back to the servo."
         elseif R:IsOver(ev) then
@@ -1096,27 +1004,29 @@ end
 
 local function buildSignupsView(parent)
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -VIEW_Y)
     v:SetPoint("BOTTOMRIGHT")
     P.sv = v
     buildMyPanel(v)
     local card = UI:Card(v, { title = "Who's coming", icon = "roster" })
-    card:SetPoint("TOPLEFT", P.my, "BOTTOMLEFT", 0, -10)
-    card:SetPoint("BOTTOMRIGHT")
-    card.pill = UI:Pill(card.right, "", "green", { height = 18, size = 10, tooltip = "Yeahs and lates against the raid size." })
+    card.pill = UI:Pill(card.right, "", "green", { height = 18, tooltip = "Yeahs and lates against the raid size." })
     card.pill:SetPoint("RIGHT", card.right, "RIGHT")
     P.whoCard = card
     P.signList = UI:List(card.body, {
-        rowHeight = CHIP_ROW_H, spacing = 2, zebra = false,
+        rowHeight = CHIP_ROW_H, spacing = 0, zebra = false,
         createRow = createChipRow, updateRow = updateChipRow,
     })
-    P.signList:SetAllPoints(card.body)
+    P.signList:SetPoint("TOPLEFT", card.body, "TOPLEFT")
+    P.signList:SetPoint("TOPRIGHT", card.body, "TOPRIGHT", 10, 0)
+    P.signList:SetHeight(CHIP_ROW_H * 8)
+    -- whole rows only, so the bottom name is never sliced through the middle
+    card.body:HookScript("OnSizeChanged", function(_, _, bh)
+        P.signList:SetHeight(max(CHIP_ROW_H, floor((bh or 0) / CHIP_ROW_H) * CHIP_ROW_H))
+    end)
     P.signList:HookScript("OnSizeChanged", function(_, w)
         if chipCols(w) ~= S.chipCols then GF:Safe("raids:chips", refreshSignupList) end
     end)
     P.signEmpty = UI:Empty(card.body, "", "roster")
     P.signEmpty:Hide()
-    card.body:HookScript("OnSizeChanged", function(_, w) fitEmpty(P.signEmpty, w) end)
 end
 
 -------------------------------------------------------------------------------
@@ -1323,18 +1233,14 @@ end
 -- Roster builder: pool (signed up), groups grid, bench
 -------------------------------------------------------------------------------
 local function createPoolRow(row)
-    row.dot = row:CreateTexture(nil, "ARTWORK")
-    row.dot:SetTexture(T.tex.circle)
-    row.dot:SetSize(6, 6)
+    row.dot = makeDot(row, 6)
     row.dot:SetPoint("LEFT", 6, 0)
-    row.role = UI:FramedIcon(row, 18)
-    row.role:SetPoint("LEFT", 15, 0)
-    row.name = UI:Text(row, 12, "text", "head")
-    row.name:SetPoint("LEFT", row, "LEFT", 38, 0)
-    row.name:SetPoint("RIGHT", row, "RIGHT", -30, 0)
-    row.sel:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.10)
-    row.selBar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
-    row.tag = UI:Text(row, 10, "faint", "num")
+    row.role = UI:Icon(row, 13, nil)
+    row.role:SetPoint("LEFT", 16, 0)
+    row.name = UI:Text(row, 12, "text", "ui")
+    row.name:SetPoint("LEFT", row, "LEFT", 34, 0)
+    row.name:SetPoint("RIGHT", row, "RIGHT", -24, 0)
+    row.tag = UI:Text(row, 11, "dim", "num")
     row.tag:SetPoint("RIGHT", -6, 0)
     row.tag:SetJustifyH("RIGHT")
 end
@@ -1342,12 +1248,12 @@ end
 local function updatePoolRow(row, item)
     local meta = item.status and T.status[item.status]
     tint(row.dot, (item.stale or item.status == "no") and "red" or (meta and meta.color) or "faint")
-    setRoleArt(row.role, item.role)
+    setRoleIcon(row.role, item.role)
     row.name:SetText(nameOf(item.key, item.class))
     row.tag:SetText(item.place or "")
     local b = currentBuilder()
     local picked = b and b.pick == item.key
-    row:SetAlpha((item.place and not picked) and 0.5 or 1)
+    row:SetAlpha((item.place and not picked) and 0.8 or 1)
 end
 
 local function poolTooltip(row, item)
@@ -1405,18 +1311,15 @@ local function makeSlot(parent, g, i)
     s.g, s.i = g, i
     s.bg = s:CreateTexture(nil, "BACKGROUND")
     s.bg:SetAllPoints()
-    s.bg:SetColorTexture(0, 0, 0, 0.3)
     s.hl = s:CreateTexture(nil, "BORDER")
     s.hl:SetAllPoints()
     s.hl:Hide()
-    s.role = UI:FramedIcon(s, 16)
-    s.role:SetPoint("LEFT", 1, 0)
-    s.name = UI:Text(s, 11, "text", "head")
-    s.name:SetPoint("LEFT", s, "LEFT", 22, 0)
+    s.role = UI:Icon(s, 12, nil)
+    s.role:SetPoint("LEFT", 4, 0)
+    s.name = UI:Text(s, 12, "text", "ui")
+    s.name:SetPoint("LEFT", s, "LEFT", 20, 0)
     s.name:SetPoint("RIGHT", s, "RIGHT", -12, 0)
-    s.mark = s:CreateTexture(nil, "OVERLAY")
-    s.mark:SetTexture(T.tex.circle)
-    s.mark:SetSize(5, 5)
+    s.mark = makeDot(s, 5, "OVERLAY")
     s.mark:SetPoint("RIGHT", -4, 0)
     s.mark:Hide()
     s:RegisterForClicks("LeftButtonUp", "RightButtonUp")
@@ -1432,22 +1335,25 @@ local function makeSlot(parent, g, i)
     return s
 end
 
---- A raid group: a slate plaque with a bronze rim (a titleless kit card), five slots.
+--- A raid group: a carved well inside the Groups card, a small head and five slots.
 local function makeGroup(parent, g)
-    local f = UI:Card(parent)
+    local f = UI:Well(parent)
     f:SetHeight(GROUP_H)
-    f.head = UI:Text(f, 11, "wowGold", "ui")
-    f.head:SetPoint("TOPLEFT", 9, -6)
+    f.head = UI:Text(f, 12, "bronze", "ui")
+    f.head:SetPoint("TOPLEFT", 8, -7)
     f.head:SetText("Group " .. g)
-    f.count = UI:Text(f, 10, "faint", "num")
-    f.count:SetPoint("TOPRIGHT", -9, -7)
+    f.count = UI:Text(f, 12, "dim", "num")
+    f.count:SetPoint("TOPRIGHT", -8, -7)
     f.count:SetJustifyH("RIGHT")
+    f.rule = UI:Hairline(f, "bronze", 0.34)
+    f.rule:SetPoint("TOPLEFT", 6, -24)
+    f.rule:SetPoint("TOPRIGHT", -6, -24)
     f.slots = {}
     for i = 1, 5 do
         local s = makeSlot(f, g, i)
-        local y = -22 - (i - 1) * (SLOT_H + 2)
-        s:SetPoint("TOPLEFT", f, "TOPLEFT", 5, y)
-        s:SetPoint("TOPRIGHT", f, "TOPRIGHT", -5, y)
+        local y = -26 - (i - 1) * SLOT_H
+        s:SetPoint("TOPLEFT", f, "TOPLEFT", 4, y)
+        s:SetPoint("TOPRIGHT", f, "TOPRIGHT", -4, y)
         f.slots[i] = s
     end
     f:Hide()
@@ -1457,10 +1363,10 @@ end
 local function updateSlot(s, key, pick)
     if key then
         local info = slotInfo(key)
-        setRoleArt(s.role, info.role)
+        setRoleIcon(s.role, info.role)
         s.role:Show()
         s.name:SetText(nameOf(key, info.class))
-        s.bg:SetColorTexture(1, 0.9, 0.7, 0.06)
+        s.bg:SetColorTexture(1, 0.9, 0.7, 0.05)
         local mark = (info.stale or info.status == "no") and "red" or (info.status == "late" and "yellow")
             or (info.status == "maybe" and "blue") or (info.status == "bench" and "dim") or nil
         if mark then
@@ -1472,8 +1378,9 @@ local function updateSlot(s, key, pick)
     else
         s.role:Hide()
         s.mark:Hide()
-        s.name:SetText(pick and T:Wrap("green", "+ put here") or T:Wrap("faint", "empty"))
-        if pick then s.bg:SetColorTexture(C.green[1], C.green[2], C.green[3], 0.07) else s.bg:SetColorTexture(0, 0, 0, 0.3) end
+        -- an open slot only says something while you've got a name in hand: up to 40 "empty"s is just noise
+        s.name:SetText(pick and T:Wrap("green", "+ put here") or "")
+        if pick then s.bg:SetColorTexture(C.green[1], C.green[2], C.green[3], 0.07) else s.bg:SetColorTexture(1, 0.9, 0.7, 0) end
     end
 end
 
@@ -1483,6 +1390,9 @@ layoutGrid = function()
     local w = P.gridContent:GetWidth() or 0
     if w < 60 then w = max(60, (P.gridScroll:GetWidth() or 300) - 12) end
     local cols = min(U.Clamp(floor((w + GROUP_GAP) / (GROUP_MIN_W + GROUP_GAP)), 1, 4), b.G)
+    local height = ceil(b.G / cols) * (GROUP_H + GROUP_GAP) - GROUP_GAP
+    -- no scrollbar coming: the groups can have the strip the kit keeps for one
+    if height <= (P.gridScroll:GetHeight() or 0) then w = w + 12 end
     local gw = floor((w - (cols - 1) * GROUP_GAP) / cols)
     for g = 1, 8 do
         local f = P.groups[g]
@@ -1496,21 +1406,20 @@ layoutGrid = function()
             f:Hide()
         end
     end
-    local rows = ceil(b.G / cols)
-    P.gridScroll:SetContentHeight(rows * (GROUP_H + GROUP_GAP) - GROUP_GAP)
+    P.gridScroll:SetContentHeight(height)
 end
 
 local function createBenchRow(row)
-    row.role = UI:FramedIcon(row, 18)
-    row.role:SetPoint("LEFT", 3, 0)
-    row.name = UI:Text(row, 11, "text", "head")
-    row.name:SetPoint("LEFT", row, "LEFT", 26, 0)
+    row.role = UI:Icon(row, 13, nil)
+    row.role:SetPoint("LEFT", 4, 0)
+    row.name = UI:Text(row, 12, "text", "ui")
+    row.name:SetPoint("LEFT", row, "LEFT", 22, 0)
     row.name:SetPoint("RIGHT", row, "RIGHT", -4, 0)
 end
 
 local function updateBenchRow(row, key)
     local info = slotInfo(key)
-    setRoleArt(row.role, info.role)
+    setRoleIcon(row.role, info.role)
     row.name:SetText(nameOf(key, info.class))
 end
 
@@ -1521,38 +1430,27 @@ local function benchTooltip(row, key)
     UI:Tip(row, nameOf(key, info.class), { { "Role", (T.roles[info.role] or T.roles.ranged).label }, " ", T:Wrap("faint", hint) })
 end
 
---- The bench drop target: a dark gold-rimmed button that turns green once a name is picked.
+--- The bench drop target: a quiet carved slot at rest, because it does nothing until there's a
+-- name in hand; then it's the green button.
 local function makeBenchTarget(parent)
-    local b = CreateFrame("Button", nil, parent)
-    b:SetHeight(24)
+    local b = UI:Button(parent, "Pick a name", {
+        style = "ghost", height = 26, size = 11,
+        onClick = function() GF:Safe("raids:bench", benchPick) end,
+        tooltip = function(self)
+            if self.armed then return { "Bench " .. U.ShortName(self.armed), { "Puts them on the bench." } } end
+            return { "Bench", { "Pick a name, then click here to put them on the bench." } }
+        end,
+    })
     b:SetPoint("TOPLEFT")
-    b:SetPoint("TOPRIGHT", -10, 0)
-    texturedFace(b)
-    b.icon = UI:Icon(b, 11, "plus", "ARTWORK", REST_GOLD)
-    b.icon:SetPoint("LEFT", 9, 0)
-    b.label = UI:Text(b, 11, REST_GOLD, "ui")
-    b.label:SetPoint("LEFT", b, "LEFT", 25, 0)
-    b.label:SetPoint("RIGHT", b, "RIGHT", -8, 0)
-    --- text = "Bench <name>" while a name is picked, nil otherwise
-    function b:SetArmed(text)
-        local ink = text and C.text or REST_GOLD
-        UI.Sliced(self.face, text and T.tex.btnGreen or T.tex.btnDark, 10)
-        self.label:SetText(text or "Pick a name")
-        self.label:SetTextColor(ink[1], ink[2], ink[3], 1)
-        self.icon:SetVertexColor(ink[1], ink[2], ink[3], text and 1 or 0.8)
+    b:SetPoint("TOPRIGHT")
+    b.well = UI:Nine(b, "inset", "BACKGROUND", -6)
+    --- key = the picked name, nil when nothing's picked
+    function b:SetArmed(key)
+        self.armed = key
+        self.well:SetShown(not key)
+        self:SetStyle(key and "primary" or "ghost")
+        self:SetText(key and "Bench here" or "Pick a name")
     end
-    b:SetScript("OnClick", function()
-        UI.Sound(856)
-        GF:Safe("raids:bench", benchPick)
-    end)
-    b:SetScript("OnEnter", function(self)
-        self.hl:Show()
-        UI:Tip(self, "Bench", { "Pick a name, then click here to put them on the bench." })
-    end)
-    b:SetScript("OnLeave", function(self)
-        self.hl:Hide()
-        UI:HideTip()
-    end)
     b:SetArmed(nil)
     return b
 end
@@ -1612,36 +1510,32 @@ local function buffEnter(self)
 end
 
 local function buildComposition(cp)
-    cp.lbl1 = UI:Text(cp, 11, "wowGold", "ui")
-    cp.lbl1:SetPoint("TOPLEFT", 12, -14)
+    cp.lbl1 = UI:Text(cp, 12, "wowGold", "ui")
     cp.lbl1:SetText("Comp")
     cp.roles = {}
-    for i, r in ipairs(T.roleOrder) do
+    for _, r in ipairs(T.roleOrder) do
         local f = CreateFrame("Frame", nil, cp)
-        f:SetSize(50, 18)
-        f:SetPoint("TOPLEFT", 58 + (i - 1) * 54, -10)
-        f.art = UI:FramedIcon(f, 18)
+        f:SetSize(44, 18)
+        f.art = UI:Icon(f, 14, nil)
         f.art:SetPoint("LEFT")
-        setRoleArt(f.art, r)
+        setRoleIcon(f.art, r)
         f.text = UI:Text(f, 14, "text", "num")
-        f.text:SetPoint("LEFT", f.art, "RIGHT", 5, 0)
+        f.text:SetPoint("LEFT", f.art, "RIGHT", 4, 0)
         f:EnableMouse(true)
         UI.AttachTip(f, function() return { T.roles[r].label, { "Placed in groups (bench not counted)." } } end)
         f.role = r
-        cp.roles[i] = f
+        cp.roles[#cp.roles + 1] = f
     end
     cp.sep = cp:CreateTexture(nil, "ARTWORK")
-    cp.sep:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.7)
+    cp.sep:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.34)
     cp.sep:SetSize(1, 16)
-    cp.sep:SetPoint("TOPLEFT", 58 + 4 * 54 + 2, -11)
     cp.classes = {}
     for i, cls in ipairs(API.CLASSES) do
         local f = CreateFrame("Frame", nil, cp)
         f:SetSize(36, 18)
-        -- the class crest in a gold frame, like an action button
-        f.art = UI:FramedIcon(f, 18)
+        f.art = UI:ClassIcon(f, 14)
         f.art:SetPoint("LEFT")
-        API.SetClassIcon(f.art.icon, cls)
+        f.art:SetClass(cls)
         f.text = UI:Text(f, 12, "text", "num")
         f.text:SetPoint("LEFT", f.art, "RIGHT", 4, 0)
         f:EnableMouse(true)
@@ -1650,21 +1544,17 @@ local function buildComposition(cp)
         f:Hide()
         cp.classes[i] = f
     end
-    cp.lbl2 = UI:Text(cp, 11, "wowGold", "ui")
-    cp.lbl2:SetPoint("TOPLEFT", 12, -48)
+    cp.lbl2 = UI:Text(cp, 12, "wowGold", "ui")
     cp.lbl2:SetText("Buffs")
     cp.score = UI:Text(cp, 16, "green", "num")
-    cp.score:SetPoint("TOPLEFT", 58, -44)
-    cp.scoreLbl = UI:Text(cp, 9, "faint", "head")
+    cp.scoreLbl = UI:Text(cp, 11, "dim", "num")
     cp.scoreLbl:SetPoint("BOTTOMLEFT", cp.score, "BOTTOMRIGHT", 3, 1)
     cp.scoreLbl:SetText("/100")
-    cp.note = UI:Text(cp, 11, "faint")
-    cp.note:SetPoint("TOPLEFT", 58, -48)
+    cp.note = UI:Text(cp, 11, "dim")
     cp.chips = {}
     for i, cat in ipairs(coreCategories()) do
-        -- the buff's spell icon in a gold frame; a coloured jewel in the corner grades it
+        -- the buff's spell icon; a coloured jewel in the corner grades it
         local f = UI:FramedIcon(cp, 22)
-        f:SetPoint("TOPLEFT", 112 + (i - 1) * 26, -42)
         f:SetIcon(API.SpellIcon(cat.icon))
         f.pipRing = f:CreateTexture(nil, "OVERLAY", nil, 2)
         f.pipRing:SetTexture(T.tex.circle)
@@ -1681,6 +1571,47 @@ local function buildComposition(cp)
         f:SetScript("OnLeave", function() UI:HideTip() end)
         cp.chips[i] = f
     end
+end
+
+--- Lays the strip out by what it actually has to show (the classes present change): comp on the left,
+-- buffs on the same row when they fit and on a second row when they don't, so nothing runs off the card.
+local function layoutComp()
+    local cp = P.comp
+    local w = cp:GetWidth() or 0
+    local function place(f, x, y)
+        f:ClearAllPoints()
+        f:SetPoint("LEFT", cp, "TOPLEFT", x, y)
+    end
+    local y1 = -COMP_ONE_ROW / 2
+    local x = 12
+    place(cp.lbl1, x, y1)
+    x = x + (cp.lbl1:GetStringWidth() or 34) + 12
+    for _, f in ipairs(cp.roles) do
+        place(f, x, y1)
+        x = x + 18 + (f.text:GetStringWidth() or 8) + 12
+    end
+    place(cp.sep, x, y1)
+    x = x + 13
+    for _, f in ipairs(cp.classes) do
+        if f:IsShown() then
+            place(f, x, y1)
+            x = x + 18 + (f.text:GetStringWidth() or 8) + 10
+        end
+    end
+    local need = (cp.lbl2:GetStringWidth() or 34) + 12 + 44 + #cp.chips * 26
+    local oneRow = w > 0 and x + 16 + need <= w - 12
+    local bx = oneRow and (w - 12 - need) or 12
+    local y2 = oneRow and y1 or (y1 - 30)
+    place(cp.lbl2, bx, y2)
+    bx = bx + (cp.lbl2:GetStringWidth() or 34) + 12
+    place(cp.score, bx, y2)
+    place(cp.note, bx, y2)
+    bx = bx + 44
+    for _, f in ipairs(cp.chips) do
+        place(f, bx, y2)
+        bx = bx + 26
+    end
+    cp:SetHeight(oneRow and COMP_ONE_ROW or COMP_TWO_ROWS)
 end
 
 local function updateComposition(b)
@@ -1702,18 +1633,14 @@ local function updateComposition(b)
     for _, f in ipairs(cp.roles) do
         local n = roles[f.role] or 0
         f.text:SetText(tostring(n))
-        UI:SetTextColor(f.text, n > 0 and "text" or "faint")
+        UI:SetTextColor(f.text, n > 0 and "text" or "dim")
     end
-    local x = 58 + 4 * 54 + 14
     for _, f in ipairs(cp.classes) do
         local n = classes[f.class] or 0
         f.n = n
         if n > 0 then
-            f:ClearAllPoints()
-            f:SetPoint("TOPLEFT", x, -10)
             f.text:SetText(tostring(n))
             f:Show()
-            x = x + 40
         else
             f:Hide()
         end
@@ -1731,7 +1658,7 @@ local function updateComposition(b)
         UI:SetTextColor(cp.score, score >= 80 and "green" or score >= 50 and "yellow" or "red")
     else
         cp.score:SetText("--")
-        UI:SetTextColor(cp.score, "faint")
+        UI:SetTextColor(cp.score, "dim")
     end
     local cats = report and type(report.cats) == "table" and report.cats or nil
     for _, f in ipairs(cp.chips) do
@@ -1747,6 +1674,7 @@ local function updateComposition(b)
         f:SetDesaturated(status == "missing" or status == "na")
         f.icon:SetAlpha((status == "na") and 0.35 or (status == "missing" and 0.6 or 1))
     end
+    layoutComp()
 end
 
 -------------------------------------------------------------------------------
@@ -1800,7 +1728,7 @@ refreshRoster = function()
             updateSlot(f.slots[i], k, b.pick)
         end
         f.count:SetText(n .. "/5")
-        UI:SetTextColor(f.count, n == 5 and "green" or "faint")
+        UI:SetTextColor(f.count, n == 5 and "green" or "dim")
     end
 
     local bench = {}
@@ -1808,7 +1736,7 @@ refreshRoster = function()
     P.benchList:SetItems(bench, true)
     P.benchEmpty:SetShown(#bench == 0)
     P.benchCard:SetTitle(("Bench (%d)"):format(#bench))
-    P.benchBtn:SetArmed(b.pick and ("Bench " .. U.ShortName(b.pick)) or nil)
+    P.benchBtn:SetArmed(b.pick)
 
     local placed = placedCount(b)
     P.grid.fill:SetText(("%d / %d"):format(placed, ev.size), placed >= ev.size and "green" or "yellow")
@@ -1819,7 +1747,6 @@ end
 
 local function buildRosterView(parent)
     local v = CreateFrame("Frame", nil, parent)
-    v:SetPoint("TOPLEFT", parent, "TOPLEFT", 0, -VIEW_Y)
     v:SetPoint("BOTTOMRIGHT")
     v:Hide()
     P.rv = v
@@ -1827,19 +1754,26 @@ local function buildRosterView(parent)
     local cp = UI:Card(v)
     cp:SetPoint("BOTTOMLEFT")
     cp:SetPoint("BOTTOMRIGHT")
-    cp:SetHeight(COMP_H)
+    cp:SetHeight(COMP_ONE_ROW)
     P.comp = cp
     buildComposition(cp)
+    cp:HookScript("OnSizeChanged", function(_, w)
+        -- only a width change re-flows it: layoutComp sets the height itself
+        if w ~= cp.laidW then
+            cp.laidW = w
+            GF:Safe("raids:comp", layoutComp)
+        end
+    end)
 
     local pool = UI:Card(v, { title = "Signed up", icon = "check" })
     pool:SetPoint("TOPLEFT")
-    pool:SetPoint("BOTTOMLEFT", cp, "TOPLEFT", 0, 10)
+    pool:SetPoint("BOTTOMLEFT", cp, "TOPLEFT", 0, 12)
     pool:SetWidth(POOL_W)
-    pool.count = UI:Pill(pool.right, "", "dim", { height = 18, size = 10 })
+    pool.count = UI:Pill(pool.right, "", "dim", { height = 18 })
     pool.count:SetPoint("RIGHT", pool.right, "RIGHT")
     P.pool = pool
     P.poolList = UI:List(pool.body, {
-        rowHeight = 24, spacing = 2,
+        rowHeight = 24, spacing = 0,
         createRow = createPoolRow, updateRow = updatePoolRow,
         onClick = function(item) pickKey(item.key) end,
         isSelected = function(item)
@@ -1848,39 +1782,42 @@ local function buildRosterView(parent)
         end,
         onEnter = poolTooltip,
     })
-    P.poolList:SetAllPoints(pool.body)
-    P.poolEmpty = UI:Text(pool.body, 11, "faint")
+    P.poolList:SetPoint("TOPLEFT", pool.body, "TOPLEFT")
+    P.poolList:SetPoint("TOPRIGHT", pool.body, "TOPRIGHT", 10, 0)
+    pool.body:HookScript("OnSizeChanged", function(_, _, bh)
+        P.poolList:SetHeight(max(24, floor((bh or 0) / 24) * 24))
+    end)
+    P.poolEmpty = UI:Para(pool.body, 11, "dim")
     P.poolEmpty:SetPoint("TOPLEFT", pool.body, "TOPLEFT", 2, -4)
     P.poolEmpty:SetPoint("TOPRIGHT", pool.body, "TOPRIGHT", -2, -4)
-    P.poolEmpty:SetWordWrap(true)
     P.poolEmpty:SetText("Nobody's signed up yet. Tumbleweeds.")
     P.poolEmpty:Hide()
 
-    local bench = UI:Card(v, { title = "Bench", icon = "minus", accent = "dim" })
+    local bench = UI:Card(v, { title = "Bench", icon = "minus" })
     bench:SetPoint("TOPRIGHT")
-    bench:SetPoint("BOTTOMRIGHT", cp, "TOPRIGHT", 0, 10)
+    bench:SetPoint("BOTTOMRIGHT", cp, "TOPRIGHT", 0, 12)
     bench:SetWidth(BENCH_W)
     P.benchCard = bench
     P.benchBtn = makeBenchTarget(bench.body)
     P.benchList = UI:List(bench.body, {
-        rowHeight = 22, spacing = 2,
+        rowHeight = 24, spacing = 0,
         createRow = createBenchRow, updateRow = updateBenchRow,
         onClick = function(key) benchClick(key) end,
         onEnter = benchTooltip,
     })
-    P.benchList:SetPoint("TOPLEFT", P.benchBtn, "BOTTOMLEFT", 0, -6)
-    P.benchList:SetPoint("BOTTOMRIGHT", bench.body, "BOTTOMRIGHT")
-    P.benchEmpty = UI:Text(bench.body, 11, "faint")
-    P.benchEmpty:SetPoint("TOPLEFT", P.benchBtn, "BOTTOMLEFT", 2, -10)
-    P.benchEmpty:SetPoint("TOPRIGHT", P.benchBtn, "BOTTOMRIGHT", -2, -10)
-    P.benchEmpty:SetWordWrap(true)
+    P.benchList:SetPoint("TOPLEFT", P.benchBtn, "BOTTOMLEFT", 0, -8)
+    P.benchList:SetPoint("BOTTOMRIGHT", bench.body, "BOTTOMRIGHT", 10, 0)
+    P.benchEmpty = UI:Para(bench.body, 11, "dim")
+    P.benchEmpty:SetPoint("TOPLEFT", P.benchBtn, "BOTTOMLEFT", 2, -12)
+    P.benchEmpty:SetPoint("TOPRIGHT", P.benchBtn, "BOTTOMRIGHT", -2, -12)
     P.benchEmpty:SetText("Nobody on the bench. Everyone's keen as.")
     P.benchEmpty:Hide()
 
     local grid = UI:Card(v, { title = "Groups", icon = "roster", subtitle = "pick a name, then a slot" })
-    grid:SetPoint("TOPLEFT", pool, "TOPRIGHT", 10, 0)
-    grid:SetPoint("BOTTOMRIGHT", bench, "BOTTOMLEFT", -10, 0)
-    grid.fill = UI:Pill(grid.right, "", "green", { height = 18, size = 10, tooltip = "Placed in groups against the raid size." })
+    grid:SetPoint("TOPLEFT", pool, "TOPRIGHT", 12, 0)
+    grid:SetPoint("BOTTOMRIGHT", bench, "BOTTOMLEFT", -12, 0)
+    UI:SetTextColor(grid.subtitle, "dim")
+    grid.fill = UI:Pill(grid.right, "", "green", { height = 18, tooltip = "Placed in groups against the raid size." })
     grid.fill:SetPoint("RIGHT", grid.right, "RIGHT")
     P.grid = grid
     local sc, content = UI:Scroll(grid.body)
@@ -1907,7 +1844,7 @@ local function doInvite(id)
         fail(n)
         return
     end
-    local text = ("Inviting %d %s."):format(n, U.Plural(n, "legend"))
+    local text = ("%d %s on the way. Nobody's in till they say yes."):format(n, U.Plural(n, "invite"))
     if left and left > 0 then text = text .. (" %d more waiting on a spot."):format(left) end
     toast("Invites going out", text, "green", "roster")
 end
@@ -1948,7 +1885,7 @@ local function layoutToolbar(rosterMode)
             if anchor then
                 b:SetPoint("RIGHT", anchor, "LEFT", -6, 0)
             else
-                b:SetPoint("TOPRIGHT", P.banner, "BOTTOMRIGHT", 0, -11)
+                b:SetPoint("TOPRIGHT", P.detail, "TOPRIGHT", 0, -(P.tabsY + 3))
             end
             anchor = b
             b:Show()
@@ -2071,16 +2008,10 @@ local function editorPreview()
     if not editor then return end
     local d = editor.dialog
     local inst = R.InstanceInfo(E.instance)
-    if inst.size then
-        E.size = inst.size
-        d.size:Hide()
-        d.sizeFixed:SetText(inst.size .. "-MAN")
-        d.sizeFixed:Show()
-    else
-        d.size:Show()
-        d.size:Refresh()
-        d.sizeFixed:Hide()
-    end
+    if inst.size then E.size = inst.size end
+    -- a raid with a fixed size still shows it, it just can't be changed
+    d.size:SetLocked(inst.size ~= nil)
+    d.size:Refresh()
     local ts = editorTime()
     if not ts then
         d.preview:SetText("")
@@ -2090,14 +2021,6 @@ local function editorPreview()
     if not E.id and (E.weeks or 1) > 1 then txt = txt .. ("\nthen weekly - %d raids all up"):format(E.weeks) end
     if ts < now() then txt = T:Wrap("red", "That's in the past, legend.") end
     d.preview:SetText(txt)
-end
-
---- Small gold Friz field label, the way the game labels its own forms.
-local function editorLabel(parent, text, x, y)
-    local fs = UI:Text(parent, 10, REST_GOLD, "ui")
-    fs:SetPoint("TOPLEFT", x, y)
-    fs:SetText(text)
-    return fs
 end
 
 local function editorSave()
@@ -2172,52 +2095,44 @@ local function editorDelete()
 end
 
 local function buildEditor()
+    -- same dress as the kit's modals (full-screen dim, gold frame, a wash behind the title), but
+    -- one strata under them, because its dropdown menus and confirm boxes have to open over it
     local ov = CreateFrame("Frame", nil, P)
-    ov:SetAllPoints(P)
-    ov:SetFrameLevel(P:GetFrameLevel() + 60)
+    ov:SetFrameStrata("DIALOG")
+    ov:SetAllPoints(UIParent)
     ov:EnableMouse(true)
     ov:EnableMouseWheel(true)
     ov:SetScript("OnMouseWheel", function() end)
     ov.dim = ov:CreateTexture(nil, "BACKGROUND")
     ov.dim:SetAllPoints()
-    ov.dim:SetColorTexture(0, 0, 0, 0.62)
+    ov.dim:SetColorTexture(0.01, 0.015, 0.03, 0.66)
     ov:Hide()
 
-    -- a floating sheet in the game's own dress: slate under a gold frame, like the kit's modals
-    local d = UI:Panel(ov, C.bg1, false)
-    d:SetSize(480, 440)
-    d:SetPoint("CENTER", 0, 6)
-    UI:Shadow(d, 16)
+    local d = UI:Panel(ov, { 0, 0, 0, 0 }, false)
+    d:SetSize(480, 396)
+    d:SetPoint("CENTER", rawget(_G, "GreenfieldsMainFrame") or P, "CENTER", 0, 6)
+    UI:Shadow(d, 18)
+    d.rim = UI:Nine(d, "gold", "BACKGROUND", -6)
     ov.dialog = d
-    d.stone = tiled(d, T.tex.stone, 3, "BACKGROUND", 1)
-    d.stone:SetVertexColor(0.55, 0.6, 0.57, 0.45)
-    d.rim = d:CreateTexture(nil, "OVERLAY", nil, 7)
-    d.rim:SetPoint("TOPLEFT", -5, 5)
-    d.rim:SetPoint("BOTTOMRIGHT", 5, -5)
-    UI.Sliced(d.rim, T.tex.frameGold, 16)
-    -- road-works tape just inside the frame (the guild's sign-shop touch)
-    d.tape = d:CreateTexture(nil, "ARTWORK")
-    d.tape:SetTexture(T.tex.hazard, "REPEAT", "REPEAT")
-    d.tape:SetPoint("TOPLEFT", 4, -4)
-    d.tape:SetPoint("TOPRIGHT", -4, -4)
-    d.tape:SetHeight(5)
-    d.tape:SetTexCoord(0, 472 / 24, 0, 5 / 24)
-    d.tape:SetAlpha(0.85)
+    d.stripe = d:CreateTexture(nil, "BACKGROUND", nil, -4)
+    d.stripe:SetPoint("TOPLEFT", 4, -4)
+    d.stripe:SetPoint("TOPRIGHT", -4, -4)
+    d.stripe:SetHeight(46)
+    UI:Gradient(d.stripe, "VERTICAL", C.green[1], C.green[2], C.green[3], 0, 0.12)
     d.title = UI:Text(d, 20, "wowGold", "title")
-    d.title:SetPoint("TOPLEFT", 20, -20)
-    if d.title.SetShadowOffset then
-        d.title:SetShadowOffset(2, -2)
-        d.title:SetShadowColor(0, 0, 0, 0.9)
-    end
+    d.title:SetPoint("TOPLEFT", 20, -18)
     d.sub = UI:Text(d, 12, "dim")
     d.sub:SetPoint("TOPLEFT", d.title, "BOTTOMLEFT", 0, -4)
 
     local L, R2, W1 = 20, 248, 212
-    editorLabel(d, "Title", L, -72)
-    d.titleBox = UI:Input(d, { placeholder = "Leave blank to use the raid's name", max = 40, width = 440 })
-    d.titleBox:SetPoint("TOPLEFT", L, -86)
+    local function rowY(i) return -66 - i * 46 end
+    local function ctlY(i) return rowY(i) - 15 end
 
-    editorLabel(d, "Raid", L, -122)
+    fieldLabel(d, "Title", L, rowY(0))
+    d.titleBox = UI:Input(d, { placeholder = "Leave blank to use the raid's name", max = 40, width = 440 })
+    d.titleBox:SetPoint("TOPLEFT", L, ctlY(0))
+
+    fieldLabel(d, "Raid", L, rowY(1))
     d.inst = UI:Dropdown(d, {
         width = W1, items = instanceItems, get = function() return E.instance end,
         set = function(v)
@@ -2227,62 +2142,65 @@ local function buildEditor()
             editorPreview()
         end,
     })
-    d.inst:SetPoint("TOPLEFT", L, -136)
-    editorLabel(d, "Size", R2, -122)
+    d.inst:SetPoint("TOPLEFT", L, ctlY(1))
+    fieldLabel(d, "Size", R2, rowY(1))
     d.size = UI:Dropdown(d, {
         width = W1, items = sizeItems, get = function() return E.size end,
         set = function(v) E.size = v; editorPreview() end,
     })
-    d.size:SetPoint("TOPLEFT", R2, -136)
-    d.sizeFixed = UI:Text(d, 14, "text", "num")
-    d.sizeFixed:SetPoint("TOPLEFT", R2 + 2, -142)
+    d.size:SetPoint("TOPLEFT", R2, ctlY(1))
 
-    editorLabel(d, "Date", L, -172)
+    fieldLabel(d, "Date", L, rowY(2))
     d.date = UI:Dropdown(d, {
         width = W1, items = dateItems, get = function() return E.day end,
         set = function(v) E.day = v; editorPreview() end,
     })
-    d.date:SetPoint("TOPLEFT", L, -186)
-    editorLabel(d, "Start (your time)", R2, -172)
+    d.date:SetPoint("TOPLEFT", L, ctlY(2))
+    fieldLabel(d, "Start (your time)", R2, rowY(2))
     d.hour = UI:Dropdown(d, {
         width = 104, items = hourItems, get = function() return E.hour end,
         set = function(v) E.hour = v; editorPreview() end,
     })
-    d.hour:SetPoint("TOPLEFT", R2, -186)
+    d.hour:SetPoint("TOPLEFT", R2, ctlY(2))
     d.min = UI:Dropdown(d, {
-        width = 102, items = minuteItems, get = function() return E.min end,
+        width = 100, items = minuteItems, get = function() return E.min end,
         set = function(v) E.min = v; editorPreview() end,
     })
-    d.min:SetPoint("LEFT", d.hour, "RIGHT", 6, 0)
+    d.min:SetPoint("LEFT", d.hour, "RIGHT", 8, 0)
 
-    editorLabel(d, "Run time", L, -222)
+    fieldLabel(d, "Run time", L, rowY(3))
     d.dur = UI:Dropdown(d, {
         width = W1, items = durationItems, get = function() return E.duration end,
         set = function(v) E.duration = v; editorPreview() end,
     })
-    d.dur:SetPoint("TOPLEFT", L, -236)
-    editorLabel(d, "Soft reserves", R2, -222)
+    d.dur:SetPoint("TOPLEFT", L, ctlY(3))
+    fieldLabel(d, "Soft reserves", R2, rowY(3))
     d.sr = UI:Dropdown(d, {
         width = W1, items = srItems, get = function() return E.sr end,
         set = function(v) E.sr = v end,
     })
-    d.sr:SetPoint("TOPLEFT", R2, -236)
+    d.sr:SetPoint("TOPLEFT", R2, ctlY(3))
 
-    editorLabel(d, "Notes", L, -272)
-    d.notes = UI:Input(d, { placeholder = "Bring flasks, bring snags, bring your A game.", max = 160, width = 440 })
-    d.notes:SetPoint("TOPLEFT", L, -286)
+    fieldLabel(d, "Notes", L, rowY(4))
+    d.notes = UI:Input(d, { placeholder = "Bring flasks, bring a hoodie, bring your A game.", max = 160, width = 440 })
+    d.notes:SetPoint("TOPLEFT", L, ctlY(4))
 
-    d.repLbl = editorLabel(d, "Repeat", L, -322)
+    d.repLbl = fieldLabel(d, "Repeat", L, rowY(5))
     d.rep = UI:Dropdown(d, {
         width = W1, items = repeatItems, get = function() return E.weeks end,
         set = function(v) E.weeks = v; editorPreview() end,
     })
-    d.rep:SetPoint("TOPLEFT", L, -336)
-    d.previewLbl = editorLabel(d, "Shows up as", R2, -322)
-    d.preview = UI:Text(d, 11, "dim")
-    d.preview:SetPoint("TOPLEFT", R2, -340)
+    d.rep:SetPoint("TOPLEFT", L, ctlY(5))
+    d.previewLbl = fieldLabel(d, "Shows up as", R2, rowY(5))
+    d.preview = UI:Text(d, 11, "text")
+    d.preview:SetPoint("TOPLEFT", d.previewLbl, "BOTTOMLEFT", 0, -5)
     d.preview:SetWidth(W1)
     d.preview:SetWordWrap(true)
+    --- With no Repeat beside it (editing), the preview slides over to the left edge.
+    function d:PlacePreview(left)
+        self.previewLbl:ClearAllPoints()
+        self.previewLbl:SetPoint("TOPLEFT", left and L or R2, rowY(5))
+    end
 
     d.save = UI:Button(d, "Save", { style = "primary", icon = "check", height = 28, minWidth = 96, onClick = function() editorSave() end })
     d.save:SetPoint("BOTTOMRIGHT", -20, 18)
@@ -2340,6 +2258,7 @@ openEditor = function(id)
         d.delete:Show()
         d.repLbl:Hide()
         d.rep:Hide()
+        d:PlacePreview(true)
     else
         E.instance, E.size = "Barrow Deeps", 10
         E.day, E.hour, E.min = defaultDay(), 19, 30
@@ -2352,6 +2271,7 @@ openEditor = function(id)
         d.delete:Hide()
         d.repLbl:Show()
         d.rep:Show()
+        d:PlacePreview(false)
     end
     d.titleBox:RefreshPlaceholder()
     d.notes:RefreshPlaceholder()
@@ -2364,9 +2284,48 @@ end
 -------------------------------------------------------------------------------
 -- Page
 -------------------------------------------------------------------------------
+--- Stacks the picked raid's column to fit: the sign shrinks on a short window and while building a
+-- roster, and a tab row with nothing to switch between (and no tools) gives its height to the list.
+local function layoutDetail()
+    local h = P.detail:GetHeight() or 0
+    local compact = S.tab == "roster" or (h > 0 and h < SHORT_H)
+    setBannerCompact(P.banner, compact)
+    if compact then
+        -- in a narrow column the raid's name matters more than the words under the countdown
+        local b = P.banner
+        local narrow = (b:GetWidth() or 0) < 440
+        b.countLbl:SetShown(not narrow)
+        b.title:SetPoint("TOPRIGHT", b, "TOPRIGHT", narrow and -110 or -200, -18)
+        b.count:SetPoint("TOPRIGHT", b, "TOPRIGHT", b.edit:IsShown() and -46 or -24, -18)
+    else
+        P.banner.countLbl:Show()
+    end
+    local gap = compact and 8 or 12
+    local y = (compact and BANNER_COMPACT_H or BANNER_H) - SIGN_LIFT + gap
+    local showTabs = R:IsOfficer() or P.toolsBtn:IsShown()
+    P.tabs:SetShown(showTabs)
+    P.tabLine:SetShown(showTabs)
+    P.tabsY = y
+    P.tabs:ClearAllPoints()
+    P.tabs:SetPoint("TOPLEFT", P.detail, "TOPLEFT", 0, -y)
+    P.tabLine:ClearAllPoints()
+    P.tabLine:SetPoint("TOPLEFT", P.detail, "TOPLEFT", 0, -(y + TABS_H - 1))
+    P.tabLine:SetPoint("TOPRIGHT", P.detail, "TOPRIGHT", 0, -(y + TABS_H - 1))
+    P.toolsBtn:ClearAllPoints()
+    P.toolsBtn:SetPoint("TOPRIGHT", P.detail, "TOPRIGHT", 0, -(y + 3))
+    if showTabs then y = y + TABS_H + gap end
+    for _, v in ipairs({ P.sv, P.rv }) do
+        v:SetPoint("TOPLEFT", P.detail, "TOPLEFT", 0, -y)
+    end
+    P.whoCard:ClearAllPoints()
+    P.whoCard:SetPoint("TOPLEFT", P.my, "BOTTOMLEFT", 0, compact and -8 or -GAP)
+    P.whoCard:SetPoint("BOTTOMRIGHT")
+end
+
 local function applyLayout()
-    local focus = S.tab == "roster" and P.detail:IsShown()
-    P.left:SetShown(not focus)
+    local shown = P.detail:IsShown()
+    local focus = S.tab == "roster" and shown
+    P.left:SetShown(shown and not focus)
     P.right:ClearAllPoints()
     if focus then
         P.right:SetPoint("TOPLEFT", P.body, "TOPLEFT", 0, 0)
@@ -2374,6 +2333,7 @@ local function applyLayout()
         P.right:SetPoint("TOPLEFT", P.left, "TOPRIGHT", GAP, 0)
     end
     P.right:SetPoint("BOTTOMRIGHT", P.body, "BOTTOMRIGHT", 0, 0)
+    if shown then layoutDetail() end
 end
 
 --- What the 30 s ticker watches: how many raids are listed and what state the picked one
@@ -2399,6 +2359,22 @@ local function defaultSelection(list)
     return list[1] and list[1].id or nil
 end
 
+--- Launch morning: no raids at all, so one centred block instead of two half-empty columns. The
+-- parchment calendar page says today's date with nothing on it.
+local function showEmptyBlock(officer)
+    local e = P.emptyBlock
+    local line = GF.Flavor.emptyStates.events
+    e:SetText(line .. "\n" .. (officer and "Hit New raid and get the lads organised."
+        or "When an officer puts a raid up it lands here. Keep ya boots by the door."))
+    e.action:SetShown(officer)
+    e:SetHeight(officer and 180 or 142)
+    local d = R.DateParts(now())
+    e.dow:SetText(d and DOW[d.wday] or "")
+    e.day:SetText(d and tostring(d.day) or "?")
+    e.mon:SetText(d and MON[d.month] or "")
+    e:Show()
+end
+
 refreshDetail = function()
     if not P then return end
     local ev = selectedEvent()
@@ -2407,14 +2383,11 @@ refreshDetail = function()
     if not ev then
         S.tab = "signups"
         P.detail:Hide()
-        -- the list on the left already says the calendar's empty; this side says what's next
-        P.detailEmpty:SetText(officer and "Nothing on the calendar. Hit New raid and get the lads organised."
-            or "When an officer puts a raid up it lands here. Keep ya boots by the door.")
-        P.detailEmpty:Show()
+        showEmptyBlock(officer)
         applyLayout()
         return
     end
-    P.detailEmpty:Hide()
+    P.emptyBlock:Hide()
     P.detail:Show()
     updateBanner(ev)
     shineBanner(ev.id)
@@ -2423,8 +2396,8 @@ refreshDetail = function()
     P.tabs:Select(S.tab, true)
     P.toolsBtn:SetShown(R:CanManage() and not ev.cancelled)
     local roster = S.tab == "roster"
-    layoutToolbar(roster)
     applyLayout()
+    layoutToolbar(roster)
     if roster then
         P.sv:Hide()
         P.rv:Show()
@@ -2439,14 +2412,16 @@ end
 
 refreshAll = function()
     if not P then return end
-    P.newBtn:SetShown(R:IsOfficer())
     local list = R:List()
     local listed = false
     for _, ev in ipairs(list) do
         if ev.id == S.selected then listed = true break end
     end
     if not listed and not (S.selected and R:Get(S.selected)) then S.selected = defaultSelection(list) end
+    -- the empty block carries its own New raid, and one's plenty
+    P.newBtn:SetShown(R:IsOfficer() and selectedEvent() ~= nil)
     P.evList:SetItems(list, true)
+    fitLeft()
     local upcoming, t = 0, now()
     for _, ev in ipairs(list) do
         if not ev.cancelled and ev.time > t then upcoming = upcoming + 1 end
@@ -2481,31 +2456,56 @@ selectTab = function(key)
     refreshDetail()
 end
 
+local function buildEmptyBlock(page)
+    local e = UI:Empty(page.body, "", "calendar", {
+        heading = "Nothing on the calendar", action = "New raid", actionStyle = "primary",
+        onAction = function() openEditor(nil) end,
+    })
+    -- the kit's icon slot holds the space; the page itself sits on top of it
+    e.icon:SetSize(56, 64)
+    e.icon:SetAlpha(0)
+    local tile = CreateFrame("Frame", nil, e)
+    tile:SetAllPoints(e.icon)
+    UI:Parchment(tile, 1)
+    e.dow = UI:Text(tile, 11, UI.INK.dim, "head")
+    e.dow:SetPoint("TOP", tile, "TOP", 0, -7)
+    e.day = UI:Text(tile, 26, UI.INK.dark, "ui")
+    e.day:SetPoint("CENTER", tile, "CENTER", 0, 0)
+    e.mon = UI:Text(tile, 11, UI.INK.dim, "head")
+    e.mon:SetPoint("BOTTOM", tile, "BOTTOM", 0, 7)
+    for _, fs in ipairs({ e.dow, e.day, e.mon }) do
+        if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 0) end
+    end
+    -- the kit caps its block at 360, which leaves these lines ending in one lonely word
+    local function widen()
+        local w = min(480, max(120, (page.body:GetWidth() or 480) - 32))
+        e:SetWidth(w)
+        e.text:SetWidth(w)
+    end
+    page.body:HookScript("OnSizeChanged", widen)
+    widen()
+    e:Hide()
+    page.emptyBlock = e
+end
+
 local function buildRight(page)
     local right = CreateFrame("Frame", nil, page.body)
     page.right = right
     local content = CreateFrame("Frame", nil, right)
     content:SetAllPoints(right)
     page.detail = content
-    page.detailEmpty = UI:Empty(right, "", "calendar")
-    page.detailEmpty:Hide()
-    right:HookScript("OnSizeChanged", function(_, w) fitEmpty(page.detailEmpty, w) end)
 
     page.banner = buildBanner(content)
     page.tabs = UI:Tabs(content, {
         { key = "signups", text = "Signups", icon = "check" },
         { key = "roster", text = "Roster builder", icon = "roster" },
     }, function(key) selectTab(key) end)
-    page.tabs:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -TABS_Y)
-    local line = UI:Divider(content, "lineSoft")
-    line:SetPoint("TOPLEFT", content, "TOPLEFT", 0, -(TABS_Y + 29))
-    line:SetPoint("TOPRIGHT", content, "TOPRIGHT", 0, -(TABS_Y + 29))
+    page.tabLine = UI:Divider(content, "lineSoft")
 
     page.toolsBtn = UI:Button(content, "Raid tools", {
-        style = "warn", icon = "bolt", height = 24, onClick = function(btn) openToolsMenu(btn) end,
+        icon = "chevron_down", height = 24, onClick = function(btn) openToolsMenu(btn) end,
         tooltip = { "Raid tools", { "Invite everyone who said yeah, sort the groups, post the lineup. Officers, raid lead and assists." } },
     })
-    page.toolsBtn:SetPoint("TOPRIGHT", page.banner, "BOTTOMRIGHT", 0, -11)
     page.saveBtn = UI:Button(content, "Save", {
         style = "secondary", icon = "check", height = 24, onClick = function() saveLineup() end,
         tooltip = { "Save lineup", { "Saves the groups and bench into the raid for everyone." } },
@@ -2521,6 +2521,12 @@ local function buildRight(page)
 
     buildSignupsView(content)
     buildRosterView(content)
+    content:HookScript("OnSizeChanged", function()
+        if content:IsShown() then
+            GF:Safe("raids:layout", layoutDetail)
+            layoutToolbar(S.tab == "roster")
+        end
+    end)
 end
 
 local function build(page)
@@ -2531,13 +2537,15 @@ local function build(page)
         tooltip = { "New raid", { "Put a raid night on the calendar. Officers only." } },
     }))
     local body = CreateFrame("Frame", nil, page)
-    body:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -12)
+    body:SetPoint("TOPLEFT", page.header, "BOTTOMLEFT", 0, -14)
     body:SetPoint("BOTTOMRIGHT")
     page.body = body
     buildLeft(page)
+    buildEmptyBlock(page)
     buildRight(page)
     body:SetScript("OnSizeChanged", function(_, w)
-        if w and w > 0 then page.left:SetWidth(U.Clamp(floor(w * 0.36), 250, 330)) end
+        if w and w > 0 then page.left:SetWidth(U.Clamp(floor(w * 0.36), 272, 330)) end
+        fitLeft()
     end)
     applyLayout()
 end

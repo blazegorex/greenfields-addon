@@ -6,6 +6,8 @@ Type `/gf` to open it, or click the green road sign on the minimap.
 
 Everything is shared between guildies who run the addon, so get the whole street to install it. Stats, professions and buff info only exist for people running Greenfields.
 
+**Residents only.** From launch, Greenfields only runs for characters in the Greenfields guild. On any other character it stays quiet, and the window just says why. It opens by itself the moment that character joins, with nothing to reload.
+
 ---
 
 ## The pages
@@ -42,7 +44,7 @@ A guild news feed. It posts things like dings (10, 20 ... 60), epics looted, bos
   - The host gets a **Loot Desk**: announce, run SR / MS / OS rolls, see live rolls, award.
 
 ### Loot Log
-Who got what, how (SR / MS / OS / roll) and from which boss, plus a **Bin Chicken Watch** leaderboard.
+Who got what, how (SR / MS / OS / roll) and from which boss, plus a **Fiend Watch** leaderboard.
 
 ### Roll Call (attendance)
 - Recorded automatically when the guild raids. The raid leader's addon records; if the leader doesn't run it, an officer's does.
@@ -52,21 +54,21 @@ Who got what, how (SR / MS / OS / roll) and from which boss, plus a **Bin Chicke
 - CSV export.
 
 ### Hall of Fame (and Shame)
-32 titles that change hands as the numbers move. The current leader wears the title; check the "This week" tab too. Some highlights:
+32 titles that change hands as the numbers move. The current leader wears the title, once they've got a small score on it (till then it reads up for grabs); check the "This week" tab too. Some highlights:
 
 | Title | Awarded for |
 |---|---|
 | **Stands In Fire** | most raid deaths |
-| **Bin Chicken** | biggest loot whore |
-| **Mandurah Millionaire** / **Centrelink's Favourite** | richest / poorest. Only the order is shown, never the amount, and you can opt out in Settings. |
+| **Loot Fiend** | biggest loot whore |
+| **Mandurah Millionaire** / **Centrelink's Favourite** | richest / poorest. The screen only shows the order, never the amount, but the score it shares gives your gold away to within about double. You can opt out in Settings. |
 | **Eshay Brah** | most PvP killing blows |
 | **Gravity Tester** | deaths from falling |
 | **Opening Act** | first to die on a wipe |
 | **Durry Break Champion** | most time AFK |
-| **Skippy** | most jumps |
+| **Been Up Since Tuesday** | most jumps |
 | **Ride Or Die** | best attendance |
 | **Said Yeah, Meant Nah** | most flakes |
-| **Chemist Warehouse Loyalty Card** | potions and flasks drunk |
+| **On The Gear** | potions and flasks drunk |
 
 The rest include **Uber Eats Driver**, **Mummy's Boy**, **Absolutely Rotten**, **Blue Manna Crabber** and **Happy Camper**.
 
@@ -100,7 +102,16 @@ WoW won't let addons update themselves, so use the **Greenfields Updater**. It's
 
 **Turn On Auto Updates** keeps it current in the background: it checks at login and every 6 hours. **Turn Off Auto Updates** stops it.
 
-In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a newer version. After you update, type `/reload` and you'll get a "What's new" popup.
+**On a Mac, or doing it by hand,** the updater won't help you, so:
+
+1. Download [Greenfields.zip](https://github.com/blazegorex/greenfields-addon/releases/latest/download/Greenfields.zip). That link always gets the newest version.
+2. Unzip it, and find the folder with `Greenfields.toc` directly inside it. Windows can put it one folder deeper than you'd think.
+3. Drag that folder into `World of Warcraft/_forever_/Interface/AddOns`, replacing any old one.
+4. Quit and reopen WoW.
+
+Do the same again each time a new version comes out. `/gf install` gives you these links and a post to paste in Discord, for getting a mate set up.
+
+In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a newer version. After you update, restart WoW and you'll get a "What's new" popup.
 
 ## Slash commands
 | Command | What it does |
@@ -113,8 +124,11 @@ In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a
 | `/gf stats` | print your own stats |
 | `/gf doctor` | check what this game client supports (run this on launch day) |
 | `/gf update` | is there a newer Greenfields, and how to get it |
+| `/gf install` | the download links and a post to paste in Discord, for getting a mate set up |
 | `/gf changelog` | what changed in each version |
 | `/gf errors` | list any Lua errors the addon caught |
+| `/gf report` | errors and details in one box to copy and paste to Spencer; they survive a /reload |
+| `/gf mic` | posts one test line to your group and reads one /roll back |
 | `/gf comm` | addon-message diagnostics |
 | `/gf reset` | reset the window position |
 | `/gf servo`, `/gf roast <name>`, `/gf yeahnah` | you'll see |

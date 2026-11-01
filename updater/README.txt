@@ -15,7 +15,7 @@ Installs the Greenfields guild addon and keeps it up to date.
    To stop it: double-click "Turn Off Auto Updates".
 
 In game, Greenfields tells you when a guildie has a newer version (yellow UPDATE pill and a
-toast). Run the updater, then type /reload.
+toast). Run the updater, then quit and reopen WoW.
 
 Trouble?
 - "Windows won't let the updater write to ...": right-click "Update Greenfields" >

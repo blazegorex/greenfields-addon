@@ -1,14 +1,14 @@
 --[[ Greenfields - Modules/Home.lua
      The Street: the dashboard everyone lands on when they open Greenfields.
 
-     Hero row: the "Welcome to Greenfields" sign, a greeting with your name in it and pills
-     for who's online, who runs Greenfields, your raid attendance and the crowns you wear.
-     Under it a responsive grid of cards (two columns when there's room):
-       Next raid               live countdown (ticks every second, only while on screen),
-                               signup counts, your answer, Yeah / Maybe / Nah buttons
-       Crowns on the street    six curated Hall of Fame titles and who wears them
+     Top down, in the order a player cares:
+       Greeting                your name in a joke, your rank, your attendance and crowns, and the
+                               welcome sign, small: the header already says whose street this is
+       Next raid               the page's one gold-rimmed card: live countdown (ticks every second,
+                               only while on screen), signup counts, Yeah / Maybe / Nah
        Latest from the Watch   the six newest Neighbourhood Watch reports
        Who's home              online guildies with their zones (click: profile)
+       Crowns on the street    six curated Hall of Fame titles and who wears them
        Camp check              the Buff Check grade for your current group, or a tip
      Every other module is optional: each card checks its source exists and falls back to
      an empty state with some personality. The tagline and the greeting are re-rolled
@@ -22,7 +22,7 @@ local Home = GF:NewModule("Home")
 
 local type, pairs, ipairs, tostring, tonumber, select, unpack = type, pairs, ipairs, tostring, tonumber, select, unpack
 local floor, max, min, abs = math.floor, math.max, math.min, math.abs
-local format, upper = string.format, string.upper
+local format = string.format
 local sort, concat = table.sort, table.concat
 
 -------------------------------------------------------------------------------
@@ -30,18 +30,25 @@ local sort, concat = table.sort, table.concat
 -------------------------------------------------------------------------------
 local PAGE = "home"
 local GUTTER = 16
-local HERO_H = 150
-local SIGN_W, SIGN_H = 256, 128           -- the welcome sign art is 512x256: keep it 2:1
-local ROW1_H, ROW2_H, CAMP_H = 214, 238, 104
+local GREET_H = 84
+local SIGN_W, SIGN_H = 168, 84            -- the welcome sign art is 512x256: keep it 2:1
+local STAT_GAP = 16
+local RAID_H, RAID_EMPTY_H = 154, 104
 local TWO_COL_MIN = 600
-local PILL_H = 22
-local TILE_H, TILE_ROW_H = 44, 24         -- crown tiles: roomy two-column / compact one-column
+local CARD_CHROME = 48                    -- a titled card's header and bottom padding
+local ROW2_MIN = 164                      -- room for a card's empty state
+local TILE_H, TILE_GAP = 48, 8
+local CROWN_EMPTY_H = 136
 local WATCH_ROWS, WATCH_ROW_H = 6, 30
 local PEOPLE_MAX, PERSON_H = 12, 26
+local MORE_H = 24
 local CAMP_SETTLE = 2                     -- the camp card re-grades at most this often while buffs churn
 local CAMP_CHIPS = 8
-local RAID_ART_SIZE = 40
-local WATCH_ICON = 20
+local CAMP_H = 100
+local RAID_ART_SIZE = 56
+local TAG_W = 108
+local ANSWER_W, ANSWER_H, ANSWER_GAP = 92, 28, 6
+local WATCH_ICON = 16
 local CAMP_ART = "Interface\\Icons\\Spell_Fire_Fire"   -- Basic Campfire
 
 --- Quest-log art for the Next raid card (classic-era icon files). Raids may supply its own.
@@ -52,11 +59,13 @@ local RAID_ART = {
 }
 local RAID_ART_DEFAULT = "Interface\\Icons\\INV_Misc_Head_Dragon_Black"
 
--- dark ink for text written on parchment
-local INK = { 0.20, 0.12, 0.04, 1 }
-local INK_SOFT = { 0.36, 0.25, 0.12, 1 }
-local INK_RED = { 0.58, 0.10, 0.04, 1 }
+-- on parchment: UI.INK has the dark, red and dim inks; LIVE takes this green one
 local INK_GREEN = { 0.04, 0.36, 0.14, 1 }
+
+-- crown names: warm paper for glory, a muted rose for the shame board. Neon pink shouts over the
+-- whole card, and the gold is for the crown you hold
+local CROWN_FAME = { 0.93, 0.85, 0.66, 1 }
+local CROWN_SHAME = { 0.93, 0.56, 0.60, 1 }
 
 --- The six crowns the street cares about most (keys in GF.Titles).
 local CROWNS = { "deaths_raid", "loot_raid", "wealth", "pvp_kills", "attendance", "afk_minutes" }
@@ -71,7 +80,7 @@ local COUNT_ORDER = { "yes", "late", "maybe", "bench", "no" }
 local SIGNUP_TOASTS = {
     yes = { title = "Locked in", text = "You're down for %s. Don't be late, legend.", style = "green" },
     maybe = { title = "Pencilled in", text = "Maybe for %s. Make your mind up before the pull.", style = "blue" },
-    no = { title = "Yeah nah, noted", text = "Out for %s. The bin chickens will miss you.", style = "red" },
+    no = { title = "Yeah nah, noted", text = "Out for %s. The staffy will miss you.", style = "red" },
 }
 
 local LINES = {
@@ -167,50 +176,55 @@ local function place(f, parent, x, y, w, h)
     f:SetSize(w, h)
 end
 
---- Tiled chrome texture (stone / leather / parchment) filling `f`, inset by `inset`.
-local function tiled(f, path, inset, layer, sub)
-    local t = f:CreateTexture(nil, layer or "BACKGROUND", nil, sub or 1)
-    t:SetPoint("TOPLEFT", inset or 0, -(inset or 0))
-    t:SetPoint("BOTTOMRIGHT", -(inset or 0), inset or 0)
-    t:SetTexture(path, "REPEAT", "REPEAT")
-    t:SetHorizTile(true)
-    t:SetVertTile(true)
-    return t
+--- A kind marker: a line icon draws bare in the kind's colour, real game art keeps a thin dark edge.
+-- :SetKind(icon, color). A gold bevel would say "this is a game item" when it's only a label.
+local function kindIcon(parent, size)
+    local f = UI:IconChip(parent, size)
+    function f:SetKind(icon, color)
+        self:SetIcon(icon)
+        local game = self.icon.isGameIcon and true or false
+        self.edge:SetShown(game)
+        if not game then
+            local c = UI.col(color or "dim")
+            self.icon:SetVertexColor(c[1], c[2], c[3], 1)
+        end
+    end
+    return f
 end
 
---- A 9-sliced rim (T.tex.frameGold / frameBronze) drawn over `f`'s own regions.
-local function rim(f, path, margin, sub)
-    local t = f:CreateTexture(nil, "OVERLAY", nil, sub or 6)
-    t:SetAllPoints()
-    UI.Sliced(t, path, margin)
-    return t
-end
-
---- Line icons in a framed well take the kind's colour; dim kinds keep the frame's gold.
-local function tintFramed(fi, color)
-    if fi.icon.isGameIcon or not color or color == "dim" or color == "faint" then return end
-    local c = UI.col(color)
-    fi.icon:SetVertexColor(c[1], c[2], c[3], 1)
-end
-
---- An empty state that stretches with its card (UI:Empty is fixed at 360 wide).
+--- The kit's empty block, scaled down to sit inside a card.
 local function cardEmpty(parent, icon)
-    local f = CreateFrame("Frame", nil, parent)
-    f:SetAllPoints(parent)
-    f.icon = UI:Icon(f, 32, icon or "eye", "ARTWORK", { 1, 1, 1, 0.12 })
-    f.icon:SetPoint("BOTTOM", f, "CENTER", 0, 6)
-    f.text = UI:Text(f, 12, "faint")
-    f.text:SetPoint("TOPLEFT", f, "LEFT", 12, -4)
-    f.text:SetPoint("TOPRIGHT", f, "RIGHT", -12, -4)
-    f.text:SetJustifyH("CENTER")
-    f.text:SetWordWrap(true)
+    local f = UI:Empty(parent, "", icon or "eye")
+    f.icon:SetSize(28, 28)
+    f:SetHeight(84)
     f:Hide()
     return f
 end
 
-local function headerButton(card, text, onClick)
-    local b = UI:Button(card, text, { style = "ghost", icon = "chevron_right", height = 22, size = 11, onClick = onClick })
-    b:SetPoint("TOPRIGHT", card.right, "TOPRIGHT", 0, 0)
+--- "Open >": a go-there link in a card's header, the chevron trailing so it can't read as a
+-- disclosure triangle.
+local function headerLink(card, text, onClick)
+    local b = CreateFrame("Button", nil, card)
+    b:SetHeight(20)
+    b.label = UI:Text(b, 11, "dim", "ui")
+    b.label:SetText(text)
+    b.chev = UI:Icon(b, 10, "chevron_right", "ARTWORK", "dim")
+    b.chev:SetPoint("RIGHT", 0, 0)
+    b.label:SetPoint("RIGHT", b.chev, "LEFT", -4, 0)
+    b:SetWidth((b.label:GetStringWidth() or 40) + 14)
+    b:SetPoint("TOPRIGHT", card, "TOPRIGHT", -12, -7)
+    local function paint(color)
+        UI:SetTextColor(b.label, color)
+        local c = UI.col(color)
+        b.chev:SetVertexColor(c[1], c[2], c[3], 1)
+    end
+    b:RegisterForClicks("LeftButtonUp")
+    b:SetScript("OnEnter", function() paint("gold") end)
+    b:SetScript("OnLeave", function() paint("dim") end)
+    b:SetScript("OnClick", function(self)
+        if UI.Sound then UI.Sound(856) end
+        GF:Safe("home:link", onClick, self)
+    end)
     return b
 end
 
@@ -231,48 +245,41 @@ local function unlessLink(f, fn)
 end
 
 -------------------------------------------------------------------------------
--- Hero
+-- Greeting
 -------------------------------------------------------------------------------
---- A pill that lights up on hover, explains itself, and optionally goes somewhere.
-local function heroPill(parent, color, icon, tip, onClick)
-    local p = UI:Pill(parent, "", color, { icon = icon, height = PILL_H, size = 11 })
-    p:EnableMouse(true)
-    p:SetScript("OnEnter", function(self)
-        local c = self.color or C.text
-        self.bg:SetVertexColor(c[1], c[2], c[3], 0.30)
+--- A flat icon-and-words fact under the greeting: lights up on hover, explains itself, goes somewhere.
+-- Words instead of pills: four coloured capsules in a row read as traffic lights.
+local function heroStat(parent, icon, tip, onClick)
+    local s = CreateFrame("Button", nil, parent)
+    s:SetHeight(18)
+    s.iconName = icon
+    s.art = kindIcon(s, 16)
+    s.art:SetPoint("LEFT", 0, 0)
+    s.label = UI:Text(s, 12, "dim", "ui")
+    s.label:SetPoint("LEFT", s.art, "RIGHT", 6, 0)
+    function s:SetText(t, color)
+        self.color = UI.col(color or "dim")
+        self.label:SetText(t or "")
+        UI:SetTextColor(self.label, self.color)
+        self.art:SetKind(self.iconName, self.color)
+        self:SetWidth(26 + (self.label:GetStringWidth() or 0))
+    end
+    function s:SetArt(ic) self.iconName = ic or "crown" end
+    s:RegisterForClicks("LeftButtonUp")
+    s:SetScript("OnEnter", function(self)
+        UI:SetTextColor(self.label, "text")
         local t = tip and tip(self)
         if type(t) == "table" then UI:Tip(self, t[1], t[2]) end
     end)
-    p:SetScript("OnLeave", function(self)
-        local c = self.color or C.text
-        self.bg:SetVertexColor(c[1], c[2], c[3], 0.16)
+    s:SetScript("OnLeave", function(self)
+        UI:SetTextColor(self.label, self.color or "dim")
         UI:HideTip()
     end)
-    if onClick then
-        p:SetScript("OnMouseUp", function(self, button)
-            if button ~= "LeftButton" or not self:IsMouseOver() then return end
-            if UI.Sound then UI.Sound(841) end
-            GF:Safe("home:pill", onClick, self)
-        end)
-    end
-    return p
-end
-
---- A hero pill led by the title's art in a little gold frame (the crowns you wear).
-local function titlePill(parent, tip, onClick)
-    local p = heroPill(parent, "gold", nil, tip, onClick)
-    p.art = UI:FramedIcon(p, PILL_H, "crown")
-    p.art:SetPoint("LEFT", p, "LEFT", 0, 0)
-    local setText = p.SetText
-    function p:SetText(t, c)
-        setText(self, t, c)
-        self.label:ClearAllPoints()
-        self.label:SetPoint("LEFT", self.art, "RIGHT", 6, 0)
-        self:SetWidth(PILL_H + 6 + (self.label:GetStringWidth() or 0) + 10)
-    end
-    function p:SetArt(icon) self.art:SetIcon(icon or "crown") end
-    p:SetText("", "gold")
-    return p
+    s:SetScript("OnClick", function(self)
+        if UI.Sound then UI.Sound(841) end
+        GF:Safe("home:stat", onClick, self)
+    end)
+    return s
 end
 
 local function titleColor(def) return (def and def.group == "fame") and "gold" or "pink" end
@@ -282,50 +289,39 @@ local function titleTip(def)
     return { def.title, { def.label or "", T:Wrap("dim", '"' .. (def.blurb or "") .. '"'), T:Wrap("faint", "Click for the leaderboard.") } }
 end
 
---- Lays the pills out left to right; titles collapse into "+N" when the row runs out of room.
-local function fitPills(page)
+--- Lays the facts out left to right; titles collapse into "+N" when the row runs out of room.
+local function fitStats(page)
     local h = page.hero
     if not h then return end
-    local avail = h.pills:GetWidth() or 0
-    if avail < 40 then avail = 400 end
+    local avail = h.stats:GetWidth() or 0
+    if avail < 40 then avail = 300 end
     local titles = page.titles or {}
     local n = #titles
-    local base = { h.online, h.peers, h.att }
-    if n > 0 then
-        -- on a tight row your crowns beat the "N ON GREENFIELDS" head count
-        h.more:SetText(upper(n .. U.Plural(n, " crown")), "gold")
-        local need = h.more:GetWidth()
-        for _, p in ipairs(base) do need = need + p:GetWidth() + 6 end
-        if need > avail then
-            base = { h.online, h.att }
-            h.peers:Hide()
-        end
-    end
-    local used = 0
-    for _, p in ipairs(base) do used = used + p:GetWidth() + 6 end
+    local used = h.att:GetWidth() + STAT_GAP
     local shownTitles = 0
     if n == 0 then
-        h.more:SetText("UNCROWNED", "faint")
+        h.more:SetArt("crown")
+        h.more:SetText("Uncrowned", "dim")
     else
         for k = min(2, n), 0, -1 do
             local w = used
             for i = 1, k do
                 local def = titles[i]
                 h.titles[i]:SetArt(def.art)
-                h.titles[i]:SetText(upper(def.title or "?"), titleColor(def))
-                w = w + h.titles[i]:GetWidth() + 6
+                h.titles[i]:SetText(def.title or "?", def.group == "fame" and "gold" or CROWN_SHAME)
+                w = w + h.titles[i]:GetWidth() + STAT_GAP
             end
             local rest = n - k
             if rest > 0 then
-                h.more:SetText(k == 0 and upper(n .. U.Plural(n, " crown")) or ("+" .. rest), "gold")
-                w = w + h.more:GetWidth() + 6
+                h.more:SetArt("crown")
+                h.more:SetText(k == 0 and (n .. U.Plural(n, " crown")) or ("+" .. rest), "gold")
+                w = w + h.more:GetWidth() + STAT_GAP
             end
             shownTitles = k
-            if w - 6 <= avail then break end
+            if w - STAT_GAP <= avail then break end
         end
     end
-    local order = {}
-    for i, p in ipairs(base) do order[i] = p end
+    local order = { h.att }
     for i = 1, 2 do
         if i <= shownTitles then order[#order + 1] = h.titles[i] else h.titles[i]:Hide() end
     end
@@ -334,73 +330,53 @@ local function fitPills(page)
     for _, p in ipairs(order) do
         p:ClearAllPoints()
         if x + p:GetWidth() <= avail + 1 then
-            p:SetPoint("LEFT", h.pills, "LEFT", x, 0)
+            p:SetPoint("LEFT", h.stats, "LEFT", x, 0)
             p:Show()
-            x = x + p:GetWidth() + 6
+            x = x + p:GetWidth() + STAT_GAP
         else
             p:Hide()
         end
     end
 end
 
-local function buildHero(page, parent)
-    -- a gold-framed slab of slate: the street's sign hung on a Stormwind wall
-    local h = UI:Panel(parent, C.bg2, false)
-    h.stone = tiled(h, T.tex.stone, 3, "BACKGROUND", 1)
-    h.stone:SetVertexColor(0.55, 0.6, 0.57, 0.5)
-    -- warm vignette from the right so the greeting reads off the stone
-    h.shade = h:CreateTexture(nil, "BACKGROUND", nil, 2)
-    h.shade:SetPoint("TOPLEFT", 3, -3)
-    h.shade:SetPoint("BOTTOMRIGHT", -3, 3)
-    h.shade:SetTexture(T.tex.white)
-    if h.shade.SetGradient and CreateColor then
-        h.shade:SetGradient("HORIZONTAL", CreateColor(0, 0, 0, 0), CreateColor(0, 0, 0, 0.35))
-    else
-        h.shade:SetColorTexture(0, 0, 0, 0.12)
-    end
-    -- streetlight glow behind the sign
-    h.glow = h:CreateTexture(nil, "BACKGROUND", nil, 3)
-    h.glow:SetTexture(T.tex.glow)
-    h.glow:SetVertexColor(C.green[1], C.green[2], C.green[3], 0.18)
-    h.glow:SetSize(380, HERO_H)
-    h.glow:SetPoint("CENTER", h, "LEFT", 138, 0)
-    h.rim = rim(h, T.tex.frameGold, 16)
+--- The text block sits centred on the sign, whether the joke took one line or two.
+local function seatGreeting(page)
+    local h = page.hero
+    local block = (h.greet:GetStringHeight() or 22) + 4 + 14 + 8 + 18
+    local y = max(0, floor((GREET_H - block) / 2))
+    h.greet:ClearAllPoints()
+    -- corner pairs only: a bare RIGHT anchor would pin the line to the strip's centre
+    h.greet:SetPoint("TOPLEFT", h, "TOPLEFT", 0, -y)
+    h.greet:SetPoint("TOPRIGHT", h, "TOPRIGHT", -(SIGN_W + GUTTER), -y)
+end
 
-    -- the sign sits centred (1px low); text and pills line up with its top and bottom.
-    -- Corner pairs only: a bare RIGHT anchor would pin each block to the hero's centre line.
-    local signGap = (HERO_H - SIGN_H) / 2 + 1
+local function buildHero(page, parent)
+    -- no panel: the greeting is the street talking, and the raid below is the first real object
+    local h = CreateFrame("Frame", nil, parent)
+
     h.sign = h:CreateTexture(nil, "ARTWORK")
     h.sign:SetTexture(T.tex.welcome)
     h.sign:SetSize(SIGN_W, SIGN_H)
-    h.sign:SetPoint("LEFT", 10, -1)
+    h.sign:SetPoint("TOPRIGHT", 2, 0)     -- past the art's soft edge, so the metal meets the cards' edge
+    -- it's night out here, and the header's sign is the one that's lit
+    h.sign:SetVertexColor(0.88, 0.88, 0.86, 1)
 
-    h.greet = UI:Text(h, 19, "wowGold", "ui")
-    h.greet:SetPoint("TOPLEFT", h.sign, "TOPRIGHT", 16, -8)
-    h.greet:SetPoint("TOPRIGHT", h, "TOPRIGHT", -18, -(signGap + 8))
+    h.greet = UI:Text(h, 18, "text", "ui")
     h.greet:SetWordWrap(true)
     h.greet:SetJustifyV("TOP")
     if h.greet.SetMaxLines then h.greet:SetMaxLines(2) end
+    h.greet:SetPoint("TOPLEFT", 0, 0)
+    h.greet:SetPoint("TOPRIGHT", h, "TOPRIGHT", -(SIGN_W + GUTTER), 0)
     h.sub = UI:Text(h, 12, "dim")
-    h.sub:SetPoint("TOPLEFT", h.greet, "BOTTOMLEFT", 0, -6)
-    h.sub:SetPoint("TOPRIGHT", h.greet, "BOTTOMRIGHT", 0, -6)
+    h.sub:SetPoint("TOPLEFT", h.greet, "BOTTOMLEFT", 0, -4)
+    h.sub:SetPoint("TOPRIGHT", h.greet, "BOTTOMRIGHT", 0, -4)
 
-    h.pills = CreateFrame("Frame", nil, h)
-    h.pills:SetHeight(PILL_H)
-    h.pills:SetPoint("BOTTOMLEFT", h.sign, "BOTTOMRIGHT", 16, 8)
-    h.pills:SetPoint("BOTTOMRIGHT", h, "BOTTOMRIGHT", -18, HERO_H - signGap - SIGN_H + 8)
+    h.stats = CreateFrame("Frame", nil, h)
+    h.stats:SetHeight(18)
+    h.stats:SetPoint("TOPLEFT", h.sub, "BOTTOMLEFT", 0, -8)
+    h.stats:SetPoint("TOPRIGHT", h.sub, "BOTTOMRIGHT", 0, -8)
 
-    h.online = heroPill(h.pills, "green", "dot", function()
-        local total = call(GF.Roster, "Count") or 0
-        return { "Who's home", { format("%d of %d locals online.", call(GF.Roster, "OnlineCount") or 0, total),
-            T:Wrap("faint", "Click for the residents list.") } }
-    end, function() UI:ShowPage("roster") end)
-
-    h.peers = heroPill(h.pills, "blue", "sync", function()
-        return { "Running Greenfields", { format("%d online with Greenfields going (you included).", peerCount()),
-            T:Wrap("dim", "Everyone else is missing the gossip.") } }
-    end)
-
-    h.att = heroPill(h.pills, "gold", "check", function()
+    h.att = heroStat(h.stats, "check", function()
         local me = API.MyKey()
         local s = me and call(GF.Attendance, "Summary", me)
         if type(s) ~= "table" then
@@ -416,14 +392,14 @@ local function buildHero(page, parent)
 
     h.titles = {}
     for i = 1, 2 do
-        h.titles[i] = titlePill(h.pills, function()
+        h.titles[i] = heroStat(h.stats, "crown", function()
             return titleTip(page.titles and page.titles[i])
         end, function()
             local def = page.titles and page.titles[i]
             UI:ShowPage("fame", def and def.key or nil)
         end)
     end
-    h.more = heroPill(h.pills, "gold", nil, function()
+    h.more = heroStat(h.stats, "crown", function()
         local titles = page.titles or {}
         if #titles == 0 then return { "Uncrowned", { LINES.uncrowned } } end
         local lines = {}
@@ -431,7 +407,7 @@ local function buildHero(page, parent)
         return { "Your crowns", lines }
     end, function() UI:ShowPage("fame") end)
 
-    h:SetScript("OnSizeChanged", function() fitPills(page) end)
+    h:SetScript("OnSizeChanged", function() fitStats(page) end)
     return h
 end
 
@@ -458,14 +434,12 @@ local function renderHero(page)
     if me and main and main ~= me then parts[#parts + 1] = "Alt of " .. colored(main) end
     h.sub:SetText(concat(parts, T:Wrap("faint", "  \194\183  ")))
 
-    h.online:SetText((call(GF.Roster, "OnlineCount") or 0) .. " ONLINE", "green")
-    h.peers:SetText(peerCount() .. " ON GREENFIELDS", "blue")
     local pct = tonumber(me and call(GF.Attendance, "Percent", me))
     if pct then
         pct = floor(U.Clamp(pct, 0, 100) + 0.5)
-        h.att:SetText(pct .. "% ATTENDANCE", pct >= 75 and "green" or (pct >= 50 and "yellow" or "red"))
+        h.att:SetText(pct .. "% attendance", pct >= 75 and "green" or (pct >= 50 and "yellow" or "red"))
     else
-        h.att:SetText("NO RAIDS ON FILE", "dim")
+        h.att:SetText("No raids on file", "dim")
     end
     local titles = me and call(GF.Stats, "TitlesOf", me)
     page.titles = {}
@@ -474,7 +448,10 @@ local function renderHero(page)
             if type(def) == "table" and type(def.title) == "string" then page.titles[#page.titles + 1] = def end
         end
     end
-    fitPills(page)
+    fitStats(page)
+    seatGreeting(page)
+    -- a wrapped string only measures true once it's been laid out, so check again next frame
+    GF:After(0, function() seatGreeting(page) end)
 end
 
 -------------------------------------------------------------------------------
@@ -502,37 +479,38 @@ local function raidState(ev, now)
     return "done"
 end
 
---- The signup pills under the bar: full labels when they fit the card, bare counts when
--- it's narrow (the icons and the hover tips still say which is which).
-local function layoutRaidPills(page)
+--- The signup tallies above the bar, right-aligned: bare numerals, since the same icons label the
+-- answer buttons beside them and the hover tips say the rest.
+local function layoutRaidCounts(page)
     local c = page.raid
     local counts = c and c.counts
     if not counts then return end
-    local avail = page.raidW or 0
-    if avail < 40 then avail = 300 end
-    local shown = {}
-    for _, s in ipairs(COUNT_ORDER) do
+    local x = 0
+    for i = #COUNT_ORDER, 1, -1 do
+        local s = COUNT_ORDER[i]
+        local mark = c.marks[s]
         -- bench is an officer call; only worth showing once someone's on it
-        if s == "bench" and (counts[s] or 0) == 0 then c.pills[s]:Hide() else shown[#shown + 1] = s end
-    end
-    local function label(compact)
-        local w = 0
-        for i, s in ipairs(shown) do
-            local meta, n = T.status[s], counts[s] or 0
-            c.pills[s]:SetText(compact and tostring(n) or (upper(meta.label) .. "  " .. n), meta.color)
-            w = w + c.pills[s]:GetWidth() + (i > 1 and 6 or 0)
+        if s == "bench" and (counts[s] or 0) == 0 then
+            mark:Hide()
+        else
+            mark:Set(counts[s] or 0)
+            mark:ClearAllPoints()
+            mark:SetPoint("TOPRIGHT", c.fillRow, "TOPRIGHT", -x, 0)
+            mark:Show()
+            x = x + mark:GetWidth() + 10
         end
-        return w
     end
-    if label(false) > avail then label(true) end
-    local prev
-    for _, s in ipairs(shown) do
-        local p = c.pills[s]
-        p:ClearAllPoints()
-        if prev then p:SetPoint("LEFT", prev, "RIGHT", 6, 0) else p:SetPoint("TOPLEFT", c.content, "TOPLEFT", 0, -80) end
-        p:Show()
-        prev = p
-    end
+end
+
+--- The date line drops the raid's nickname whole when it won't fit (it's still on Raid Nights):
+-- a two-letter stub of a name looks unfinished.
+local function fitWhen(page)
+    local c = page.raid
+    if not (c and c.whenFull) then return end
+    c.when:SetText(c.whenFull)
+    local natural = c.when.GetUnboundedStringWidth and c.when:GetUnboundedStringWidth() or c.when:GetStringWidth()
+    local avail = (page.raidW or 400) - RAID_ART_SIZE - TAG_W - 24
+    if (tonumber(natural) or 0) > avail then c.when:SetText(c.whenShort) end
 end
 
 local renderRaid
@@ -553,7 +531,7 @@ local function tickRaid(page)
         local left = ev.time - now
         c.cdLabel:SetText("PULL IN")
         c.cd:SetText(U.Duration(left))
-        UI:SetTextColor(c.cd, left < 3600 and INK_RED or INK)
+        UI:SetTextColor(c.cd, left < 3600 and UI.INK.red or UI.INK.dark)
     elseif state == "live" then
         c.cdLabel:SetText("RIGHT NOW")
         c.cd:SetText("LIVE")
@@ -561,7 +539,7 @@ local function tickRaid(page)
     else
         c.cdLabel:SetText("STATUS")
         c.cd:SetText("WRAPPED")
-        UI:SetTextColor(c.cd, INK_SOFT)
+        UI:SetTextColor(c.cd, UI.INK.dim)
     end
 end
 
@@ -575,8 +553,12 @@ renderRaid = function(page)
     c.empty:SetShown(ev == nil)
     if not ev then
         c.state, c.counts = nil, nil
-        if c.accent then c.accent:SetColorTexture(C.green[1], C.green[2], C.green[3], 1) end
+        c.whenFull, c.whenShort = nil, nil
         c.empty.text:SetText(emptyText("events", "No raids planned. Go touch grass (it's dead, it's Greenfields)."))
+        -- officers can do something about it, and that's the thing this screen wants pressed
+        local officer = call(GF.Raids, "IsOfficer")
+        c.empty.action:SetText(officer and "Plan a raid" or "See Raid Nights")
+        c.empty.action:SetStyle(officer and "primary" or "secondary")
         return
     end
     local inst = (type(ev.instance) == "string" and ev.instance ~= "") and ev.instance or "Raid night"
@@ -590,38 +572,50 @@ renderRaid = function(page)
     local headline = inst
     if inst == "Other" then headline = title or "Raid night" end
     c.inst:SetText(headline)
-    -- quest-log gold for the name; the instance's own colour marks the card's accent
-    local accent = UI.col((info and info.color) or "green")
-    if c.accent then c.accent:SetColorTexture(accent[1], accent[2], accent[3], 1) end
     local art = info and (info.art or info.icon)
     if type(art) ~= "string" and type(art) ~= "number" then art = RAID_ART[inst] or RAID_ART_DEFAULT end
     c.art:SetIcon(art)
-    -- when first: on a narrow card the truncation eats the raid's nickname, not the date
     local bits = { U.DateTime(ev.time) }
     if tonumber(ev.size) then bits[#bits + 1] = tonumber(ev.size) .. "-man" end
+    c.whenShort = concat(bits, "  \194\183  ")
     if title and title ~= headline then bits[#bits + 1] = title end
-    c.when:SetText(concat(bits, "  \194\183  "))
+    c.whenFull = concat(bits, "  \194\183  ")
+    fitWhen(page)
 
     local counts = countsFor(ev.id)
     c.counts = counts
     local locked = counts.yes + counts.late
     local size = tonumber(ev.size) or 0
-    c.fill:SetText(size > 0 and format("%d / %d LOCKED IN", locked, size) or format("%d LOCKED IN", locked))
+    c.fill:SetText(size > 0 and format("%d / %d locked in", locked, size) or format("%d locked in", locked))
     c.bar:SetValue(size > 0 and locked / size or 0)
     c.bar:SetColor((size > 0 and locked >= size) and "green" or "yellow")
-    layoutRaidPills(page)
+    layoutRaidCounts(page)
 
     local mine = call(GF.Raids, "MySignup", ev.id)
     local st = type(mine) == "table" and T.status[mine.status] and mine.status or nil
-    if st then
-        c.mine:SetText("Your answer: " .. T:Wrap(T.status[st].color, T.status[st].long))
-    else
+    -- a lit button already says what you answered. No answer needs words, and so do Late and Bench,
+    -- which have no button on this card
+    local lit = st == "yes" or st == "maybe" or st == "no"
+    c.mine:SetShown(not lit)
+    if not st then
         c.mine:SetText(T:Wrap("yellow", "You haven't answered yet.") .. T:Wrap("dim", " The street is waiting."))
+    elseif not lit then
+        c.mine:SetText(T:Wrap("dim", "Your answer: ") .. T.status[st].long)
     end
+    -- two lines centre on the art, three fill it
+    local y = lit and 6 or 0
+    c.inst:ClearAllPoints()
+    c.inst:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 12, -y)
+    c.inst:SetPoint("TOPRIGHT", c.content, "TOPRIGHT", -(TAG_W + 12), -y)
     local over = call(GF.Raids, "IsOver", ev)
     for _, a in ipairs(ANSWERS) do
         local btn = c.answer[a.key]
-        btn:SetStyle(st == a.key and a.style or "secondary")
+        -- before you answer, Yeah is the page's one green button; after, your pick is lit and the rest step back
+        if st then
+            btn:SetStyle(st == a.key and a.style or "ghost")
+        else
+            btn:SetStyle(a.key == "yes" and "primary" or "secondary")
+        end
         btn:SetActive(not over)
     end
     c.state = raidState(ev, API.ServerTime())
@@ -645,143 +639,149 @@ local function answer(page, status)
 end
 
 local function buildRaid(page, parent)
-    local c = UI:Card(parent, { title = "Next raid", icon = "calendar" })
-    c.open = headerButton(c, "Open", function() UI:ShowPage("raids", c.ev and c.ev.id or nil) end)
+    -- the page's one gold rim: this card is what the street is for
+    local c = UI:Card(parent, { title = "Next raid", icon = "calendar", tier = "hero" })
+    c.open = headerLink(c, "Open", function() UI:ShowPage("raids", c.ev and c.ev.id or nil) end)
     c.content = CreateFrame("Frame", nil, c.body)
-    c.content:SetAllPoints(c.body)
+    -- 4 clear of the kit's padding: the gold rim's corner leaves curl in further than a plain card's
+    c.content:SetPoint("TOPLEFT", c.body, "TOPLEFT", 0, 0)
+    c.content:SetPoint("BOTTOMRIGHT", c.body, "BOTTOMRIGHT", 0, 4)
     local f = c.content
 
-    -- the countdown is a parchment notice pinned to the card, bronze-edged
+    -- the countdown is a parchment notice pinned to the card: the one light object on the page
     c.tag = CreateFrame("Frame", nil, f)
-    c.tag:SetSize(84, 42)
+    c.tag:SetSize(TAG_W, RAID_ART_SIZE)
     c.tag:SetPoint("TOPRIGHT", 0, 0)
-    c.tag.paper = tiled(c.tag, T.tex.parchment, 2, "BACKGROUND", 1)
-    c.tag.paper:SetVertexColor(0.95, 0.88, 0.72, 1)
-    c.tag.rim = rim(c.tag, T.tex.frameBronze, 8)
-    c.cdLabel = UI:Text(c.tag, 9, INK_SOFT, "head")
-    c.cdLabel:SetPoint("TOP", 0, -6)
+    UI:Parchment(c.tag)
+    c.cdLabel = UI:Text(c.tag, 10, UI.INK.dim, "head")
+    c.cdLabel:SetPoint("TOP", 0, -9)
     c.cdLabel:SetJustifyH("CENTER")
-    c.cd = UI:Text(c.tag, 18, INK, "num")
-    c.cd:SetPoint("TOP", c.cdLabel, "BOTTOM", 0, -2)
+    c.cd = UI:Text(c.tag, 22, UI.INK.dark, "num")
+    c.cd:SetPoint("TOP", c.cdLabel, "BOTTOM", 0, -3)
     c.cd:SetJustifyH("CENTER")
     for _, fs in ipairs({ c.cdLabel, c.cd }) do
         -- ink doesn't cast a shadow
         if fs.SetShadowColor then fs:SetShadowColor(0, 0, 0, 0) end
     end
 
-    -- quest-log heading: the raid's art in a gold frame, its name in Morpheus gold
+    -- quest-log heading: the raid's art, its name in Morpheus gold
     c.art = UI:FramedIcon(f, RAID_ART_SIZE, RAID_ART_DEFAULT)
     c.art:SetPoint("TOPLEFT", 0, 0)
     -- corner pairs only: TOPLEFT + RIGHT would pin each line's centre to the card's
-    c.inst = UI:Text(f, 18, "wowGold", "title")
-    c.inst:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 10, 0)
-    c.inst:SetPoint("TOPRIGHT", f, "TOPRIGHT", -92, 0)
-    c.when = UI:Text(f, 11, "dim")
-    c.when:SetPoint("TOPLEFT", c.inst, "BOTTOMLEFT", 0, -4)
-    c.when:SetPoint("TOPRIGHT", c.inst, "BOTTOMRIGHT", 0, -4)
+    c.inst = UI:Text(f, 24, "wowGold", "title")
+    c.inst:SetPoint("TOPLEFT", c.art, "TOPRIGHT", 12, 0)
+    c.inst:SetPoint("TOPRIGHT", f, "TOPRIGHT", -(TAG_W + 12), 0)
+    c.when = UI:Text(f, 12, "dim")
+    c.when:SetPoint("TOPLEFT", c.inst, "BOTTOMLEFT", 0, -3)
+    c.when:SetPoint("TOPRIGHT", c.inst, "BOTTOMRIGHT", 0, -3)
+    c.mine = UI:Text(f, 12, "text")
+    c.mine:SetPoint("TOPLEFT", c.when, "BOTTOMLEFT", 0, -3)
+    c.mine:SetPoint("TOPRIGHT", c.when, "BOTTOMRIGHT", 0, -3)
 
-    c.rule = f:CreateTexture(nil, "ARTWORK")
-    c.rule:SetTexture(T.tex.dividerGold)
-    c.rule:SetHeight(10)
-    c.rule:SetPoint("TOPLEFT", f, "TOPLEFT", -4, -RAID_ART_SIZE - 4)
-    c.rule:SetPoint("TOPRIGHT", f, "TOPRIGHT", 4, -RAID_ART_SIZE - 4)
-    c.rule:SetAlpha(0.8)
-
-    -- "12 / 40 LOCKED IN" and its bar share one strip, so LEFT + RIGHT agree on the centre
+    -- bottom row: the turnout on the left, your answer on the right
+    local answersW = 3 * ANSWER_W + 2 * ANSWER_GAP
     c.fillRow = CreateFrame("Frame", nil, f)
-    c.fillRow:SetPoint("TOPLEFT", 0, -58)
-    c.fillRow:SetPoint("TOPRIGHT", 0, -58)
-    c.fillRow:SetHeight(14)
-    c.fill = UI:Text(c.fillRow, 10, "dim", "head")
-    c.fill:SetPoint("LEFT", c.fillRow, "LEFT", 0, 0)
-    c.bar = UI:Bar(c.fillRow, { height = 6 })
-    c.bar:SetPoint("LEFT", c.fill, "RIGHT", 10, 0)
-    c.bar:SetPoint("RIGHT", c.fillRow, "RIGHT", 0, 0)
+    c.fillRow:SetHeight(ANSWER_H)
+    c.fillRow:SetPoint("BOTTOMLEFT", 0, 0)
+    c.fillRow:SetPoint("BOTTOMRIGHT", -(answersW + 20), 0)
+    c.fill = UI:Text(c.fillRow, 12, "text", "ui")
+    c.fill:SetPoint("TOPLEFT", 0, 0)
+    c.bar = UI:Bar(c.fillRow, { height = 8 })
+    c.bar:SetPoint("BOTTOMLEFT", 0, 1)
+    c.bar:SetPoint("BOTTOMRIGHT", 0, 1)
 
-    c.pills = {}
+    c.marks = {}
     for _, s in ipairs(COUNT_ORDER) do
         local meta = T.status[s]
-        c.pills[s] = UI:Pill(f, "", meta.color, { icon = meta.icon, height = 18, size = 10, tooltip = function()
-            return { meta.long, { format("%d %s", c.counts and c.counts[s] or 0, U.Plural(c.counts and c.counts[s] or 0, "local")) } }
-        end })
+        local m = CreateFrame("Frame", nil, c.fillRow)
+        m:SetHeight(14)
+        m.icon = UI:Icon(m, 10, meta.icon, "ARTWORK", meta.color)
+        m.icon:SetPoint("LEFT", 0, 0)
+        m.num = UI:Text(m, 13, meta.color, "num")
+        m.num:SetPoint("LEFT", m.icon, "RIGHT", 3, 0)
+        function m:Set(n)
+            self.num:SetText(tostring(n))
+            -- nobody in that column yet: it steps back
+            local col = UI.col(n > 0 and meta.color or "faint")
+            UI:SetTextColor(self.num, col)
+            self.icon:SetVertexColor(col[1], col[2], col[3], 1)
+            self:SetWidth(13 + (self.num:GetStringWidth() or 8))
+        end
+        m:EnableMouse(true)
+        UI.AttachTip(m, function()
+            local n = c.counts and c.counts[s] or 0
+            return { meta.long, { format("%d %s", n, U.Plural(n, "local")) } }
+        end)
+        c.marks[s] = m
     end
-
-    c.mine = UI:Text(f, 12, "text")
-    c.mine:SetPoint("TOPLEFT", 0, -108)
-    c.mine:SetPoint("TOPRIGHT", f, "TOPRIGHT", 0, -108)
 
     c.answer = {}
     local prev
     for _, a in ipairs(ANSWERS) do
         local btn = UI:Button(f, a.text, {
-            icon = a.icon, height = 24, minWidth = 70, tooltip = T.status[a.key].long,
+            icon = a.icon, height = ANSWER_H, width = ANSWER_W, tooltip = T.status[a.key].long,
             onClick = function() answer(page, a.key) end,
         })
-        if prev then btn:SetPoint("LEFT", prev, "RIGHT", 6, 0) else btn:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", 0, 0) end
+        if prev then
+            btn:SetPoint("LEFT", prev, "RIGHT", ANSWER_GAP, 0)
+        else
+            btn:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -(answersW - ANSWER_W), 0)
+        end
         c.answer[a.key] = btn
         prev = btn
     end
-    c.empty = cardEmpty(c.body, "calendar")
+
+    -- nothing planned: one line across the card and the way out of it
+    local e = CreateFrame("Frame", nil, c.body)
+    e:SetAllPoints(c.body)
+    e.icon = UI:Icon(e, 28, "calendar", "ARTWORK", { C.bronze[1], C.bronze[2], C.bronze[3], 0.7 })
+    e.icon:SetPoint("LEFT", 4, 0)
+    e.action = UI:Button(e, "See Raid Nights", { height = ANSWER_H, onClick = function() UI:ShowPage("raids") end })
+    e.action:SetPoint("RIGHT", 0, 0)
+    e.text = UI:Para(e, 13, "text")
+    e.text:SetPoint("LEFT", e.icon, "RIGHT", 12, 0)
+    e.text:SetPoint("RIGHT", e.action, "LEFT", -16, 0)
+    e:Hide()
+    c.empty = e
     return c
 end
 
 -------------------------------------------------------------------------------
 -- Crowns on the street
 -------------------------------------------------------------------------------
-local TILE_BG, TILE_BG_HOVER = 0.30, 0.16      -- black well alpha (lighter on hover)
-
 local function paintTile(t, hover)
-    t.bg:SetVertexColor(0, 0, 0, hover and TILE_BG_HOVER or TILE_BG)
-    t.edge:SetAlpha(hover and 1 or (t.mine and 0.9 or 0.55))
+    t.hl:SetShown(hover and true or false)
+    t.mineEdge:SetShown(t.mine and true or false)
+    t.art:SetTone(t.mine and "gold" or nil)
 end
 
 local function makeTile(parent)
     local t = CreateFrame("Button", nil, parent)
     t:SetHeight(TILE_H)
-    -- a dark well with a bronze edge, like a slot in the achievement frame
-    t.bg = t:CreateTexture(nil, "BACKGROUND")
-    t.bg:SetPoint("TOPLEFT", 1, -1)
-    t.bg:SetPoint("BOTTOMRIGHT", -1, 1)
-    t.bg:SetTexture(T.tex.white)
-    t.edge = t:CreateTexture(nil, "BORDER")
-    t.edge:SetAllPoints()
-    UI.Sliced(t.edge, T.tex.frameBronze, 8)
-    t.art = UI:FramedIcon(t, 32, "crown")
-    t.title = UI:Text(t, 11, "wowGold", "ui")
-    t.name = UI:Text(t, 13, "text", "head")
-    t.you = UI:Pill(t, "YOU", "green", { height = 14, size = 9 })
-    t.you:SetPoint("BOTTOMRIGHT", -6, 6)
-    t.you:Hide()
-
-    function t:SetCompact(on)
-        if self.compact == on then return end
-        self.compact = on
-        self.art:ClearAllPoints()
-        self.title:ClearAllPoints()
-        self.name:ClearAllPoints()
-        -- Friz runs wide: the two-up tiles take the game's small size
-        T:Font(self.title, "ui", on and 11 or 10)
-        if on then
-            self:SetHeight(TILE_ROW_H)
-            self.art:SetSize(20, 20)
-            self.art:SetPoint("LEFT", 2, 0)
-            self.name:SetPoint("RIGHT", -8, 0)
-            self.name:SetJustifyH("RIGHT")
-            self.title:SetPoint("LEFT", self.art, "RIGHT", 8, 0)
-            self.title:SetPoint("RIGHT", self.name, "LEFT", -8, 0)
-        else
-            -- title over name, both top-anchored by their corners (a bare RIGHT anchor
-            -- would pin both lines to the tile's centre and stack them on each other)
-            self:SetHeight(TILE_H)
-            self.art:SetSize(32, 32)
-            self.art:SetPoint("LEFT", 6, 0)
-            self.title:SetPoint("TOPLEFT", self.art, "TOPRIGHT", 9, -2)
-            self.title:SetPoint("TOPRIGHT", self, "TOPRIGHT", -8, -((TILE_H - 32) / 2 + 2))
-            self.name:SetPoint("TOPLEFT", self.title, "BOTTOMLEFT", 0, -3)
-            self.name:SetPoint("TOPRIGHT", self.title, "BOTTOMRIGHT", -34, -3)
-            self.name:SetJustifyH("LEFT")
-        end
-    end
+    -- a carved slot, like the achievement frame's: depth instead of another rim
+    t.skin = UI:Nine(t, "inset", "BACKGROUND", -6)
+    t.hl = t:CreateTexture(nil, "BACKGROUND", nil, 2)
+    t.hl:SetPoint("TOPLEFT", 1, -1)
+    t.hl:SetPoint("BOTTOMRIGHT", -1, 1)
+    t.hl:SetColorTexture(1, 0.90, 0.68, 0.055)
+    t.hl:Hide()
+    -- the crown you hold: a gold edge and a gold frame, and nothing that needs reading
+    t.mineEdge = t:CreateTexture(nil, "ARTWORK")
+    t.mineEdge:SetPoint("TOPLEFT", 0, -3)
+    t.mineEdge:SetPoint("BOTTOMLEFT", 0, 3)
+    t.mineEdge:SetWidth(2)
+    t.mineEdge:SetColorTexture(C.gold[1], C.gold[2], C.gold[3], 1)
+    t.mineEdge:Hide()
+    t.art = UI:FramedIcon(t, 34, "crown")
+    t.art:SetPoint("LEFT", 8, 0)
+    -- title over name, top-anchored by their corners (a bare RIGHT anchor would pin both
+    -- lines to the tile's centre and stack them on each other)
+    t.title = UI:Text(t, 12, CROWN_FAME, "ui")
+    t.title:SetPoint("TOPLEFT", t.art, "TOPRIGHT", 10, -2)
+    t.title:SetPoint("TOPRIGHT", t, "TOPRIGHT", -8, -9)
+    t.name = UI:Text(t, 12, "text", "ui")
+    t.name:SetPoint("TOPLEFT", t.title, "BOTTOMLEFT", 0, -4)
+    t.name:SetPoint("TOPRIGHT", t.title, "BOTTOMRIGHT", 0, -4)
 
     t:RegisterForClicks("LeftButtonUp")
     t:SetScript("OnEnter", function(self)
@@ -810,14 +810,13 @@ local function makeTile(parent)
         if UI.Sound then UI.Sound(841) end
         UI:ShowPage("fame", self.def and self.def.key or nil)
     end)
-    t:SetCompact(false)
     paintTile(t, false)
     return t
 end
 
 local function buildCrowns(page, parent)
-    local c = UI:Card(parent, { title = "Crowns on the street", icon = "crown", accent = "gold" })
-    c.go = headerButton(c, "Hall of Fame", function() UI:ShowPage("fame") end)
+    local c = UI:Card(parent, { title = "Crowns on the street", icon = "crown" })
+    c.go = headerLink(c, "Hall of Fame", function() UI:ShowPage("fame") end)
     c.grid = CreateFrame("Frame", nil, c.body)
     c.grid:SetAllPoints(c.body)
     c.tiles = {}
@@ -826,20 +825,17 @@ local function buildCrowns(page, parent)
     return c
 end
 
+local function crownCols(bodyW) return bodyW >= 640 and 3 or 2 end
+
 local function layoutCrowns(page, bodyW)
     local c = page.crowns
-    local roomy = bodyW >= 340
-    local cols = roomy and 2 or 1
-    local gap = roomy and 8 or 3
-    local tw = floor((bodyW - (cols - 1) * 8) / cols)
+    local cols = crownCols(bodyW)
+    local tw = floor((bodyW - (cols - 1) * TILE_GAP) / cols)
     for i, tile in ipairs(c.tiles) do
-        tile:SetCompact(not roomy)
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
-        local th = roomy and TILE_H or TILE_ROW_H
         tile:ClearAllPoints()
-        tile:SetPoint("TOPLEFT", c.grid, "TOPLEFT", col * (tw + 8), -row * (th + gap))
+        tile:SetPoint("TOPLEFT", c.grid, "TOPLEFT", col * (tw + TILE_GAP), -row * (TILE_H + TILE_GAP))
         tile:SetWidth(tw)
-        if tile.compact then tile.you:Hide() end
     end
 end
 
@@ -856,10 +852,8 @@ local function renderCrowns(page)
             local key, value = call(S, "Leader", statKey)
             key = type(key) == "string" and key or nil
             tile.key, tile.value = key, value
-            -- Hall of Fame gold for glory, pink for the shame board
-            local accent = UI.col(def.group == "fame" and "wowGold" or "pink")
             tile.title:SetText(def.title)
-            tile.title:SetTextColor(accent[1], accent[2], accent[3], 1)
+            UI:SetTextColor(tile.title, def.group == "fame" and CROWN_FAME or CROWN_SHAME)
             tile.art:SetIcon(def.art or def.icon or "crown")
             -- an unclaimed crown sits in its frame greyed out, waiting
             tile.art:SetDesaturated(key == nil)
@@ -868,10 +862,9 @@ local function renderCrowns(page)
                 any = true
                 tile.name:SetText(colored(key))
             else
-                tile.name:SetText(T:Wrap("faint", "Up for grabs"))
+                tile.name:SetText(T:Wrap("dim", "Up for grabs"))
             end
             tile.mine = key ~= nil and key == mine
-            tile.you:SetShown(tile.mine and not tile.compact)
             paintTile(tile, tile:IsMouseOver())
             tile:Show()
             if tile.mine and page.shineCrowns then UI:Shine(tile, 0.9) end
@@ -881,6 +874,7 @@ local function renderCrowns(page)
         end
     end
     page.shineCrowns = false
+    page.anyCrowns = any
     c.grid:SetShown(any)
     c.empty:SetShown(not any)
     if not any then c.empty.text:SetText(S and LINES.crowns or LINES.noStats) end
@@ -894,20 +888,20 @@ local function makeWatchRow(parent)
     r:SetHeight(WATCH_ROW_H)
     r.hl = r:CreateTexture(nil, "BACKGROUND")
     r.hl:SetAllPoints()
-    r.hl:SetColorTexture(1, 1, 1, 0.04)
+    r.hl:SetColorTexture(1, 0.90, 0.68, 0.055)
     r.hl:Hide()
     r.line = r:CreateTexture(nil, "ARTWORK")
     r.line:SetColorTexture(C.lineSoft[1], C.lineSoft[2], C.lineSoft[3], C.lineSoft[4])
     r.line:SetHeight(1)
     r.line:SetPoint("BOTTOMLEFT")
     r.line:SetPoint("BOTTOMRIGHT")
-    r.art = UI:FramedIcon(r, WATCH_ICON, "dot")
+    r.art = kindIcon(r, WATCH_ICON)
     r.art:SetPoint("LEFT", 2, 0)
-    r.ago = UI:Text(r, 10, "faint", "num")
-    r.ago:SetPoint("RIGHT", -4, 0)
+    r.ago = UI:Text(r, 11, "dim", "num")
+    r.ago:SetPoint("RIGHT", -2, 0)
     r.ago:SetJustifyH("RIGHT")
     r.text = UI:Text(r, 12, "text")
-    r.text:SetPoint("LEFT", r.art, "RIGHT", 9, 0)
+    r.text:SetPoint("LEFT", r.art, "RIGHT", 8, 0)
     r.text:SetPoint("RIGHT", r.ago, "LEFT", -10, 0)
     trackLinkClicks(r)
     r:RegisterForClicks("LeftButtonUp")
@@ -916,7 +910,7 @@ local function makeWatchRow(parent)
         local e = self.e
         if not e then return end
         local lines = {}
-        if self.text.IsTruncated and self.text:IsTruncated() then lines[#lines + 1] = e.text end
+        if self.cut or (self.text.IsTruncated and self.text:IsTruncated()) then lines[#lines + 1] = e.text end
         if type(e.from) == "string" then lines[#lines + 1] = { colored(e.from), U.DateTime(e.t) } end
         lines[#lines + 1] = T:Wrap("faint", "Click to open the Watch.")
         UI:Tip(self, "Neighbourhood Watch", lines)
@@ -933,7 +927,7 @@ end
 
 local function buildWatch(page, parent)
     local c = UI:Card(parent, { title = "Latest from the Watch", icon = "eye" })
-    c.all = headerButton(c, "View all", function() UI:ShowPage("feed") end)
+    c.all = headerLink(c, "View all", function() UI:ShowPage("feed") end)
     c.rows = {}
     for i = 1, WATCH_ROWS do
         local r = makeWatchRow(c.body)
@@ -943,6 +937,26 @@ local function buildWatch(page, parent)
     end
     c.empty = cardEmpty(c.body, "eye")
     return c
+end
+
+--- A tight row gives up a title's "(what it's for)" before it cuts the sentence; the tip has it all.
+-- Measured against the column rather than asking IsTruncated, which lags a resize.
+local function fitWatch(page)
+    for _, r in ipairs(page.watch.rows) do
+        if r.e then
+            r.text:SetText(r.e.text)
+            r.cut = false
+            local natural = r.text.GetUnboundedStringWidth and r.text:GetUnboundedStringWidth() or r.text:GetStringWidth()
+            local avail = (page.watchW or 300) - WATCH_ICON - 22 - (r.ago:GetStringWidth() or 40)
+            if (tonumber(natural) or 0) > avail then
+                local short = (r.e.text:gsub("%s*%b()", ""))
+                if short ~= r.e.text then
+                    r.text:SetText(short)
+                    r.cut = true
+                end
+            end
+        end
+    end
 end
 
 local function renderWatch(page)
@@ -957,9 +971,7 @@ local function renderWatch(page)
             shown = shown + 1
             r.e = e
             local meta = kinds[e.kind] or {}
-            r.art:SetIcon(e.icon or meta.icon or "dot")
-            tintFramed(r.art, meta.color)
-            r.text:SetText(e.text)
+            r.art:SetKind(e.icon or meta.icon or "dot", meta.color)
             r.ago:SetText(U.Ago(e.t))
             -- separators only between reports, never under the last one shown
             local nxt = items[i + 1]
@@ -970,6 +982,8 @@ local function renderWatch(page)
             r:Hide()
         end
     end
+    page.watchShown = shown
+    fitWatch(page)
     c.empty:SetShown(shown == 0)
     if shown == 0 then c.empty.text:SetText(emptyText("feed", "Quiet on the street tonight. Too quiet.")) end
 end
@@ -982,18 +996,19 @@ local function makePerson(parent)
     p:SetHeight(PERSON_H)
     p.hl = p:CreateTexture(nil, "BACKGROUND")
     p.hl:SetAllPoints()
-    UI.Sliced(p.hl, T.tex.round6, 6)
-    p.hl:SetVertexColor(1, 1, 1, 0.05)
+    p.hl:SetColorTexture(1, 0.90, 0.68, 0.055)
     p.hl:Hide()
     -- a green gem lights up for locals running Greenfields; the rest stay grey
     p.dot = p:CreateTexture(nil, "ARTWORK")
     p.dot:SetTexture(T.tex.gemGreen)
     p.dot:SetSize(10, 10)
     p.dot:SetPoint("LEFT", 4, 0)
-    p.name = UI:Text(p, 12, "text", "head")
+    p.name = UI:Text(p, 12, "text", "ui")
     p.name:SetPoint("LEFT", p.dot, "RIGHT", 8, 0)
-    p.zone = UI:Text(p, 10, "faint")
-    p.zone:SetPoint("LEFT", p.name, "RIGHT", 6, 0)
+    -- zones hang off the cell's right edge, so the column has a clean line to read down
+    p.zone = UI:Text(p, 11, "dim")
+    p.zone:SetPoint("RIGHT", p, "RIGHT", -6, 0)
+    p.zone:SetJustifyH("RIGHT")
     p:RegisterForClicks("LeftButtonUp", "RightButtonUp")
     p:SetScript("OnEnter", function(self)
         self.hl:Show()
@@ -1001,11 +1016,12 @@ local function makePerson(parent)
         if not m then return end
         local lines = {}
         local level = tonumber(m.level) or 0
-        lines[#lines + 1] = format("Level %d %s", level, m.class and API.ClassName(m.class) or "")
+        local class = m.class and API.ClassName(m.class) or ""
+        lines[#lines + 1] = level > 0 and format("Level %d %s", level, class) or (class ~= "" and class or "Level unknown")
         if type(m.rankName) == "string" and m.rankName ~= "" then lines[#lines + 1] = { "Rank", m.rankName } end
         lines[#lines + 1] = { "Where", m.mobile and "On the app" or (m.zone or "Somewhere in Azeroth") }
         lines[#lines + 1] = self.addon and T:Wrap("green", "Running Greenfields") or T:Wrap("faint", "No Greenfields. Missing out.")
-        lines[#lines + 1] = T:Wrap("faint", "Click: profile   Right-click: whisper")
+        lines[#lines + 1] = T:Wrap("faint", "Click: profile   Right-click: invite, whisper")
         UI:Tip(self, colored(self.key), lines)
     end)
     p:SetScript("OnLeave", function(self)
@@ -1015,7 +1031,8 @@ local function makePerson(parent)
     p:SetScript("OnClick", function(self, button)
         if not self.key then return end
         if button == "RightButton" then
-            UI:Whisper(self.key)
+            UI:HideTip()
+            if UI.ResidentMenu and self.member then UI:ResidentMenu(self.member) else UI:Whisper(self.key) end
         elseif UI.OpenProfile then
             UI:OpenProfile(self.key)
         else
@@ -1027,32 +1044,50 @@ end
 
 local function buildPeople(page, parent)
     local c = UI:Card(parent, { title = "Who's home", icon = "home", subtitle = "" })
-    c.go = headerButton(c, "Residents", function() UI:ShowPage("roster") end)
+    c.go = headerLink(c, "Residents", function() UI:ShowPage("roster") end)
+    UI:SetTextColor(c.subtitle, "dim")
+    -- what the old head-count pills used to explain lives on the card's title now
+    c.titleHit = CreateFrame("Frame", nil, c)
+    c.titleHit:SetPoint("TOPLEFT", c.title, "TOPLEFT", 0, 0)
+    c.titleHit:SetPoint("BOTTOMRIGHT", c.title, "BOTTOMRIGHT", 0, 0)
+    c.titleHit:EnableMouse(true)
+    UI.AttachTip(c.titleHit, function()
+        return { "Who's home", {
+            format("%d of %d locals online.", call(GF.Roster, "OnlineCount") or 0, call(GF.Roster, "Count") or 0),
+            format("%d online with Greenfields going (you included).", peerCount()),
+            T:Wrap("dim", "Everyone else is missing the gossip."),
+        } }
+    end)
     c.cells = {}
     for i = 1, PEOPLE_MAX do c.cells[i] = makePerson(c.body) end
     c.more = UI:Button(c.body, "", { style = "ghost", height = 20, size = 11, onClick = function() UI:ShowPage("roster") end })
-    c.more:SetPoint("BOTTOMLEFT", c.body, "BOTTOMLEFT", 0, 0)
     c.more:Hide()
     c.empty = cardEmpty(c.body, "roster")
     return c
 end
 
+local function peopleCols(bodyW) return bodyW >= 480 and 3 or 2 end
+
 local function layoutPeople(page, bodyW)
     local c = page.people
-    local cols = bodyW >= 480 and 3 or 2
-    local colW = floor((bodyW - (cols - 1) * 8) / cols)
+    local cols = peopleCols(bodyW)
+    local colW = floor((bodyW - (cols - 1) * 12) / cols)
     for i, p in ipairs(c.cells) do
         local col, row = (i - 1) % cols, floor((i - 1) / cols)
         p:ClearAllPoints()
-        p:SetPoint("TOPLEFT", c.body, "TOPLEFT", col * (colW + 8), -row * PERSON_H)
+        p:SetPoint("TOPLEFT", c.body, "TOPLEFT", col * (colW + 12), -row * PERSON_H)
         p:SetWidth(colW)
         p.cellW = colW
     end
+    -- "+N more" sits right under the last row, not stranded at the card's foot
+    local shown = min(page.peopleCount or 0, PEOPLE_MAX)
+    c.more:ClearAllPoints()
+    c.more:SetPoint("TOPLEFT", c.body, "TOPLEFT", 10, -(floor((shown + cols - 1) / cols) * PERSON_H + 2))
 end
 
 --- Fits name + zone into a cell: the name gets what it needs, the zone what's left.
 local function sizePerson(p)
-    local avail = (p.cellW or 150) - 26
+    local avail = (p.cellW or 150) - 28
     local fs = p.name
     -- a width set on an earlier render can clamp GetStringWidth; ask for the natural width
     local natural = fs.GetUnboundedStringWidth and fs:GetUnboundedStringWidth() or fs:GetStringWidth()
@@ -1061,20 +1096,59 @@ local function sizePerson(p)
     local zoneW = avail - nameW - 6
     p.zone:SetWidth(max(1, zoneW))
     p.zone:SetShown(zoneW >= 30)
+    -- "Stormwin..." reads worse than a city without the word City; the tooltip keeps the lot
+    local zw = p.zone.GetUnboundedStringWidth and p.zone:GetUnboundedStringWidth() or p.zone:GetStringWidth()
+    if (tonumber(zw) or 0) > zoneW then
+        local shortZone = (p.zone:GetText() or ""):gsub(" City$", "")
+        p.zone:SetText(shortZone)
+    end
 end
 
---- Online guildies (not me): Greenfields users first, then the highest level, then A-Z.
+-- The last level and zone the client gave us, since a fight can hide them and that's no reason for the
+-- list to reshuffle. Yours too. A level nobody's ever read just goes after the ones we know.
+local NEAR_LEVELS = 5
+local UNKNOWN_GAP = 1000
+local lastKnown = {}
+
+local function known(key, level, zone)
+    local k = lastKnown[key]
+    if not k then
+        k = {}
+        lastKnown[key] = k
+    end
+    level = tonumber(level) or 0
+    if level > 0 then k.level = level end
+    if zone then k.zone = zone end
+    return k
+end
+
+--- Online guildies (not me), who you could play with first: near your level, then in your zone, then the
+-- closest level. People on the app can't group, so they go last. Then Greenfields users, the highest
+-- level and A-Z. It's all off the guild roster, so mates without the addon sort the same.
 local function onlineLocals()
     local me = API.MyKey()
     local list = call(GF.Roster, "List", function(m) return m.online and m.key ~= me end, "name")
     if type(list) ~= "table" then list = {} end
-    local addon = {}
-    for _, m in ipairs(list) do addon[m.key] = hasAddon(m.key) end
+    local row = call(GF.Roster, "Get", me)
+    local mine = known(tostring(me), API.UnitLevel("player"), API.ZoneName() or (type(row) == "table" and row.zone or nil))
+    local addon, gap, here, level = {}, {}, {}, {}
+    for _, m in ipairs(list) do
+        addon[m.key] = hasAddon(m.key)
+        local k = known(m.key, m.level, m.zone)
+        gap[m.key] = (k.level and mine.level) and abs(k.level - mine.level) or UNKNOWN_GAP
+        here[m.key] = (k.zone ~= nil and k.zone == mine.zone) and true or false
+        level[m.key] = k.level or 0
+    end
     sort(list, function(a, b)
-        if addon[a.key] ~= addon[b.key] then return addon[a.key] end
-        local la, lb = tonumber(a.level) or 0, tonumber(b.level) or 0
-        if la ~= lb then return la > lb end
-        return tostring(a.key) < tostring(b.key)
+        local ka, kb = a.key, b.key
+        if (a.mobile and true or false) ~= (b.mobile and true or false) then return b.mobile and true or false end
+        local na, nb = gap[ka] <= NEAR_LEVELS, gap[kb] <= NEAR_LEVELS
+        if na ~= nb then return na end
+        if here[ka] ~= here[kb] then return here[ka] end
+        if gap[ka] ~= gap[kb] then return gap[ka] < gap[kb] end
+        if addon[ka] ~= addon[kb] then return addon[ka] end
+        if level[ka] ~= level[kb] then return level[ka] > level[kb] end
+        return tostring(ka) < tostring(kb)
     end)
     return list, addon
 end
@@ -1084,6 +1158,7 @@ local function renderPeople(page)
     if not API.InGuild() then
         for _, p in ipairs(c.cells) do p:Hide() end
         c.more:Hide()
+        page.peopleCount = 0
         c.subtitle:SetText("")
         c.empty:Show()
         c.empty.text:SetText(LINES.noGuild)
@@ -1112,7 +1187,13 @@ local function renderPeople(page)
     else
         c.more:Hide()
     end
-    c.subtitle:SetText(#list > 0 and (#list .. " home") or "")
+    page.peopleCount = #list
+    -- "others": the header counts you too, and two numbers a digit apart read as a bug
+    local others = #list .. U.Plural(#list, " other")
+    if (page.peopleW or 0) >= 340 then
+        others = others .. T:Wrap("faint", "  \194\183  ") .. peerCount() .. " on Greenfields"
+    end
+    c.subtitle:SetText(#list > 0 and others or "")
     c.empty:SetShown(#list == 0)
     if #list == 0 then c.empty.text:SetText(emptyText("roster", "No one's home. Suspicious.")) end
 end
@@ -1122,17 +1203,11 @@ end
 -------------------------------------------------------------------------------
 local function campChip(parent)
     local f = CreateFrame("Frame", nil, parent)
-    f:SetHeight(20)
-    -- the pill sits behind the label; the buff's icon rides on its left end in a gold frame
-    f.bg = f:CreateTexture(nil, "BACKGROUND")
-    f.bg:SetPoint("TOPLEFT", 10, -1)
-    f.bg:SetPoint("BOTTOMRIGHT", 0, 1)
-    UI.Sliced(f.bg, T.tex.pill, 8)
-    f.bg:SetVertexColor(C.red[1], C.red[2], C.red[3], 0.16)
-    f.art = UI:FramedIcon(f, 20, "warning")
+    f:SetHeight(18)
+    -- flat: an icon and red words. It's the red that says something's missing, not a capsule
+    f.art = kindIcon(f, 16)
     f.art:SetPoint("LEFT", 0, 0)
-    f.icon = f.art.icon
-    f.label = UI:Text(f, 10, "red", "head")
+    f.label = UI:Text(f, 11, "red", "ui")
     f.label:SetPoint("LEFT", f.art, "RIGHT", 5, 0)
     f:EnableMouse(true)
     f:SetScript("OnEnter", function(self)
@@ -1150,46 +1225,37 @@ local function campChip(parent)
 end
 
 local function buildCamp(page, parent)
-    local c = UI:Card(parent, { title = "Camp check", icon = "campfire", accent = "yellow" })
-    c.go = headerButton(c, "Buff Check", function() UI:ShowPage("buffs") end)
+    local c = UI:Card(parent, { title = "Camp check", icon = "campfire" })
+    c.go = headerLink(c, "Buff Check", function() UI:ShowPage("buffs") end)
 
     c.report = CreateFrame("Frame", nil, c.body)
     c.report:SetAllPoints(c.body)
-    -- the grade sits on a little bronze-edged plate, like a slot on the achievement frame
-    c.plate = CreateFrame("Frame", nil, c.report)
-    c.plate:SetSize(56, 52)
-    c.plate:SetPoint("TOPLEFT", 0, 2)
-    c.plate.bg = c.plate:CreateTexture(nil, "BACKGROUND")
-    c.plate.bg:SetPoint("TOPLEFT", 1, -1)
-    c.plate.bg:SetPoint("BOTTOMRIGHT", -1, 1)
-    c.plate.bg:SetColorTexture(0, 0, 0, 0.32)
-    c.plate.rim = rim(c.plate, T.tex.frameBronze, 8)
-    c.score = UI:Text(c.plate, 26, "green", "num")
-    c.score:SetPoint("TOP", 0, -5)
+    -- the grade is a bare numeral: the number is the news, it doesn't need a plate
+    c.score = UI:Text(c.report, 26, "green", "num")
+    c.score:SetPoint("TOPLEFT", 0, 0)
     c.score:SetWidth(52)
     c.score:SetJustifyH("CENTER")
-    c.scoreLabel = UI:Text(c.plate, 9, "bronze", "head")
-    c.scoreLabel:SetPoint("BOTTOM", 0, 6)
+    c.scoreLabel = UI:Text(c.report, 11, "dim", "ui")
+    c.scoreLabel:SetPoint("TOP", c.score, "BOTTOM", 0, -1)
     c.scoreLabel:SetJustifyH("CENTER")
-    c.scoreLabel:SetText("SCORE")
+    c.scoreLabel:SetText("score")
     c.summary = UI:Text(c.report, 12, "text")
-    c.summary:SetPoint("TOPLEFT", 70, -2)
+    c.summary:SetPoint("TOPLEFT", 64, -2)
     c.summary:SetPoint("TOPRIGHT", c.report, "TOPRIGHT", 0, -2)
     c.chipRow = CreateFrame("Frame", nil, c.report)
-    c.chipRow:SetHeight(20)
-    c.chipRow:SetPoint("TOPLEFT", 70, -24)
-    c.chipRow:SetPoint("TOPRIGHT", c.report, "TOPRIGHT", 0, -24)
+    c.chipRow:SetHeight(18)
+    c.chipRow:SetPoint("TOPLEFT", 64, -22)
+    c.chipRow:SetPoint("TOPRIGHT", c.report, "TOPRIGHT", 0, -22)
     c.chips = {}
-    c.overflow = UI:Text(c.chipRow, 10, "faint", "head")
+    c.overflow = UI:Text(c.chipRow, 11, "dim", "ui")
 
     c.tipFrame = CreateFrame("Frame", nil, c.body)
     c.tipFrame:SetAllPoints(c.body)
     c.tipIcon = UI:FramedIcon(c.tipFrame, 34, CAMP_ART)
     c.tipIcon:SetPoint("LEFT", 2, 0)
-    c.tip = UI:Text(c.tipFrame, 12, "dim")
+    c.tip = UI:Para(c.tipFrame, 12, "dim")
     c.tip:SetPoint("LEFT", c.tipIcon, "RIGHT", 14, 0)
     c.tip:SetPoint("RIGHT", c.tipFrame, "RIGHT", -4, 0)
-    c.tip:SetWordWrap(true)
     return c
 end
 
@@ -1205,7 +1271,7 @@ local function layoutCampChips(page)
             if x + chip:GetWidth() <= avail - 30 then
                 chip:SetPoint("LEFT", c.chipRow, "LEFT", x, 0)
                 chip:Show()
-                x = x + chip:GetWidth() + 6
+                x = x + chip:GetWidth() + 12
             else
                 chip:Hide()
                 hidden = hidden + 1
@@ -1275,11 +1341,25 @@ local function renderCamp(page)
     end
     c.tipFrame:Hide()
     c.report:Show()
-    local score = floor(U.Clamp(tonumber(report.score) or 0, 0, 100) + 0.5)
-    c.score:SetText(tostring(score))
-    UI:SetTextColor(c.score, score >= 80 and "green" or (score >= 50 and "yellow" or "red"))
+    local ungraded = call(GF.Buffs, "Ungraded", report)
+    if ungraded then
+        -- a party still levelling gets a count, not a mark out of 100
+        c.score:SetText(format("%d/%d", report.covered, report.applicable))
+        UI:SetTextColor(c.score, "dim")
+        c.scoreLabel:SetText("covered")
+    else
+        local score = floor(U.Clamp(tonumber(report.score) or 0, 0, 100) + 0.5)
+        c.score:SetText(tostring(score))
+        UI:SetTextColor(c.score, score >= 80 and "green" or (score >= 50 and "yellow" or "red"))
+        c.scoreLabel:SetText("score")
+    end
     local cats, isCore = missingCats(report)
-    if not cats[1] then
+    if ungraded and cats[1] then
+        c.summary:SetText(format("%d of %d core buffs in hand across %d %s. Nobody's marking you till 60.",
+            report.covered, report.applicable, size, U.Plural(size, "local")))
+    elseif ungraded then
+        c.summary:SetText(T:Wrap("green", "Sorted.") .. " Everything this lot can learn is covered. Pull whenever you like.")
+    elseif not cats[1] then
         c.summary:SetText(T:Wrap("green", "Full house.") .. " Every core buff is covered across " .. size .. U.Plural(size, " local") .. ". Pull whenever you like.")
     else
         local what = isCore and U.Plural(#cats, "core buff") or U.Plural(#cats, "buff")
@@ -1291,10 +1371,9 @@ local function renderCamp(page)
         c.chips[i] = chip
         local cat = cats[i]
         chip.cat = cat
-        chip.art:SetIcon(type(cat.icon) == "number" and API.SpellIcon(cat.icon) or "warning")
-        tintFramed(chip.art, "red")
-        chip.label:SetText(upper(cat.label or "?"))
-        chip:SetWidth((chip.label:GetStringWidth() or 30) + 33)
+        chip.art:SetKind(type(cat.icon) == "number" and API.SpellIcon(cat.icon) or "warning", "red")
+        chip.label:SetText(cat.label or "?")
+        chip:SetWidth((chip.label:GetStringWidth() or 30) + 25)
     end
     for i = #cats + 1, #c.chips do c.chips[i].cat = nil end
     c.extraCats = max(0, #cats - CAMP_CHIPS)
@@ -1313,35 +1392,55 @@ end
 local function arrange(page, w)
     local content = page.content
     local y = 0
-    place(page.hero, content, 0, y, w, HERO_H)
-    y = y + HERO_H + GUTTER
+    place(page.hero, content, 0, y, w, GREET_H)
+    y = y + GREET_H + 12
+    local hasRaid = page.raid.ev ~= nil
+    local raidH = hasRaid and RAID_H or RAID_EMPTY_H
+    place(page.raid, content, 0, y, w, raidH)
+    y = y + raidH + GUTTER
+
     local two = w >= TWO_COL_MIN
     local lw = two and floor((w - GUTTER) / 2) or w
     local rw = two and (w - lw - GUTTER) or w
+    page.raidW = w - 24
+    page.peopleW = rw - 24
+    page.watchW = lw - 24
+    -- the row is as tall as what's in it, so a quiet street doesn't leave a hollow card
+    local cols = peopleCols(rw - 24)
+    local count = page.peopleCount or 0
+    local peopleRows = floor((min(count, PEOPLE_MAX) + cols - 1) / cols)
+    local peopleH = peopleRows * PERSON_H + (count > PEOPLE_MAX and MORE_H or 0)
+    local watchH = (page.watchShown or 0) * WATCH_ROW_H
+    local rowH = max(ROW2_MIN, max(peopleH, watchH) + CARD_CHROME)
     if two then
-        place(page.raid, content, 0, y, lw, ROW1_H)
-        place(page.crowns, content, lw + GUTTER, y, rw, ROW1_H)
-        y = y + ROW1_H + GUTTER
-        place(page.watch, content, 0, y, lw, ROW2_H)
-        place(page.people, content, lw + GUTTER, y, rw, ROW2_H)
-        y = y + ROW2_H + GUTTER
+        place(page.watch, content, 0, y, lw, rowH)
+        place(page.people, content, lw + GUTTER, y, rw, rowH)
+        y = y + rowH + GUTTER
     else
-        for _, spec in ipairs({ { page.raid, ROW1_H }, { page.crowns, ROW1_H }, { page.watch, ROW2_H }, { page.people, ROW2_H } }) do
-            place(spec[1], content, 0, y, w, spec[2])
-            y = y + spec[2] + GUTTER
+        for _, f in ipairs({ page.watch, page.people }) do
+            place(f, content, 0, y, w, rowH)
+            y = y + rowH + GUTTER
         end
     end
+
+    local crownW = w - 24
+    local crownRows = floor((#CROWNS + crownCols(crownW) - 1) / crownCols(crownW))
+    local crownH = page.anyCrowns == false and CROWN_EMPTY_H
+        or (CARD_CHROME + crownRows * TILE_H + (crownRows - 1) * TILE_GAP)
+    place(page.crowns, content, 0, y, w, crownH)
+    y = y + crownH + GUTTER
     place(page.camp, content, 0, y, w, CAMP_H)
     y = y + CAMP_H + 4
     page.scroll:SetContentHeight(y)
-    page.raidW = lw - 24
-    layoutRaidPills(page)
-    layoutCrowns(page, rw - 24)
+    fitWhen(page)
+    fitWatch(page)
+    layoutRaidCounts(page)
+    layoutCrowns(page, crownW)
     layoutPeople(page, rw - 24)
     for _, p in ipairs(page.people.cells) do
         if p.key then sizePerson(p) end
     end
-    fitPills(page)
+    fitStats(page)
     layoutCampChips(page)
 end
 
@@ -1366,6 +1465,8 @@ local function renderAll(page)
     GF:Safe("home:watch", renderWatch, page)
     GF:Safe("home:people", renderPeople, page)
     GF:Safe("home:camp", renderCamp, page)
+    -- card heights follow their contents, so lay out again now the contents are known
+    GF:Safe("home:layout", layout, page)
 end
 
 local function stopTicker(page)
@@ -1391,13 +1492,10 @@ local function build(page)
     roll(page)
     local header = UI:PageHeader(page, pageDef.title, pageDef.subtitle)
     page.header = header
-    header:AddAction(UI:IconButton(header, "sync", 26, "Refresh the street", function()
-        call(GF.Roster, "Refresh")
-        renderAll(page)
-    end))
 
-    local scroll, content = UI:Scroll(page)
-    scroll:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -12)
+    -- the bar hangs in the gutter, so this page's right edge matches every other page's
+    local scroll, content = UI:Scroll(page, { outside = true })
+    scroll:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -14)
     scroll:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
     page.scroll, page.content = scroll, content
 

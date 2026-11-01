@@ -521,7 +521,7 @@ local function postFeed(entry, id)
     if entry.how == "SR" then
         text = who .. " won " .. link .. " off SR. Rigged? Probably."
     elseif entry.how == "MS" then
-        text = who .. " won " .. link .. " on a main-spec roll. The bin chickens are seething."
+        text = who .. " won " .. link .. " on a main-spec roll. The fiends are seething."
     elseif entry.how == "OS" then
         text = who .. " scored " .. link .. " on an off-spec roll. Waste not, want not."
     else
@@ -633,6 +633,7 @@ local function hostingSession()
 end
 
 local function isDeskUser()
+    if GF.gateShut then return false end
     if hostingSession() then return true end
     if not API.InGroup() then return false end
     if amML() then return true end
@@ -707,6 +708,7 @@ local function getRollPattern()
     end
     return rollPattern
 end
+Loot.RollPattern = getRollPattern
 
 -------------------------------------------------------------------------------
 -- Rolls
@@ -1398,96 +1400,19 @@ local function makeDraggable(frame, handle, key)
     handle:SetScript("OnDragStart", function() frame:StartMoving() end)
     handle:SetScript("OnDragStop", function()
         frame:StopMovingOrSizing()
+        if frame.pinTop then frame:pinTop() end
         savePos(frame, key)
     end)
 end
 
 -------------------------------------------------------------------------------
--- Warcraft dressing: gold-framed windows, quality-framed item slots, gold bars
+-- Warcraft dressing: quality-framed item slots
 -------------------------------------------------------------------------------
-local function tile(tex, path, r, g, b, a)
-    tex:SetTexture(path, "REPEAT", "REPEAT")
-    tex:SetHorizTile(true)
-    tex:SetVertTile(true)
-    tex:SetVertexColor(r, g, b, a)
-end
-
-local function gradient(tex, orient, r, g, b, a1, a2)
-    tex:SetTexture(T.tex.white)
-    if tex.SetGradient and CreateColor then
-        tex:SetGradient(orient, CreateColor(r, g, b, a1), CreateColor(r, g, b, a2))
-    else
-        tex:SetColorTexture(r, g, b, (a1 + a2) / 2)
-    end
-end
-
---- A floating window in the game's own chrome: dark slate under worn stone, and a gold
--- 9-slice rim with ornate corners riding above the content (it never takes the mouse).
-local function goldWindow(f, corner)
-    UI:SetBackdrop(f, C.bg1, false)
-    UI:Shadow(f, 18)
-    f.slate = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    f.slate:SetPoint("TOPLEFT", 2, -2)
-    f.slate:SetPoint("BOTTOMRIGHT", -2, 2)
-    tile(f.slate, T.tex.stone, 0.5, 0.55, 0.52, 0.55)
-    local chrome = CreateFrame("Frame", nil, f)
-    chrome:SetPoint("TOPLEFT", -5, 5)
-    chrome:SetPoint("BOTTOMRIGHT", 5, -5)
-    chrome:SetFrameLevel(f:GetFrameLevel() + 30)
-    chrome.rim = chrome:CreateTexture(nil, "OVERLAY")
-    chrome.rim:SetAllPoints()
-    UI.Sliced(chrome.rim, T.tex.frameGold, 16)
-    for _, c in ipairs({ { "TOPLEFT", -3, 3, 0, 1, 0, 1 }, { "TOPRIGHT", 3, 3, 1, 0, 0, 1 },
-                         { "BOTTOMLEFT", -3, -3, 0, 1, 1, 0 }, { "BOTTOMRIGHT", 3, -3, 1, 0, 1, 0 } }) do
-        local t = chrome:CreateTexture(nil, "OVERLAY", nil, 1)
-        t:SetTexture(T.tex.cornerGold)
-        t:SetSize(corner or 28, corner or 28)
-        t:SetPoint(c[1], chrome, c[1], c[2], c[3])
-        t:SetTexCoord(c[4], c[5], c[6], c[7])
-    end
-    f.chrome = chrome
-end
-
---- Leather title band with the ornate gold rule along its bottom edge.
-local function leatherBand(parent, height)
-    local h = CreateFrame("Frame", nil, parent)
-    h:SetPoint("TOPLEFT", 2, -2)
-    h:SetPoint("TOPRIGHT", -2, -2)
-    h:SetHeight(height)
-    h.bg = h:CreateTexture(nil, "BACKGROUND")
-    h.bg:SetAllPoints()
-    h.bg:SetColorTexture(C.bg1[1], C.bg1[2], C.bg1[3], 1)
-    h.leather = h:CreateTexture(nil, "BACKGROUND", nil, 1)
-    h.leather:SetAllPoints()
-    tile(h.leather, T.tex.leather, 0.85, 0.8, 0.75, 0.9)
-    h.shade = h:CreateTexture(nil, "BACKGROUND", nil, 2)
-    h.shade:SetAllPoints()
-    gradient(h.shade, "VERTICAL", 0, 0, 0, 0.35, 0)
-    h.line = h:CreateTexture(nil, "ARTWORK")
-    h.line:SetPoint("BOTTOMLEFT")
-    h.line:SetPoint("BOTTOMRIGHT")
-    h.line:SetHeight(2)
-    h.line:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 1)
-    h.rule = h:CreateTexture(nil, "OVERLAY")
-    h.rule:SetTexture(T.tex.dividerGold)
-    h.rule:SetHeight(12)
-    h.rule:SetPoint("LEFT", h.line, "LEFT", 0, 0)
-    h.rule:SetPoint("RIGHT", h.line, "RIGHT", 0, 0)
-    return h
-end
-
---- Turns a kit ItemButton into a Warcraft item slot: the icon sits under a bevelled frame
--- tinted to the item's quality (gold while the quality is unknown or common), with an
--- optional soft quality glow behind it. Tooltip, shift-link and clicks are untouched.
+--- The kit's item slot, told what we already know: links and the desk carry an item's quality
+-- long before the client has loaded it, so the bezel is right first time. Commons and unknowns
+-- stay plain bronze. Tooltip, shift-link and clicks are the kit's.
 local function dressItem(b, glow)
     local size = b:GetWidth() or 32
-    local inset = max(2, floor(size * 0.09 + 0.5))
-    b.icon:ClearAllPoints()
-    b.icon:SetPoint("TOPLEFT", inset, -inset)
-    b.icon:SetPoint("BOTTOMRIGHT", -inset, inset)
-    b.qframe = b:CreateTexture(nil, "OVERLAY", nil, -1)
-    b.qframe:SetAllPoints()
-    UI.Sliced(b.qframe, T.tex.iconFrame, max(4, floor(size * 0.16)))
     if glow then
         b.qglow = b:CreateTexture(nil, "BACKGROUND", nil, -7)
         b.qglow:SetTexture(T.tex.glow)
@@ -1499,16 +1424,13 @@ local function dressItem(b, glow)
     local update = b.Update
     b.Update = function(self)
         update(self)
-        self:SetBackdropBorderColor(0, 0, 0, 0)
         local q = self.itemID and (API.ItemQuality(self.link or self.itemID) or linkQuality(self.link) or self.qHint)
         q = type(q) == "number" and q or nil
         if q and q >= 2 then
             local r, g, bb = API.QualityColor(q)
-            self.qframe:SetDesaturated(true)
-            self.qframe:SetVertexColor(min(1, r * 1.1 + 0.12), min(1, g * 1.1 + 0.12), min(1, bb * 1.1 + 0.12), 1)
+            self:SetBackdropBorderColor(min(1, r * 1.1 + 0.12), min(1, g * 1.1 + 0.12), min(1, bb * 1.1 + 0.12), 1)
         else
-            self.qframe:SetDesaturated(false)
-            self.qframe:SetVertexColor(1, 1, 1, 1)
+            self:SetBackdropBorderColor(C.bronze[1], C.bronze[2], C.bronze[3], 1)
         end
         if self.qglow then
             if q and q >= 3 then
@@ -1524,51 +1446,14 @@ local function dressItem(b, glow)
     return b
 end
 
---- Countdown bar in a gold bevel (cast-bar style) with a spark riding the fill.
--- Same face as UI:Bar where the panel uses it: :SetValue(0..1), :SetColor(c).
-local function goldBar(parent, height)
-    local b = CreateFrame("Frame", nil, parent)
-    b:SetHeight(height or 14)
-    b.well = b:CreateTexture(nil, "BACKGROUND")
-    b.well:SetPoint("TOPLEFT", 2, -2)
-    b.well:SetPoint("BOTTOMRIGHT", -2, 2)
-    b.well:SetColorTexture(0, 0, 0, 0.7)
-    b.fill = b:CreateTexture(nil, "ARTWORK")
-    b.fill:SetTexture(T.tex.bar)
-    b.fill:SetPoint("TOPLEFT", 3, -3)
-    b.fill:SetPoint("BOTTOMLEFT", 3, 3)
-    b.spark = b:CreateTexture(nil, "ARTWORK", nil, 1)
-    b.spark:SetTexture(T.tex.glow)
-    b.spark:SetBlendMode("ADD")
-    b.spark:SetSize(14, (height or 14) + 10)
-    b.spark:SetPoint("CENTER", b.fill, "RIGHT", 0, 0)
-    b.rim = b:CreateTexture(nil, "OVERLAY")
-    b.rim:SetAllPoints()
-    UI.Sliced(b.rim, T.tex.iconFrame, 5)
-    b.value = 0
-    function b:SetColor(c)
-        c = UI.col(c)
-        self.fill:SetVertexColor(c[1], c[2], c[3], 1)
-        self.spark:SetVertexColor(c[1], c[2], c[3], 0.9)
-    end
-    function b:SetValue(v)
-        self.value = U.Clamp(tonumber(v) or 0, 0, 1)
-        local w = max(0, (self:GetWidth() or 0) - 6)
-        self.fill:SetWidth(max(0.001, w * self.value))
-        self.fill:SetShown(self.value > 0)
-        self.spark:SetShown(self.value > 0 and self.value < 1)
-    end
-    b:SetScript("OnSizeChanged", function(self) self:SetValue(self.value) end)
-    b:SetColor("green")
-    return b
-end
-
 -------------------------------------------------------------------------------
 -- Loot Desk (host / master looter / raid leader)
 -------------------------------------------------------------------------------
-local desk
-local DESK_W, DROW_H, DESK_HEAD, DESK_FOOT = 540, 74, 56, 52
-local ROW_GAP = 6
+-- The main chunk is up against Lua's limit of 200 locals, so each window keeps its bits in a block.
+local desk, buildDesk
+do
+local DESK_W, DROW_H, DESK_BAND, DESK_FOOT, DESK_EMPTY = 560, 56, 56, 26, 144
+local TEXT_X, TEXT_RIGHT, TEXT_RIGHT_CONTESTED = 62, 220, 316
 local shone = setmetatable({}, { __mode = "k" })   -- desk entry -> winner already celebrated
 
 local function announceItem(e)
@@ -1666,81 +1551,110 @@ local function awardMenu(anchor, e)
     UI:OpenMenu(anchor, items, { width = 210 })
 end
 
-local function deskButton(row, text, style, onClick, tip)
-    return UI:Button(row, text, { style = style, height = 22, size = 10, tooltip = tip, onClick = function()
-        if row.entry then onClick(row.entry, row) end
-    end })
+local function rollSR(e)
+    local list = reservesFor(e.itemID)
+    if #list == 1 then
+        local ok, err = Loot:GiveToReserver(e.itemID, e.link, list[1].player)
+        if not ok then fail(err) end
+        return
+    end
+    local keys = {}
+    for _, x in ipairs(list) do keys[#keys + 1] = x.player end
+    local ok, err = Loot:StartRoll(e.itemID, e.link, "SR", keys)
+    if not ok then fail(err) end
 end
 
---- One drop on the desk, dressed like a loot slot: dark slate under a bronze rim, a wash
--- of the item's quality colour behind its framed icon, and a state bar down the left.
+local function rollOpen(e, how)
+    local ok, err = Loot:StartRoll(e.itemID, e.link, how)
+    if not ok then fail(err) end
+end
+
+--- May this drop start a roll from its row? Not while it's being rolled, won or handed over.
+local function deskIdle(e, can)
+    local r = roll
+    return can and e.state ~= "awarded" and e.state ~= "won"
+        and not (r and not r.done and r.itemID == e.itemID)
+end
+
+--- Whichever rolls aren't the row's big button.
+local function moreMenu(anchor, e)
+    local list = reservesFor(e.itemID)
+    local can = canRunDesk()
+    local grouped = API.InGroup()
+    local go = can and grouped and e.state ~= "awarded" and not (roll and not roll.done)
+    local idle = deskIdle(e, can)
+    local items = {}
+    if #list > 0 and not idle then
+        items[#items + 1] = { text = #list == 1 and "Give SR" or "Roll SR", icon = "dice", disabled = not go,
+            func = function() rollSR(e) end }
+    end
+    if #list > 0 or not idle then
+        items[#items + 1] = { text = "Main-spec roll", icon = "dice", disabled = not go, func = function() rollOpen(e, "MS") end }
+    end
+    items[#items + 1] = { text = "Off-spec roll", icon = "dice", disabled = not go, func = function() rollOpen(e, "OS") end }
+    UI:OpenMenu(anchor, items, { width = 170, point = "TOPRIGHT", relPoint = "BOTTOMRIGHT" })
+end
+
+local function bestTip(self)
+    local e = self:GetParent().entry
+    if not e then return nil end
+    local n = #reservesFor(e.itemID)
+    if n > 0 then return { n == 1 and "Give SR" or "Roll SR", { "Only the reservers may roll. One reserver? It's theirs, no roll needed." } } end
+    return { "Main-spec roll", { "Everyone in the group, /roll 100, 20 seconds." } }
+end
+
+--- One drop on the desk, a line on the page rather than a box: a wash of the item's quality behind
+-- its slot and a state stripe down the left. The row shows the one thing it's waiting for.
 local function deskRow(parent)
     local r = CreateFrame("Frame", nil, parent)
     r:SetHeight(DROW_H)
-    r.bg = r:CreateTexture(nil, "BACKGROUND")
-    r.bg:SetPoint("TOPLEFT", 2, -2)
-    r.bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    r.bg:SetColorTexture(0.035, 0.045, 0.04, 0.82)
     r.wash = r:CreateTexture(nil, "BACKGROUND", nil, 1)
-    r.wash:SetPoint("TOPLEFT", 2, -2)
-    r.wash:SetPoint("BOTTOMLEFT", 2, 2)
-    r.wash:SetWidth(240)
-    r.rim = r:CreateTexture(nil, "BORDER")
-    r.rim:SetAllPoints()
-    UI.Sliced(r.rim, T.tex.frameBronze, 8)
+    r.wash:SetPoint("TOPLEFT")
+    r.wash:SetPoint("BOTTOMLEFT")
+    r.wash:SetWidth(280)
+    r.rule = UI:Hairline(r, "line", 0.8, "none")
+    r.rule:SetPoint("BOTTOMLEFT")
+    r.rule:SetPoint("BOTTOMRIGHT")
     r.stripe = r:CreateTexture(nil, "ARTWORK")
-    r.stripe:SetPoint("TOPLEFT", 3, -4)
-    r.stripe:SetPoint("BOTTOMLEFT", 3, 4)
+    r.stripe:SetPoint("TOPLEFT", 0, -1)
+    r.stripe:SetPoint("BOTTOMLEFT", 0, 1)
     r.stripe:SetWidth(3)
-    r.item = dressItem(UI:ItemButton(r, 40), true)
-    r.item:SetPoint("TOPLEFT", 12, -10)
-    -- right edges hang off TOP points (a plain "RIGHT" is the row's middle and would
-    -- stretch the text box down over the buttons)
+    r.item = dressItem(UI:ItemButton(r, 40))
+    r.item:SetPoint("LEFT", 12, 0)
     r.name = UI:Text(r, 13, "text", "ui")
-    r.name:SetPoint("TOPLEFT", r.item, "TOPRIGHT", 10, -1)
-    r.name:SetPoint("TOPRIGHT", r, "TOPRIGHT", -170, -11)
+    r.name:SetPoint("TOPLEFT", TEXT_X, -11)
+    r.name:SetPoint("TOPRIGHT", -TEXT_RIGHT, -11)
     r.who = UI:Text(r, 11, "dim")
-    r.who:SetPoint("TOPLEFT", r.name, "BOTTOMLEFT", 0, -4)
-    r.who:SetPoint("TOPRIGHT", r.name, "BOTTOMRIGHT", 20, -4)
+    r.who:SetPoint("TOPLEFT", TEXT_X, -30)
+    r.who:SetPoint("TOPRIGHT", -TEXT_RIGHT, -30)
+    -- the verdict takes over the second line: who won matters more now than who reserved
+    r.status = UI:Text(r, 12, "text", "ui")
+    r.status:SetPoint("TOPLEFT", TEXT_X, -29)
+    r.status:SetPoint("TOPRIGHT", -TEXT_RIGHT, -29)
+    r.contested = UI:Pill(r, "CONTESTED", "yellow", { height = 16, size = 10, icon = "warning" })
+    r.contested:SetPoint("TOPRIGHT", -(TEXT_RIGHT + 2), -10)
+
     r.dismiss = UI:IconButton(r, "close", 18, "Take it off the desk", function()
         if r.entry then Loot:RemoveFromDesk(r.entry) end
     end, "faint")
-    r.dismiss:SetPoint("TOPRIGHT", -7, -7)
-    r.status = UI:Text(r, 11, "faint", "head")
-    r.status:SetPoint("TOPRIGHT", -30, -11)
-    r.status:SetJustifyH("RIGHT")
-    r.contested = UI:Pill(r, "CONTESTED", "yellow", { height = 16, size = 9, icon = "warning" })
-    r.contested:SetPoint("TOPRIGHT", r.status, "BOTTOMRIGHT", 0, -4)
-
-    r.bAnnounce = deskButton(r, "Announce", "secondary", announceItem,
-        { "Announce", { "Posts the item and its reservers to group chat." } })
-    r.bSR = deskButton(r, "Roll SR", "primary", function(e)
-        local list = reservesFor(e.itemID)
-        if #list == 1 then
-            local ok, err = Loot:GiveToReserver(e.itemID, e.link, list[1].player)
-            if not ok then fail(err) end
-            return
-        end
-        local keys = {}
-        for _, x in ipairs(list) do keys[#keys + 1] = x.player end
-        local ok, err = Loot:StartRoll(e.itemID, e.link, "SR", keys)
-        if not ok then fail(err) end
-    end, { "Roll SR", { "Only the reservers may roll. One reserver? It's theirs, no roll needed." } })
-    r.bMS = deskButton(r, "Roll MS", "secondary", function(e)
-        local ok, err = Loot:StartRoll(e.itemID, e.link, "MS")
-        if not ok then fail(err) end
-    end, { "Main-spec roll", { "Everyone in the group, /roll 100, 20 seconds." } })
-    r.bOS = deskButton(r, "Roll OS", "secondary", function(e)
-        local ok, err = Loot:StartRoll(e.itemID, e.link, "OS")
-        if not ok then fail(err) end
-    end, { "Off-spec roll", { "Everyone in the group, /roll 100, 20 seconds." } })
-    r.bAward = deskButton(r, "Award", "warn", function(e, row) awardMenu(row.bAward, e) end,
-        { "Award", { "Pick who gets it. Uses master loot when it's on, otherwise announces and logs it." } })
-    r.bAnnounce:SetPoint("BOTTOMLEFT", r, "BOTTOMLEFT", 62, 8)
-    r.bSR:SetPoint("LEFT", r.bAnnounce, "RIGHT", 5, 0)
-    r.bMS:SetPoint("LEFT", r.bSR, "RIGHT", 5, 0)
-    r.bOS:SetPoint("LEFT", r.bMS, "RIGHT", 5, 0)
-    r.bAward:SetPoint("LEFT", r.bOS, "RIGHT", 5, 0)
+    r.dismiss:SetPoint("RIGHT", -2, 0)
+    r.bMore = UI:Button(r, "", { style = "ghost", icon = "chevron_down", iconSize = 12, width = 24, height = 24,
+        tooltip = { "Other rolls", { "Main-spec and off-spec: everyone in the group, /roll 100, 20 seconds." } },
+        onClick = function(self) if r.entry then moreMenu(self, r.entry) end end })
+    r.bMore:SetPoint("RIGHT", r.dismiss, "LEFT", -6, 0)
+    r.bAnnounce = UI:IconButton(r, "megaphone", 24, { "Announce", { "Posts the item and its reservers to group chat." } },
+        function() if r.entry then announceItem(r.entry) end end)
+    r.bAnnounce:SetPoint("RIGHT", r.bMore, "LEFT", -2, 0)
+    r.bAward = UI:Button(r, "Award", { width = 60, height = 24, size = 11,
+        tooltip = { "Award", { "Pick who gets it. Uses master loot when it's on, otherwise announces and logs it." } },
+        onClick = function(self) if r.entry then awardMenu(self, r.entry) end end })
+    r.bAward:SetPoint("RIGHT", r.bAnnounce, "LEFT", -2, 0)
+    r.bBest = UI:Button(r, "Roll MS", { width = 68, height = 24, size = 11, tooltip = bestTip, onClick = function()
+        local e = r.entry
+        if not e then return end
+        if #reservesFor(e.itemID) > 0 then rollSR(e) else rollOpen(e, "MS") end
+    end })
+    r.bBest:SetPoint("RIGHT", r.bAward, "LEFT", -4, 0)
     return r
 end
 
@@ -1749,34 +1663,33 @@ local function stripeColor(r, c)
     r.stripe:SetColorTexture(c[1], c[2], c[3], c[4] or 1)
 end
 
-local function updateDeskRow(row, e, can)
+--- Draws one row. wantGreen: no row above has claimed the desk's one green button yet.
+-- Returns true when this row took it.
+local function updateDeskRow(row, e, can, wantGreen)
     row.entry = e
     row.item.qHint = e.q
     row.item:SetItem(e.link or e.itemID)
     row.name:SetText(coloredName(e.itemID, e.link, e.q))
-    local qr, qg, qb = API.QualityColor(e.q or qualityOf(e.itemID, e.link) or 1)
-    gradient(row.wash, "HORIZONTAL", qr, qg, qb, 0.16, 0)
     local list = reservesFor(e.itemID)
     if #list > 0 then
         row.who:SetText(T:Wrap("green", "SR  ") .. coloredNames(list, 5))
     else
-        row.who:SetText(T:Wrap("faint", "No soft reserves. Fair game."))
+        row.who:SetText(T:Wrap("dim", "No soft reserves. Fair game."))
     end
-    row.contested:SetShown(#list >= 2)
     local r = roll
     local live = r and not r.done
     local thisRoll = r and r.itemID == e.itemID
+    local status
     if e.state == "awarded" then
-        row.status:SetText(T:Wrap("green", "TO ") .. U.ClassName(e.winner, GF.Roster:Class(e.winner)))
+        status = T:Wrap("green", "To ") .. U.ClassName(e.winner, GF.Roster:Class(e.winner))
         stripeColor(row, "greenDim")
-        row:SetAlpha(0.6)
+        row:SetAlpha(0.7)
     elseif thisRoll and live then
-        local n = #r.order
-        row.status:SetText(T:Wrap("yellow", "ROLLING") .. T:Wrap("faint", "  " .. n .. " in"))
+        status = T:Wrap("yellow", "Rolling") .. T:Wrap("dim", DOT .. #r.order .. " in")
         stripeColor(row, "yellow")
         row:SetAlpha(1)
     elseif e.state == "won" then
-        row.status:SetText(T:Wrap("gold", "WON  ") .. U.ClassName(e.winner, GF.Roster:Class(e.winner)) .. (e.value and T:Wrap("dim", " " .. e.value) or ""))
+        status = T:Wrap("gold", "Won by ") .. U.ClassName(e.winner, GF.Roster:Class(e.winner)) .. (e.value and T:Wrap("dim", DOT .. e.value) or "")
         stripeColor(row, "wowGold")
         row:SetAlpha(1)
         -- one light sweep the first time this drop shows its winner
@@ -1785,96 +1698,100 @@ local function updateDeskRow(row, e, can)
             UI:Shine(row, 0.9)
         end
     elseif thisRoll and r.done and r.reason == "none" then
-        row.status:SetText(T:Wrap("faint", "NO TAKERS"))
+        status = T:Wrap("dim", "No takers")
         stripeColor(row, "line")
         row:SetAlpha(1)
     else
-        row.status:SetText("")
         stripeColor(row, #list > 0 and "sign" or "line")
         row:SetAlpha(1)
     end
-    -- the drop in play (being rolled, or won and waiting to be handed over) wears gold
+    -- whoever reserved it stays on the row after the verdict, for the handover
+    if status and #list > 0 then status = status .. T:Wrap("green", DOT .. "SR ") .. coloredNames(list, 3) end
+    row.status:SetText(status or "")
+    row.status:SetShown(status ~= nil)
+    row.who:SetShown(status == nil)
+    -- the drop in play (being rolled, or won and waiting to be handed over) catches the light
     local prized = (thisRoll and live) or e.state == "won"
-    if row.prized ~= prized then
-        row.prized = prized
-        if prized then UI.Sliced(row.rim, T.tex.frameGold, 16) else UI.Sliced(row.rim, T.tex.frameBronze, 8) end
+    if prized then
+        UI:Gradient(row.wash, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.10, 0)
+    else
+        local qr, qg, qb = API.QualityColor(e.q or qualityOf(e.itemID, e.link) or 1)
+        UI:Gradient(row.wash, "HORIZONTAL", qr, qg, qb, 0.07, 0)
     end
-    -- spectators (anyone who isn't host / ML / lead) can look but not touch
+    local contested = #list >= 2 and status == nil
+    row.contested:SetShown(contested)
+    -- a spectator's row has no buttons to clear, so the tag goes to the end of the line
+    local clear = can and TEXT_RIGHT or 26
+    row.contested:SetPoint("TOPRIGHT", -(clear + 2), -10)
+    row.name:SetPoint("TOPRIGHT", -(contested and clear + (TEXT_RIGHT_CONTESTED - TEXT_RIGHT) or clear), -11)
+    row.who:SetPoint("TOPRIGHT", -clear, -30)
+    row.status:SetPoint("TOPRIGHT", -clear, -29)
+    -- spectators (anyone who isn't host / ML / lead) can look but not touch, so no dead buttons
     local open = e.state ~= "awarded" and can
     local grouped = API.InGroup()
-    row.bSR:SetText(#list == 1 and "Give SR" or "Roll SR")
-    row.bSR:SetActive(open and grouped and #list > 0 and not live)
-    row.bMS:SetActive(open and grouped and not live)
-    row.bOS:SetActive(open and grouped and not live)
-    row.bAnnounce:SetActive(can and grouped)
+    local idle = deskIdle(e, can)
+    row.bBest:SetText(#list == 1 and "Give SR" or (#list > 1 and "Roll SR" or "Roll MS"))
+    row.bBest:SetShown(idle)
+    row.bAward:SetShown(open)
+    row.bMore:SetShown(can)
+    row.bAnnounce:SetShown(can)
+    row.bAnnounce:SetEnabled(grouped)
+    row.bAnnounce:SetColor(grouped and "dim" or "faint")
+    local rollable = idle and grouped and not live
+    local green = wantGreen and ((e.state == "won" and open and "award") or (rollable and "best")) or nil
+    row.bBest:SetStyle(green == "best" and "primary" or "secondary")
+    -- one lit button a row: beside a roll, Award steps back, or eight rows make a wall of gold
+    row.bAward:SetStyle(green == "award" and "primary" or (idle and "ghost" or "secondary"))
+    row.bBest:SetActive(rollable)
     row.bAward:SetActive(open)
+    return green ~= nil
 end
 
-local function buildDesk()
+buildDesk = function()
     if desk then return desk end
-    local f = CreateFrame("Frame", "GreenfieldsLootDesk", UIParent, "BackdropTemplate")
-    f:Hide()
-    f:SetFrameStrata("DIALOG")
-    f:SetToplevel(true)
-    f:EnableMouse(true)
-    f:SetSize(DESK_W, 200)
-    goldWindow(f, 30)
-    tinsert(UISpecialFrames, "GreenfieldsLootDesk")
-
-    -- leather title band; the guild's green street sign names the window, and the corpse
-    -- it came off reads in the game's gold, the way the real loot frame titles itself
-    local head = leatherBand(f, DESK_HEAD)
-    -- the blank sign is 4:1, so a 4:1 plate keeps its white border and rounded corners true
+    local f = UI:Window("GreenfieldsLootDesk", { width = DESK_W, height = 200, band = DESK_BAND,
+        -- closed by hand (button or Esc): don't pop up again for the same corpse
+        onHide = function() dismissedSig = deskInfo.sig end })
+    local head = f.head
+    -- the guild's green street sign names the window, and the corpse it came off reads in the
+    -- game's gold, the way the real loot frame titles itself. The blank sign is 4:1, so a 4:1
+    -- plate keeps its white border and rounded corners true.
     head.sign = head:CreateTexture(nil, "ARTWORK")
     head.sign:SetSize(144, 36)
-    head.sign:SetPoint("LEFT", 18, 1)
+    head.sign:SetPoint("LEFT", 12, 0)
     head.sign:SetTexture(T.tex.signGreen)
     head.icon = UI:Icon(head, 15, "bag", "OVERLAY", { 1, 1, 1, 1 })
     head.icon:SetPoint("LEFT", head.sign, "LEFT", 17, 1)
-    f.title = UI:Text(head, 16, { 1, 1, 1, 1 }, "head")
-    f.title:SetPoint("LEFT", head.icon, "RIGHT", 8, -1)
-    f.title:SetText("LOOT DESK")
-    -- right edges stop short of the MASTER LOOT pill and the close button
-    f.heading = UI:Text(head, 14, "wowGold", "ui")
-    f.heading:SetPoint("TOPLEFT", head.sign, "TOPRIGHT", 14, -2)
-    f.heading:SetPoint("TOPRIGHT", head, "TOPRIGHT", -150, -11)
-    f.sub = UI:Text(head, 11, "dim")
-    f.sub:SetPoint("TOPLEFT", f.heading, "BOTTOMLEFT", 0, -4)
-    f.sub:SetPoint("TOPRIGHT", f.heading, "BOTTOMRIGHT", 0, -4)
-    f.close = UI:IconButton(head, "close", 24, "Close (Esc)", function() f:Hide() end)
-    -- closed by hand (button or Esc): don't pop up again for the same corpse
-    f:SetScript("OnHide", function() dismissedSig = deskInfo.sig end)
-    f.close:SetPoint("RIGHT", -10, 1)
+    f.signText = UI:Text(head, 16, { 1, 1, 1, 1 }, "head")
+    f.signText:SetPoint("LEFT", head.icon, "RIGHT", 8, -1)
+    f.signText:SetText("LOOT DESK")
+    -- the window's title is the heading and its sub-line follows it. The right edge stops short
+    -- of the MASTER LOOT tag and the close button.
+    f.heading = f.title
+    f.heading:ClearAllPoints()
+    f.heading:SetPoint("TOPLEFT", head.sign, "TOPRIGHT", 14, -1)
+    f.heading:SetPoint("TOPRIGHT", head, "TOPRIGHT", -148, -11)
     f.ml = UI:Pill(head, "MASTER LOOT", "wowGold", { height = 18, size = 10, icon = "crown",
         tooltip = { "Master loot", { "Award hands items straight over while the loot window is open." } } })
     f.ml:SetPoint("RIGHT", f.close, "LEFT", -8, 0)
     makeDraggable(f, head, "deskPos")
-    f.head = head
 
-    f.rows = {}
-    for i = 1, MAX_DESK do
-        local row = deskRow(f)
-        local y = -(DESK_HEAD + 10 + (i - 1) * (DROW_H + ROW_GAP))
-        row:SetPoint("TOPLEFT", 12, y)
-        row:SetPoint("TOPRIGHT", -12, y)
-        row:Hide()
-        f.rows[i] = row
-    end
-    f.empty = UI:Empty(f, "Nothing on the desk. Open a corpse with loot, or shift-click an item into the box below.", "bag")
-    f.empty:ClearAllPoints()
-    f.empty:SetPoint("TOP", 0, -DESK_HEAD - 14)
-    f.empty:SetHeight(80)
-
-    local foot = CreateFrame("Frame", nil, f)
-    foot:SetPoint("BOTTOMLEFT", 12, 13)
-    foot:SetPoint("BOTTOMRIGHT", -12, 13)
-    foot:SetHeight(26)
-    foot.rule = foot:CreateTexture(nil, "ARTWORK")
-    foot.rule:SetTexture(T.tex.dividerGold)
-    foot.rule:SetHeight(10)
-    foot.rule:SetPoint("BOTTOMLEFT", foot, "TOPLEFT", -10, 3)
-    foot.rule:SetPoint("BOTTOMRIGHT", foot, "TOPRIGHT", 10, 3)
-    foot.rule:SetAlpha(0.7)
+    local foot = CreateFrame("Frame", nil, f.body)
+    foot:SetPoint("BOTTOMLEFT")
+    foot:SetPoint("BOTTOMRIGHT")
+    foot:SetHeight(DESK_FOOT)
+    foot.rule = UI:Hairline(foot, "bronze", 0.4)
+    foot.rule:SetPoint("BOTTOMLEFT", foot, "TOPLEFT", 0, 8)
+    foot.rule:SetPoint("BOTTOMRIGHT", foot, "TOPRIGHT", 0, 8)
+    f.clear = UI:Button(foot, "Clear desk", { style = "ghost", icon = "trash", onClick = function() Loot:ClearDesk() end })
+    f.clear:SetPoint("TOPRIGHT")
+    f.add = UI:Button(foot, "Add", { width = 56, onClick = function()
+        local ok, err = Loot:AddToDesk(U.Trim(f.input:GetText()))
+        if not ok then return fail(err) end
+        f.input:SetText("")
+        f.input:RefreshPlaceholder()
+    end })
+    f.add:SetPoint("TOPRIGHT", f.clear, "TOPLEFT", -6, 0)
     f.input = UI:Input(foot, { placeholder = "Add an item: shift-click it or paste a link / ID", onEnter = function(text, box)
         local ok, err = Loot:AddToDesk(U.Trim(text))
         if not ok then return fail(err) end
@@ -1882,18 +1799,24 @@ local function buildDesk()
         box:RefreshPlaceholder()
     end })
     f.input:SetPoint("TOPLEFT")
-    f.input:SetPoint("TOPRIGHT", -178, 0)
+    f.input:SetPoint("TOPRIGHT", f.add, "TOPLEFT", -6, 0)
     if GF.SR and GF.SR.AddLinkTarget then GF.SR:AddLinkTarget(f.input) end
-    f.add = UI:Button(foot, "Add", { width = 56, onClick = function()
-        local ok, err = Loot:AddToDesk(U.Trim(f.input:GetText()))
-        if not ok then return fail(err) end
-        f.input:SetText("")
-        f.input:RefreshPlaceholder()
-    end })
-    f.add:SetPoint("LEFT", f.input, "RIGHT", 6, 0)
-    f.clear = UI:Button(foot, "Clear desk", { icon = "trash", onClick = function() Loot:ClearDesk() end })
-    f.clear:SetPoint("TOPRIGHT")
     f.foot = foot
+
+    -- a full desk is taller than a small screen: the rows scroll, the footer stays put
+    f.scroll, f.list = UI:Scroll(f.body, { outside = true })
+    f.scroll:SetPoint("TOPLEFT")
+    f.scroll:SetPoint("BOTTOMRIGHT", f.body, "BOTTOMRIGHT", 0, DESK_FOOT + 16)
+    f.rows = {}
+    for i = 1, MAX_DESK do
+        local row = deskRow(f.list)
+        local y = -(i - 1) * DROW_H
+        row:SetPoint("TOPLEFT", 0, y)
+        row:SetPoint("TOPRIGHT", 0, y)
+        row:Hide()
+        f.rows[i] = row
+    end
+    f.empty = UI:Empty(f.scroll, "Nothing on the desk. Open a corpse with loot, or shift-click an item into the box below.", "bag")
 
     restorePos(f, "deskPos", "RIGHT", -120, 40)
     desk = f
@@ -1922,10 +1845,13 @@ refreshDesk = function()
         f.sub:SetText(#bits > 0 and concat(bits, DOT) or "The SR host, master looter or raid lead runs the show.")
     end
     f.ml:SetShown(masterLootReady())
+    -- one green button on the desk: the next thing it's waiting on
+    local wantGreen = can
     for i, row in ipairs(f.rows) do
         local e = deskItems[i]
         if e and i <= n then
-            updateDeskRow(row, e, can)
+            if updateDeskRow(row, e, can, wantGreen) then wantGreen = false end
+            row.rule:SetShown(i < n)
             row:Show()
         else
             row.entry = nil
@@ -1933,9 +1859,14 @@ refreshDesk = function()
         end
     end
     f.empty:SetShown(n == 0)
-    local body = n > 0 and (n * (DROW_H + ROW_GAP) + 14) or 116
-    f:SetHeight(DESK_HEAD + body + DESK_FOOT)
+    f.scroll:SetContentHeight(n * DROW_H)
+    -- the band and its gap above the rows, the footer block below them, the window's own insets
+    local chrome = 4 + DESK_BAND + 8 + (DESK_FOOT + 16) + 12
+    local rows = n > 0 and n * DROW_H or DESK_EMPTY
+    f:SetHeight(min(chrome + rows, max(300, floor((UIParent:GetHeight() or 768) * 0.8))))
 end
+
+end -- desk block
 
 function Loot:OpenDesk()
     buildDesk()
@@ -1960,86 +1891,137 @@ end
 -------------------------------------------------------------------------------
 -- Roll panel (everyone running Greenfields sees the live roll)
 -------------------------------------------------------------------------------
-local panel
-local PANEL_W, ROLL_ROWS = 310, 8
-local PANEL_HEAD, ROLL_TOP, ROLL_ROW_H, ROLL_ROW_GAP, WIN_H = 30, 128, 20, 2, 32
-local KICKER = { SR = { "SR ROLL", "green" }, MS = { "MAIN-SPEC ROLL", "blue" }, OS = { "OFF-SPEC ROLL", "dim" } }
+local panel, buildPanel
+do
+local PANEL_W, ROLL_ROWS, ROLL_MIN_ROWS, ROLL_ROW_H = 340, 8, 1, 24
+-- Offsets from the top of the panel's body. It's used under pressure mid-raid, so nothing above
+-- the list ever moves: the Roll button is in the same spot from the first second to the last.
+local BAR_Y, COUNT_Y, ROLL_Y, LIST_Y, VERDICT_Y, VERDICT_H, VERDICT_SHORT = 56, 72, 94, 134, 52, 72, 44
+local PANEL_CHROME = 4 + 36 + 8 + 12   -- rim and band above the body, inset below it
+local KICKER = { SR = { "SR roll", "green" }, MS = { "Main-spec roll", "blue" }, OS = { "Off-spec roll", "dim" } }
 
-local function buildPanel()
+--- Keeps the top edge still as the panel grows, wherever it was last dragged to (a saved centre
+-- or side anchor would slide the Roll button down under the player's cursor).
+local function pinTop(f)
+    local l, t = f:GetLeft(), f:GetTop()
+    if not (l and t) then return end
+    f:ClearAllPoints()
+    f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+end
+
+buildPanel = function()
     if panel then return panel end
-    local f = CreateFrame("Frame", "GreenfieldsRollPanel", UIParent, "BackdropTemplate")
-    f:Hide()
-    f:SetFrameStrata("DIALOG")
-    f:EnableMouse(true)
-    f:SetSize(PANEL_W, 200)
-    goldWindow(f, 24)
+    -- noEsc: Esc is for clearing targets mid-pull, and it mustn't take the Roll button with it
+    local f = UI:Window("GreenfieldsRollPanel", { width = PANEL_W, height = PANEL_CHROME + LIST_Y + ROLL_MIN_ROWS * ROLL_ROW_H,
+        band = 36, noEsc = true, closeTip = "Hide (the roll carries on)" })
+    f.pinTop = pinTop
+    local head = f.head
     makeDraggable(f, f, "rollPos")
-    f.head = leatherBand(f, PANEL_HEAD)
-    f.head:EnableMouse(false)
-    f.kicker = UI:Text(f.head, 12, "green", "ui")
-    f.kicker:SetPoint("LEFT", 12, 1)
-    f.close = UI:IconButton(f.head, "close", 20, "Hide (the roll carries on)", function() f:Hide() end)
-    f.close:SetPoint("RIGHT", -6, 1)
-    f.item = dressItem(UI:ItemButton(f, 40), true)
-    f.item:SetPoint("TOPLEFT", 14, -(PANEL_HEAD + 12))
-    f.name = UI:Text(f, 13, "text", "ui")
-    f.name:SetPoint("TOPLEFT", f.item, "TOPRIGHT", 10, -3)
-    f.name:SetPoint("TOPRIGHT", f, "TOPRIGHT", -14, -(PANEL_HEAD + 15))
-    f.who = UI:Text(f, 11, "dim")
-    f.who:SetPoint("TOPLEFT", f.name, "BOTTOMLEFT", 0, -5)
-    f.who:SetPoint("TOPRIGHT", f.name, "BOTTOMRIGHT", 0, -5)
-    f.bar = goldBar(f, 14)
-    f.bar:SetPoint("TOPLEFT", 12, -(PANEL_HEAD + 64))
-    f.bar:SetPoint("TOPRIGHT", -12, -(PANEL_HEAD + 64))
-    f.count = UI:Text(f, 10, "dim", "head")
-    f.count:SetPoint("TOPLEFT", f.bar, "BOTTOMLEFT", 2, -5)
-    f.time = UI:Text(f, 12, "wowGold", "num")
-    f.time:SetPoint("TOPRIGHT", f.bar, "BOTTOMRIGHT", -2, -4)
+    makeDraggable(f, head, "rollPos")
+    f.kickDot = UI:Icon(head, 10, "dot", "ARTWORK", "green")
+    f.kickDot:SetPoint("LEFT", 12, 0)
+    f.kicker = f.title
+    T:Font(f.kicker, "ui", 13)
+    f.kicker:ClearAllPoints()
+    f.kicker:SetPoint("LEFT", f.kickDot, "RIGHT", 6, 0)
+    f.sub:Hide()
+    -- the host's controls ride in the band: quiet, and nowhere near where the raid is clicking
+    f.btnCancel = UI:Button(head, "Cancel", { style = "ghost", height = 22, size = 11, onClick = function() Loot:CancelRoll() end })
+    f.btnCancel:SetPoint("RIGHT", f.close, "LEFT", -2, 0)
+    f.btnEnd = UI:Button(head, "End now", { height = 22, size = 11, onClick = function() Loot:EndRollNow() end })
+    f.btnEnd:SetPoint("RIGHT", f.btnCancel, "LEFT", -2, 0)
+
+    local b = f.body
+    f.item = dressItem(UI:ItemButton(b, 44), true)
+    f.item:SetPoint("TOPLEFT", 0, 0)
+    f.name = UI:Text(b, 14, "text", "ui")
+    f.name:SetPoint("TOPLEFT", 56, -5)
+    f.name:SetPoint("TOPRIGHT", 0, -5)
+    f.who = UI:Text(b, 11, "dim")
+    f.who:SetPoint("TOPLEFT", 56, -25)
+    f.who:SetPoint("TOPRIGHT", 0, -25)
+    -- the countdown is metal, so the Roll button under it is the one green thing
+    f.bar = UI:Bar(b, { height = 12, color = "bronze" })
+    f.bar:SetPoint("TOPLEFT", 0, -BAR_Y)
+    f.bar:SetPoint("TOPRIGHT", 0, -BAR_Y)
+    f.spark = f.bar:CreateTexture(nil, "ARTWORK", nil, 2)
+    f.spark:SetTexture(T.tex.glow)
+    f.spark:SetBlendMode("ADD")
+    f.spark:SetSize(14, 22)
+    f.spark:SetPoint("CENTER", f.bar.fill, "RIGHT", 0, 0)
+    f.count = UI:Text(b, 11, "dim", "ui")
+    f.count:SetPoint("TOPLEFT", 0, -COUNT_Y)
+    f.time = UI:Text(b, 14, "wowGold", "num")
+    f.time:SetPoint("TOPRIGHT", 0, -(COUNT_Y - 1))
+    f.btnRoll = UI:Button(b, "Roll", { style = "primary", icon = "dice", height = 30, onClick = function() Loot:DoRoll() end })
+    f.btnRoll:SetPoint("TOPLEFT", 0, -ROLL_Y)
+    f.btnRoll:SetPoint("TOPRIGHT", 0, -ROLL_Y)
+
     f.rows = {}
     for i = 1, ROLL_ROWS do
-        local r = CreateFrame("Frame", nil, f)
-        local y = -ROLL_TOP - (i - 1) * (ROLL_ROW_H + ROLL_ROW_GAP)
+        local r = CreateFrame("Frame", nil, b)
+        local y = -LIST_Y - (i - 1) * ROLL_ROW_H
         r:SetHeight(ROLL_ROW_H)
-        r:SetPoint("TOPLEFT", 12, y)
-        r:SetPoint("TOPRIGHT", -12, y)
-        r.bg = UI:Tex(r, "BACKGROUND", C.bg3)
-        r.bg:SetAllPoints()
-        r.rank = UI:Text(r, 11, "bronze", "num")
-        r.rank:SetPoint("LEFT", 7, 0)
-        r.crown = UI:Icon(r, 12, "crown", "OVERLAY", "wowGold")
-        r.crown:SetPoint("CENTER", r, "LEFT", 10, 0)
-        r.name = UI:Text(r, 12, "text")
+        r:SetPoint("TOPLEFT", 0, y)
+        r:SetPoint("TOPRIGHT", 0, y)
+        r.lead = r:CreateTexture(nil, "BACKGROUND")
+        r.lead:SetAllPoints()
+        UI:Gradient(r.lead, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.10, 0)
+        r.rule = UI:Hairline(r, "line", 0.7, "none")
+        r.rule:SetPoint("BOTTOMLEFT")
+        r.rule:SetPoint("BOTTOMRIGHT")
+        r.rank = UI:Text(r, 12, "dim", "num")
+        r.rank:SetPoint("LEFT", 2, 0)
+        r.rank:SetWidth(16)
+        r.rank:SetJustifyH("RIGHT")
+        r.crown = UI:Icon(r, 14, "crown", "OVERLAY", "wowGold")
+        r.crown:SetPoint("CENTER", r, "LEFT", 11, 0)
+        r.name = UI:Text(r, 12, "text", "ui")
         r.name:SetPoint("LEFT", 26, 0)
-        r.name:SetPoint("RIGHT", -44, 0)
-        r.value = UI:Text(r, 13, "text", "num")
-        r.value:SetPoint("RIGHT", -8, 0)
+        r.name:SetPoint("RIGHT", -40, 0)
+        r.value = UI:Text(r, 14, "text", "num")
+        r.value:SetPoint("RIGHT", -4, 0)
         r.value:SetJustifyH("RIGHT")
         r:Hide()
         f.rows[i] = r
     end
-    -- the verdict: a gold-rimmed plaque; a winner gets the crown and a light sweep
-    local win = CreateFrame("Frame", nil, f)
-    win:SetHeight(WIN_H)
-    win.bg = win:CreateTexture(nil, "BACKGROUND")
-    win.bg:SetPoint("TOPLEFT", 2, -2)
-    win.bg:SetPoint("BOTTOMRIGHT", -2, 2)
-    win.bg:SetColorTexture(0, 0, 0, 0.55)
-    win.glow = win:CreateTexture(nil, "BACKGROUND", nil, 1)
-    win.glow:SetPoint("TOPLEFT", 2, -2)
-    win.glow:SetPoint("BOTTOMRIGHT", -2, 2)
-    win.rim = win:CreateTexture(nil, "BORDER")
-    win.rim:SetAllPoints()
-    UI.Sliced(win.rim, T.tex.iconFrame, 6)
-    win.crown = UI:Icon(win, 16, "crown", "ARTWORK", "wowGold")
-    win.crown:SetPoint("LEFT", 10, 0)
+    f.none = UI:Text(b, 12, "dim")
+    f.none:SetPoint("TOPLEFT", 0, -(LIST_Y + 6))
+    f.none:SetText("Nobody's game yet. Back yourself.")
+
+    -- the verdict lands where the countdown was, so the eye's already there. A borderless gold
+    -- wash: the window's rim is gold enough.
+    local win = CreateFrame("Frame", nil, b)
+    win:SetPoint("TOPLEFT", 0, -VERDICT_Y)
+    win:SetPoint("TOPRIGHT", 0, -VERDICT_Y)
+    win:SetHeight(VERDICT_H)
+    win.glow = win:CreateTexture(nil, "BACKGROUND")
+    win.glow:SetAllPoints()
+    UI:Gradient(win.glow, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.13, 0.01)
+    win.top = UI:Hairline(win, "wowGold", 0.45)
+    win.top:SetPoint("TOPLEFT")
+    win.top:SetPoint("TOPRIGHT")
+    win.bottom = UI:Hairline(win, "wowGold", 0.45)
+    win.bottom:SetPoint("BOTTOMLEFT")
+    win.bottom:SetPoint("BOTTOMRIGHT")
+    win.crown = UI:Icon(win, 26, "crown", "ARTWORK", "wowGold")
+    win.crown:SetPoint("LEFT", 12, 0)
+    win.caption = UI:Text(win, 11, "gold", "ui")
+    win.caption:SetPoint("TOPLEFT", 50, -17)
+    win.caption:SetText("Winner")
+    win.who = UI:Text(win, 16, "text", "ui")
+    win.who:SetPoint("TOPLEFT", 50, -33)
+    win.who:SetPoint("TOPRIGHT", -56, -33)
+    win.roll = UI:Text(win, 26, "wowGold", "num")
+    win.roll:SetPoint("RIGHT", -12, 0)
+    win.roll:SetJustifyH("RIGHT")
+    -- anything short of a winner: one plain line, no crown
+    f.result = UI:Text(win, 13, "text")
+    f.result:SetPoint("LEFT", 12, 0)
+    f.result:SetPoint("RIGHT", -12, 0)
+    f.result:SetJustifyH("CENTER")
     win:Hide()
     f.win = win
-    f.result = UI:Text(win, 13, "text", "ui")
-    f.result:SetPoint("LEFT", 34, 0)
-    f.result:SetPoint("RIGHT", -10, 0)
-    f.btnRoll = UI:Button(f, "Roll", { style = "primary", icon = "dice", height = 24, onClick = function() Loot:DoRoll() end })
-    f.btnEnd = UI:Button(f, "End now", { height = 24, onClick = function() Loot:EndRollNow() end })
-    f.btnCancel = UI:Button(f, "Cancel", { style = "danger", height = 24, onClick = function() Loot:CancelRoll() end })
     restorePos(f, "rollPos", "TOP", 0, -220)
     panel = f
     return f
@@ -2050,11 +2032,54 @@ local function resultText(r)
     if r.reason == "none" then return T:Wrap("dim", "Nobody rolled. Free real estate.") end
     if r.reason == "cancelled" then return T:Wrap("dim", "Roll cancelled.") end
     if r.reason == "timeout" then return T:Wrap("dim", "Lost the host. Check chat for the result.") end
-    if r.winner then
-        return T:Wrap("gold", "Winner  ") .. U.ClassName(r.winner, GF.Roster:Class(r.winner))
-            .. (r.winRoll and T:Wrap("gold", "  " .. r.winRoll) or "")
-    end
     return ""
+end
+
+local function setRollRow(row, rank, e, lead, me)
+    row.rank:SetText(lead and "" or rank)
+    row.crown:SetShown(lead)
+    row.lead:SetShown(lead)
+    row.name:SetText(U.ClassName(e.key, GF.Roster:Class(e.key)) .. (e.key == me and T:Wrap("dim", "  (you)") or ""))
+    row.value:SetText(e.n)
+    UI:SetTextColor(row.value, lead and "wowGold" or "text")
+    row:Show()
+end
+
+--- The list holds eight. Past that the tail folds into "+N more", and your own roll still shows,
+-- so nobody has to take the panel's word for it.
+local function drawRollRows(f, rolls, me)
+    local total = #rolls
+    local top = total > ROLL_ROWS and ROLL_ROWS - 1 or total
+    local mine
+    for i, e in ipairs(rolls) do
+        if e.key == me then mine = i break end
+    end
+    if total > ROLL_ROWS and mine and mine > top then top = ROLL_ROWS - 2 else mine = nil end
+    local used = 0
+    for i = 1, top do
+        used = used + 1
+        setRollRow(f.rows[used], i, rolls[i], i == 1, me)
+    end
+    local hidden = total - top - (mine and 1 or 0)
+    if hidden > 0 then
+        used = used + 1
+        local row = f.rows[used]
+        row.rank:SetText("")
+        row.crown:Hide()
+        row.lead:Hide()
+        row.name:SetText(T:Wrap("dim", "+" .. hidden .. " more"))
+        row.value:SetText("")
+        row:Show()
+    end
+    if mine then
+        used = used + 1
+        setRollRow(f.rows[used], mine, rolls[mine], false, me)
+    end
+    for i, row in ipairs(f.rows) do
+        if i > used then row:Hide() end
+        row.rule:SetShown(i < used)
+    end
+    return used
 end
 
 refreshPanel = function(fast)
@@ -2064,97 +2089,97 @@ refreshPanel = function(fast)
     if not r then f:Hide() return end
     if not f:IsShown() then return end
     local left = max(0, timeLeft(r))
-    f.bar:SetValue((not r.done and r.duration > 0) and (left / r.duration) or 0)
-    f.bar:SetColor(left <= 5 and "yellow" or "green")
+    local v = (not r.done and r.duration > 0) and (left / r.duration) or 0
+    f.bar:SetValue(v)
+    f.spark:SetShown(v > 0 and v < 1)
+    local barColor = left <= 5 and "yellow" or "bronze"
+    f.bar:SetColor(barColor)
+    local sc = UI.col(barColor)
+    f.spark:SetVertexColor(sc[1], sc[2], sc[3], 0.9)
     f.time:SetText(r.done and "" or (ceil(left) .. "s"))
     if fast then return end
     local kick = KICKER[r.how] or KICKER.MS
-    f.kicker:SetText((r.tie and "REROLL  " or "") .. kick[1])
-    UI:SetTextColor(f.kicker, kick[2])
+    f.kicker:SetText((r.tie and "Reroll: " or "") .. kick[1])
+    local kc = UI.col(kick[2])
+    f.kickDot:SetVertexColor(kc[1], kc[2], kc[3], 1)
     f.item.qHint = linkQuality(r.link)
     f.item:SetItem(r.link or r.itemID)
     f.name:SetText(coloredName(r.itemID, r.link))
     if r.eligibleList then
         local list = {}
         for _, k in ipairs(r.eligibleList) do list[#list + 1] = { player = k, class = GF.Roster:Class(k) } end
-        f.who:SetText(T:Wrap("faint", "Only ") .. coloredNames(list, 5))
+        f.who:SetText(T:Wrap("dim", "Only ") .. coloredNames(list, 5))
     else
-        f.who:SetText(T:Wrap("faint", "Everyone: /roll 100"))
+        f.who:SetText(T:Wrap("dim", "Everyone: /roll 100"))
     end
     local rolls = sortedRolls(r)
-    f.count:SetText(#rolls .. " " .. U.Plural(#rolls, "ROLL", "ROLLS"))
+    f.count:SetText(#rolls .. " " .. U.Plural(#rolls, "roll", "rolls"))
     local me = API.MyKey()
-    local shown = min(#rolls, ROLL_ROWS)
-    for i, row in ipairs(f.rows) do
-        local e = rolls[i]
-        if e and i <= shown then
-            local lead = i == 1
-            -- the leader wears the crown instead of a number
-            row.rank:SetText(lead and "" or i)
-            row.crown:SetShown(lead)
-            row.name:SetText(U.ClassName(e.key, GF.Roster:Class(e.key)) .. (e.key == me and T:Wrap("faint", "  (you)") or ""))
-            row.value:SetText(e.n)
-            UI:SetTextColor(row.value, lead and "wowGold" or "text")
-            if lead then
-                gradient(row.bg, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.18, 0.04)
-            else
-                row.bg:SetColorTexture(0, 0, 0, 0.35)
-            end
-            row:Show()
-        else
-            row:Hide()
-        end
-    end
-    local y = ROLL_TOP + shown * (ROLL_ROW_H + ROLL_ROW_GAP) + 4
+    local used = drawRollRows(f, rolls, me)
+
+    -- the verdict sits over the countdown and the Roll button, which have nothing left to say
+    local crowned = r.done and r.winner ~= nil and r.reason == nil
+    local verdict = (r.done and not crowned) and resultText(r) or ""
+    local deciding = not r.done
+    f.none:SetShown(used == 0 and deciding)
+    f.bar:SetShown(deciding)
+    f.count:SetShown(deciding)
+    f.time:SetShown(deciding)
+    f.btnRoll:SetShown(deciding)
     local win = f.win
-    win:ClearAllPoints()
-    win:SetPoint("TOPLEFT", 12, -y)
-    win:SetPoint("TOPRIGHT", -12, -y)
-    local verdict = r.done and resultText(r) or ""
+    win:SetShown(crowned or verdict ~= "")
+    win.glow:SetShown(crowned)
+    win.crown:SetShown(crowned)
+    win.caption:SetShown(crowned)
+    win.who:SetShown(crowned)
+    win.roll:SetShown(crowned)
+    f.result:SetShown(not crowned)
     f.result:SetText(verdict)
-    win:SetShown(verdict ~= "")
-    if verdict ~= "" then
-        local crowned = r.winner ~= nil and r.reason == nil
-        win.crown:SetShown(crowned)
-        f.result:SetPoint("LEFT", crowned and 34 or 12, 0)
-        if crowned then
-            win.rim:SetVertexColor(1, 1, 1, 1)
-            gradient(win.glow, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.20, 0.02)
-            -- one sweep per result, not one per redraw
-            local key = tostring(r.id) .. ":" .. tostring(r.winner)
-            if win.shone ~= key then
-                win.shone = key
-                UI:Shine(win, 0.9)
-            end
-        else
-            win.rim:SetVertexColor(0.7, 0.55, 0.35, 0.8)
-            win.glow:SetColorTexture(0, 0, 0, 0)
+    if crowned then
+        win.who:SetText(U.ClassName(r.winner, GF.Roster:Class(r.winner)))
+        win.roll:SetText(r.winRoll or "")
+        -- one sweep per result, not one per redraw
+        local key = tostring(r.id) .. ":" .. tostring(r.winner)
+        if win.shone ~= key then
+            win.shone = key
+            UI:Shine(win, 0.9)
         end
-        y = y + WIN_H + 6
     end
-    local canRoll = not r.done and Loot:CanRoll() and me and not r.rolls[me] and (not r.eligible or r.eligible[me])
-    local isHost = r.host == me and not r.done
-    f.btnRoll:SetShown(canRoll and true or false)
+
+    -- the button stays put once it can't be pressed, and says why
+    local rolled = me and r.rolls[me]
+    local allowed = not r.eligible or (me and r.eligible[me])
+    local canRoll = deciding and Loot:CanRoll() and me and not rolled and allowed
+    f.btnRoll:SetActive(canRoll and true or false)
+    if rolled then
+        f.btnRoll:SetText("You rolled " .. rolled)
+    elseif not allowed then
+        f.btnRoll:SetText("Reservers only")
+    else
+        f.btnRoll:SetText("Roll")
+    end
+    local isHost = r.host == me and deciding
     f.btnEnd:SetShown(isHost)
     f.btnCancel:SetShown(isHost)
-    local prev
-    for _, b in ipairs({ f.btnRoll, f.btnEnd, f.btnCancel }) do
-        b:ClearAllPoints()
-        if b:IsShown() then
-            if prev then b:SetPoint("LEFT", prev, "RIGHT", 6, 0) else b:SetPoint("TOPLEFT", 12, -y) end
-            prev = b
-        end
+    -- nobody rolled: a line and the end of the panel, no empty list waiting under it
+    local short = verdict ~= "" and used == 0
+    win:SetHeight(short and VERDICT_SHORT or VERDICT_H)
+    win.bottom:SetShown(not short)
+    if short then
+        f:SetHeight(PANEL_CHROME + VERDICT_Y + VERDICT_SHORT)
+    else
+        f:SetHeight(PANEL_CHROME + LIST_Y + max(used, ROLL_MIN_ROWS) * ROLL_ROW_H)
     end
-    if prev then y = y + 24 + 8 end
-    f:SetHeight(y + 8)
 end
 
 showPanel = function()
     buildPanel()
     panel:Show()
     panel:Raise()
+    pinTop(panel)
     refreshPanel()
 end
+end -- panel block
 
 -------------------------------------------------------------------------------
 -- Item tooltips: "Soft-reserved by" + "Drops in" (cached per itemID)
@@ -2196,8 +2221,10 @@ end
 -------------------------------------------------------------------------------
 -- Loot Log page
 -------------------------------------------------------------------------------
+do
 local logPage
-local SIDE_W = 270
+local SIDE_W, SIDE_W_SMALL = 270, 236
+local TILE_H, NUMS_H, CHICKEN_STEP = 44, 144, 36
 
 local function q(v)
     v = tostring(v or "")
@@ -2220,43 +2247,98 @@ local function entryQuality(e)
     return linkQuality(e.link) or qualityOf(e.itemID, e.link) or 0
 end
 
---- Server time of local midnight on the Wednesday this week started (U.WeekKey's
--- bucket), so "this week" is one comparison per entry instead of two date() tables.
-local function weekStart()
-    local now = API.ServerTime()
-    local t = date("*t", now)
-    if type(t) ~= "table" then return nil end
-    local back = (t.wday - 4) % 7
-    local ok, ts = pcall(time, { year = t.year, month = t.month, day = t.day - back, hour = 0, min = 0, sec = 0 })
-    return (ok and type(ts) == "number") and ts or nil
+
+--- Where the history table's columns sit in a row this wide. The header strip and every row read
+-- the same numbers, so they can't drift. Wide rows give "From" its own column; narrower ones tuck
+-- it under the item; the narrowest drop How (it's in the tooltip) and put the winner there instead.
+local function logColumns(w)
+    local c = { itemX = 42, whenW = 56, howW = 36, whoW = 104 }
+    c.wide, c.narrow = w >= 620, w < 420
+    c.whenX = w - 4 - c.whenW
+    if c.narrow then
+        c.itemW = c.whenX - 8 - c.itemX
+        return c
+    end
+    c.howX = c.whenX - 8 - c.howW
+    local right = c.howX
+    if c.wide then
+        c.fromW = floor((right - c.itemX - c.whoW - 36) * 0.42)
+        c.fromX = right - 12 - c.fromW
+        right = c.fromX
+    end
+    c.whoX = right - 12 - c.whoW
+    c.itemW = c.whoX - 12 - c.itemX
+    return c
 end
 
 local function logRowCreate(row)
     row.btn = dressItem(UI:ItemButton(row, 28))
-    row.btn:SetPoint("LEFT", 4, 0)
-    row.name = UI:Text(row, 12, "text")
-    row.name:SetPoint("TOPLEFT", row.btn, "TOPRIGHT", 10, -1)
-    row.name:SetPoint("TOPRIGHT", row, "TOPRIGHT", -170, -5)
+    row.btn:SetPoint("LEFT", 6, 0)
+    row.name = UI:Text(row, 13, "text", "ui")
     row.sub = UI:Text(row, 11, "dim")
-    row.sub:SetPoint("TOPLEFT", row.name, "BOTTOMLEFT", 0, -3)
-    row.sub:SetPoint("TOPRIGHT", row.name, "BOTTOMRIGHT", 0, -3)
-    row.ago = UI:Text(row, 11, "faint")
-    row.ago:SetPoint("RIGHT", -12, 0)
-    row.ago:SetWidth(80)
+    row.who = UI:Text(row, 12, "text", "ui")
+    row.from = UI:Text(row, 11, "dim")
+    row.how = UI:Text(row, 11, "bronze", "head")
+    row.ago = UI:Text(row, 11, "dim")
     row.ago:SetJustifyH("RIGHT")
-    row.how = UI:Pill(row, "", "green", { height = 18, size = 10 })
-    row.how:SetPoint("RIGHT", -100, 0)
+end
+
+local function logRowLayout(row, w)
+    if row.laidW == w then return end
+    row.laidW = w
+    local c = logColumns(w)
+    row.cols = c
+    row.name:ClearAllPoints()
+    row.sub:ClearAllPoints()
+    if c.wide then
+        row.name:SetPoint("LEFT", c.itemX, 0)
+    else
+        row.name:SetPoint("TOPLEFT", c.itemX, -5)
+        row.sub:SetPoint("TOPLEFT", c.itemX, -21)
+    end
+    row.name:SetWidth(c.itemW)
+    row.sub:SetWidth(c.itemW)
+    row.sub:SetShown(not c.wide)
+    row.who:ClearAllPoints()
+    if not c.narrow then
+        row.who:SetPoint("LEFT", c.whoX, 0)
+        row.who:SetWidth(c.whoW)
+    end
+    row.who:SetShown(not c.narrow)
+    row.from:ClearAllPoints()
+    if c.wide then
+        row.from:SetPoint("LEFT", c.fromX, 0)
+        row.from:SetWidth(c.fromW)
+    end
+    row.from:SetShown(c.wide)
+    row.how:ClearAllPoints()
+    if not c.narrow then
+        row.how:SetPoint("LEFT", c.howX, 0)
+        row.how:SetWidth(c.howW)
+    end
+    row.how:SetShown(not c.narrow)
+    row.ago:ClearAllPoints()
+    row.ago:SetPoint("LEFT", c.whenX, 0)
+    row.ago:SetWidth(c.whenW)
 end
 
 local function logRowUpdate(row, e)
+    logRowLayout(row, row:GetWidth() or 0)
     row.btn.qHint = entryQuality(e)
     row.btn:SetItem(e.link or e.itemID)
     row.name:SetText(coloredName(e.itemID, e.link))
     local where = e.boss and (e.boss .. (e.instance and (DOT .. e.instance) or "")) or (e.instance or "Out in the wild")
-    row.sub:SetText(U.ClassName(e.winner, e.class or GF.Roster:Class(e.winner)) .. T:Wrap("faint", DOT .. where))
+    local winner = U.ClassName(e.winner, e.class or GF.Roster:Class(e.winner))
+    row.who:SetText(winner)
+    row.from:SetText(where)
+    -- the narrowest row has no winner column: who got it matters more than where it fell
+    row.sub:SetText(row.cols.narrow and winner or where)
     local meta = HOW[e.how] or HOW.FREE
-    row.how:SetText(meta.label, meta.color)
+    row.how:SetText(meta.label)
+    -- a soft reserve paying off is the one that counts; the rest stay out of the way
+    UI:SetTextColor(row.how, e.how == "SR" and "green" or "bronze")
     row.ago:SetText(U.Ago(e.t))
+    row:SetEdge(e.winner == API.MyKey() and "wowGold" or nil)
 end
 
 local function logRowEnter(row, e)
@@ -2283,7 +2365,7 @@ local function logRowClick(e, row, button)
     if Loot:CanDelete(e) then
         items[#items + 1] = { separator = true }
         items[#items + 1] = { text = "Delete this entry", icon = "trash", color = "red", func = function()
-            UI:Confirm("Delete this receipt?", "Removes it from everyone's Loot Log. The bin chickens will deny everything.", function()
+            UI:Confirm("Delete this receipt?", "Removes it from everyone's Loot Log. Nobody saw nothing.", function()
                 if not Loot:Delete(e.id) then fail("Only officers or whoever logged it can delete it.") end
             end, "Delete", "red")
         end }
@@ -2293,58 +2375,33 @@ end
 
 local function chickenRow(parent, i)
     local r = CreateFrame("Frame", nil, parent)
-    r:SetHeight(30)
-    r:SetPoint("TOPLEFT", 0, -(i - 1) * 32)
-    r:SetPoint("TOPRIGHT", 0, -(i - 1) * 32)
+    r:SetHeight(34)
+    r:SetPoint("TOPLEFT", 0, -(i - 1) * CHICKEN_STEP)
+    r:SetPoint("TOPRIGHT", 0, -(i - 1) * CHICKEN_STEP)
     -- the top spot gets a faint gold wash behind it (and the crown)
     r.lead = r:CreateTexture(nil, "BACKGROUND")
     r.lead:SetAllPoints()
-    gradient(r.lead, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.14, 0)
+    UI:Gradient(r.lead, "HORIZONTAL", C.wowGold[1], C.wowGold[2], C.wowGold[3], 0.10, 0)
     r.lead:Hide()
-    r.rank = UI:Text(r, 14, "bronze", "num")
+    r.rank = UI:Text(r, 13, "dim", "num")
     r.rank:SetPoint("LEFT", 2, 0)
-    r.rank:SetWidth(18)
+    r.rank:SetWidth(16)
+    r.rank:SetJustifyH("CENTER")
     r.crown = UI:Icon(r, 14, "crown", "OVERLAY", "wowGold")
     r.crown:SetPoint("CENTER", r.rank, "CENTER", 0, 0)
-    -- class icon in a gold slot frame
-    r.icon = UI:FramedIcon(r, 22)
+    r.icon = UI:IconChip(r, 20)
     r.icon:SetPoint("LEFT", 24, 0)
-    function r.icon:SetClass(classFile)
-        API.SetClassIcon(self.icon, classFile)
-        self.icon:SetVertexColor(1, 1, 1, 1)
-    end
-    r.name = UI:Text(r, 12, "text", "head")
-    r.name:SetPoint("TOPLEFT", r.icon, "TOPRIGHT", 8, 1)
-    r.name:SetPoint("TOPRIGHT", r, "TOPRIGHT", -40, -3)
-    r.bar = UI:Bar(r, { height = 4, color = "yellow" })
-    r.bar:SetPoint("BOTTOMLEFT", r.icon, "BOTTOMRIGHT", 8, 0)
-    r.bar:SetPoint("BOTTOMRIGHT", r, "BOTTOMRIGHT", -40, 5)
-    r.n = UI:Text(r, 16, "text", "num")
-    r.n:SetPoint("RIGHT", -2, 0)
+    r.name = UI:Text(r, 12, "text", "ui")
+    r.name:SetPoint("TOPLEFT", 52, -5)
+    r.name:SetPoint("TOPRIGHT", -32, -5)
+    r.bar = UI:Bar(r, { height = 4, color = "bronze" })
+    r.bar:SetPoint("TOPLEFT", 52, -23)
+    r.bar:SetPoint("TOPRIGHT", -32, -23)
+    r.n = UI:Text(r, 15, "text", "num")
+    r.n:SetPoint("RIGHT", -4, 0)
     r.n:SetJustifyH("RIGHT")
     r:Hide()
     return r
-end
-
-local function statTile(parent, x, y, label, icon)
-    local t = CreateFrame("Frame", nil, parent)
-    t:SetSize(110, 40)
-    t:SetPoint("TOPLEFT", x, y)
-    -- our line icon, small and centred in a gold slot (full-bleed it shouts)
-    t.icon = UI:FramedIcon(t, 28, icon)
-    t.icon:SetPoint("TOPLEFT", 0, -3)
-    t.icon.icon:ClearAllPoints()
-    t.icon.icon:SetPoint("CENTER")
-    t.icon.icon:SetSize(15, 15)
-    t.icon.well:ClearAllPoints()
-    t.icon.well:SetPoint("TOPLEFT", 3, -3)
-    t.icon.well:SetPoint("BOTTOMRIGHT", -3, 3)
-    t.n = UI:Text(t, 22, "text", "num")
-    t.n:SetPoint("TOPLEFT", t.icon, "TOPRIGHT", 8, 3)
-    t.l = UI:Text(t, 10, "bronze", "head")
-    t.l:SetPoint("TOPLEFT", t.n, "BOTTOMLEFT", 0, -2)
-    t.l:SetText(label:upper())
-    return t
 end
 
 local function instFilterItems()
@@ -2368,7 +2425,7 @@ end
 local function howFilterItems()
     local out = { { value = "", text = "Any way" } }
     for _, k in ipairs(HOW_ORDER) do
-        out[#out + 1] = { value = k, text = HOW[k].label .. T:Wrap("faint", "  " .. HOW[k].tip), color = HOW[k].color }
+        out[#out + 1] = { value = k, text = HOW[k].label .. T:Wrap("faint", "  " .. HOW[k].tip), color = k == "SR" and "green" or "text" }
     end
     return out
 end
@@ -2381,67 +2438,154 @@ local function whoFilterItems()
     return out
 end
 
+--- The cards hang off the filter bar, or off the header when there's nothing yet to filter. The
+-- side column gives way a little on a small window, since the table needs it more.
+local function layoutLog(page)
+    local w = page:GetWidth() or 0
+    local sideW = w < 700 and SIDE_W_SMALL or SIDE_W
+    local top, gap = page.bar, -12
+    if not page.hasLoot then top, gap = page.header, -14 end
+    local nums, side, hist = page.nums, page.side, page.hist
+    nums:ClearAllPoints()
+    nums:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT", 0, gap)
+    nums:SetSize(sideW, NUMS_H)
+    side:ClearAllPoints()
+    if page.hasLoot then
+        side:SetPoint("TOPRIGHT", nums, "BOTTOMRIGHT", 0, -16)
+    else
+        side:SetPoint("TOPRIGHT", top, "BOTTOMRIGHT", 0, gap)
+    end
+    side:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+    side:SetWidth(sideW)
+    -- the small column has no room for its footnote without running into the rim
+    side.subtitle:SetShown(sideW > SIDE_W_SMALL)
+    hist:ClearAllPoints()
+    hist:SetPoint("TOPLEFT", top, "BOTTOMLEFT", 0, gap)
+    hist:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -(sideW + 16), 0)
+end
+
+--- The header strip reads the same column numbers as the rows.
+local function layoutLogHeader(hist)
+    local w = hist.hdr:GetWidth() or 0
+    if w <= 0 or hist.hdr.laidW == w then return end
+    hist.hdr.laidW = w
+    local c = logColumns(w)
+    local l = hist.hdr.labels
+    l.item:SetPoint("LEFT", c.itemX, 0)
+    l.when:SetPoint("LEFT", c.whenX, 0)
+    l.when:SetWidth(c.whenW)
+    l.who:SetShown(not c.narrow)
+    l.how:SetShown(not c.narrow)
+    l.from:SetShown(c.wide)
+    if not c.narrow then
+        l.who:SetPoint("LEFT", c.whoX, 0)
+        l.how:SetPoint("LEFT", c.howX, 0)
+    end
+    if c.wide then l.from:SetPoint("LEFT", c.fromX, 0) end
+end
+
+--- A button that stays out of the way but can still be read on top of the night scene: plain
+-- text on a carved dark plate instead of metal.
+local function quietButton(parent, text, opts)
+    opts.style = "ghost"
+    local b = UI:Button(parent, text, opts)
+    b.plate = UI:Nine(b, "inset", "BACKGROUND", -6)
+    return b
+end
+
 local function buildLog(page)
     logPage = page
     page.f = { inst = "", how = "", who = "", q = "" }
-    local header = UI:PageHeader(page, "Loot Log", "Who got what. Receipts for the bin chickens.")
+    local header = UI:PageHeader(page, "Loot Log", "Who got what. Receipts weren't kept, except these.")
     page.header = header
-    header:AddAction(UI:Button(header, "Export", { icon = "export", onClick = exportHistory,
+    page.deskBtn = header:AddAction(UI:Button(header, "Loot desk", { icon = "bag", onClick = function() Loot:OpenDesk() end }))
+    page.exportBtn = header:AddAction(quietButton(header, "Export", { icon = "export", onClick = exportHistory,
         tooltip = { "Export", { "Copy the whole loot history as CSV." } } }))
-    header:AddAction(UI:Button(header, "Loot desk", { icon = "bag", onClick = function() Loot:OpenDesk() end }))
 
+    -- just below the night scene: dropdowns to the right edge, search takes whatever's left
     local bar = CreateFrame("Frame", nil, page)
     bar:SetHeight(26)
-    bar:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -8)
-    bar:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -8)
-    page.search = UI:Search(bar, { width = 200, placeholder = "Search loot, players, bosses...",
-        onChange = function(text) page.f.q = text; page.refresh() end })
-    page.search:SetPoint("LEFT")
+    bar:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -14)
+    bar:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT", 0, -14)
+    page.bar = bar
     local function dd(width, items, field)
         return UI:Dropdown(bar, { width = width, items = items,
             get = function() return page.f[field] end,
             set = function(v) page.f[field] = v or ""; page.refresh() end })
     end
-    page.fInst = dd(150, instFilterItems, "inst")
-    page.fInst:SetPoint("LEFT", page.search, "RIGHT", 8, 0)
-    page.fHow = dd(110, howFilterItems, "how")
-    page.fHow:SetPoint("LEFT", page.fInst, "RIGHT", 8, 0)
-    page.fWho = dd(150, whoFilterItems, "who")
-    page.fWho:SetPoint("LEFT", page.fHow, "RIGHT", 8, 0)
+    page.fWho = dd(130, whoFilterItems, "who")
+    page.fWho:SetPoint("RIGHT")
+    page.fHow = dd(90, howFilterItems, "how")
+    page.fHow:SetPoint("RIGHT", page.fWho, "LEFT", -8, 0)
+    page.fInst = dd(130, instFilterItems, "inst")
+    page.fInst:SetPoint("RIGHT", page.fHow, "LEFT", -8, 0)
+    page.search = UI:Search(bar, { placeholder = "Search loot, players, bosses...",
+        onChange = function(text) page.f.q = text; page.refresh() end })
+    page.search:SetPoint("LEFT")
+    page.search:SetPoint("RIGHT", page.fInst, "LEFT", -8, 0)
 
-    local nums = UI:Card(page, { title = "The numbers", icon = "coin" })
-    nums:SetPoint("BOTTOMRIGHT")
-    nums:SetSize(SIDE_W, 128)
-    nums.items = statTile(nums.body, 0, 0, "Items", "bag")
-    nums.sr = statTile(nums.body, 124, 0, "Off SR", "dice")
-    nums.week = statTile(nums.body, 0, -44, "This week", "calendar")
-    nums.epics = statTile(nums.body, 124, -44, "Epics", "star_fill")
+    local nums = UI:Card(page, { title = "The numbers", icon = "clipboard" })
+    local function tile(icon, label, x, y)
+        local t = UI:StatTile(nums.body, { icon = icon, label = label, value = 0 })
+        t:SetHeight(TILE_H)
+        if x == 0 then
+            t:SetPoint("TOPLEFT", 0, y)
+            t:SetPoint("TOPRIGHT", nums.body, "TOP", -4, y)
+        else
+            t:SetPoint("TOPLEFT", nums.body, "TOP", 4, y)
+            t:SetPoint("TOPRIGHT", 0, y)
+        end
+        return t
+    end
+    nums.items = tile("bag", "Items", 0, 0)
+    nums.sr = tile("dice", "Off SR", 1, 0)
+    nums.week = tile("calendar", "This week", 0, -(TILE_H + 8))
+    nums.epics = tile("star_fill", "Epics", 1, -(TILE_H + 8))
     page.nums = nums
 
-    local side = UI:Card(page, { title = "Bin Chicken Watch", icon = "trophy", accent = "yellow", subtitle = "items per main" })
-    side:SetPoint("TOPRIGHT", bar, "BOTTOMRIGHT", 0, -12)
-    side:SetPoint("BOTTOMRIGHT", nums, "TOPRIGHT", 0, 16)
-    side:SetWidth(SIDE_W)
+    local side = UI:Card(page, { title = "Fiend Watch", icon = "trophy", subtitle = "items per main" })
     side.rows = {}
     for i = 1, 10 do side.rows[i] = chickenRow(side.body, i) end
-    side.empty = UI:Empty(side.body, "No bin chickens spotted yet. Give it one raid.", "trophy")
-    side.empty:SetWidth(SIDE_W - 30)
-    side.empty.text:SetWidth(SIDE_W - 40)
+    side.empty = UI:Empty(side.body, "No fiends spotted yet. Give it one raid.", "trophy")
     page.side = side
 
     local hist = UI:Card(page, { title = "Loot history", icon = "bag" })
-    hist:SetPoint("TOPLEFT", bar, "BOTTOMLEFT", 0, -12)
-    hist:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", -(SIDE_W + 16), 0)
-    hist.count = UI:Text(hist.right, 11, "faint", "head")
-    hist.count:SetPoint("RIGHT", -4, 0)
+    local hdr = CreateFrame("Frame", nil, hist.body)
+    hdr:SetHeight(18)
+    hdr:SetPoint("TOPLEFT")
+    hdr:SetPoint("TOPRIGHT")
+    hdr.rule = UI:Hairline(hdr, "bronze", 0.4, "none")
+    hdr.rule:SetPoint("BOTTOMLEFT")
+    hdr.rule:SetPoint("BOTTOMRIGHT")
+    hdr.labels = {}
+    for key, text in pairs({ item = "Item", who = "Winner", from = "From", how = "How", when = "When" }) do
+        local l = UI:Text(hdr, 11, "bronze", "ui")
+        l:SetText(text)
+        hdr.labels[key] = l
+    end
+    hdr.labels.when:SetJustifyH("RIGHT")
+    hdr:SetScript("OnSizeChanged", function() layoutLogHeader(hist) end)
+    hist.hdr = hdr
     hist.list = UI:List(hist.body, {
-        rowHeight = 34, createRow = logRowCreate, updateRow = logRowUpdate,
+        rowHeight = 36, spacing = 0, createRow = logRowCreate, updateRow = logRowUpdate,
         onEnter = logRowEnter, onClick = logRowClick,
-        isSelected = function(e) return e.winner == API.MyKey() end,
     })
-    hist.list:SetAllPoints()
-    hist.empty = UI:Empty(hist.body, GF.Flavor.emptyStates.loot, "bag")
+    -- the kit keeps 10 spare on a row's right for the scrollbar: hang that in the card's margin
+    -- so the rows finish where the header does
+    hist.list:SetPoint("TOPLEFT", 0, -20)
+    hist.list:SetPoint("BOTTOMRIGHT", 10, 0)
+    hist.empty = UI:Empty(hist.body, "Nothing matches. The receipts don't lie.", "bag", { heading = "Filters came up empty" })
     page.hist = hist
+    -- launch morning: not two half-dead columns, one block on the page, like Raid Nights
+    local ground = CreateFrame("Frame", nil, page)
+    ground:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -14)
+    ground:SetPoint("BOTTOMRIGHT", page, "BOTTOMRIGHT", 0, 0)
+    page.bareEmpty = UI:Empty(ground, GF.Flavor.emptyStates.loot .. "\nNo fiends spotted yet. Give it one raid.", "bag",
+        { heading = "No receipts yet", width = 480, action = "Loot desk", actionIcon = "bag",
+          onAction = function() Loot:OpenDesk() end })
+    page:HookScript("OnSizeChanged", function() layoutLog(page) end)
+    layoutLog(page)
+    layoutLogHeader(hist)
 end
 
 local function matches(e, f)
@@ -2462,36 +2606,48 @@ local function refreshLog()
     local all = allHistory()
     local rows, place = {}, {}
     local srN, weekN, epicN = 0, 0, 0
-    local since = weekStart()
-    local thisWeek = not since and U.WeekKey() or nil
+    local since = U.WeekStart()
     for _, e in ipairs(all) do
         if f.inst == "" or e.instance == f.inst then place[#place + 1] = e end
         if matches(e, f) then
             rows[#rows + 1] = e
             if e.how == "SR" then srN = srN + 1 end
-            if (since and e.t >= since) or (thisWeek and U.WeekKey(e.t) == thisWeek) then weekN = weekN + 1 end
+            if e.t >= since then weekN = weekN + 1 end
             if entryQuality(e) >= 4 then epicN = epicN + 1 end
         end
     end
     local hist = page.hist
+    -- nothing logged yet: no filters to fiddle with and no wall of zeros
+    local hasLoot = #all > 0
+    if page.hasLoot ~= hasLoot then
+        page.hasLoot = hasLoot
+        page.bar:SetShown(hasLoot)
+        page.nums:SetShown(hasLoot)
+        page.side:SetShown(hasLoot)
+        hist:SetShown(hasLoot)
+        page.deskBtn:SetShown(hasLoot)
+        page.exportBtn:SetShown(hasLoot)
+        page.bareEmpty:SetShown(not hasLoot)
+        layoutLog(page)
+    end
     hist.list:SetItems(rows, true)
-    hist.count:SetText(#rows .. " " .. U.Plural(#rows, "ITEM", "ITEMS"))
+    hist.hdr:SetShown(#rows > 0)
+    layoutLogHeader(hist)
     if #rows == 0 then
-        hist.empty:SetText(#all == 0 and GF.Flavor.emptyStates.loot or "Nothing matches. The receipts don't lie.")
         hist.empty:Show()
     else
         hist.empty:Hide()
     end
-    page.nums.items.n:SetText(#rows)
-    page.nums.sr.n:SetText(srN)
-    page.nums.week.n:SetText(weekN)
-    page.nums.epics.n:SetText(epicN)
-    UI:SetTextColor(page.nums.epics.n, epicN > 0 and "purple" or "text")
+    local nums = page.nums
+    nums.items:Set(#rows)
+    nums.sr:Set(srN)
+    nums.week:Set(weekN)
+    nums.epics:Set(epicN, nil, epicN > 0 and "purple" or "text")
 
     -- leaderboard follows the place filter only, so it's the real pecking order
     local board = Loot:Leaderboard(place)
     local side = page.side
-    local fit = max(1, floor(((side.body:GetHeight() or 0) + 2) / 32))
+    local fit = max(1, floor(((side.body:GetHeight() or 0) + 2) / CHICKEN_STEP))
     local top = board[1] and board[1].n or 1
     local shown = 0
     for i, row in ipairs(side.rows) do
@@ -2502,14 +2658,14 @@ local function refreshLog()
             row.rank:SetText(i == 1 and "" or i)
             row.crown:SetShown(i == 1)
             row.lead:SetShown(i == 1)
-            row.icon:SetClass(cls)
+            API.SetClassIcon(row.icon.icon, cls)
             row.name:SetText(U.ClassName(b.key, cls))
             row.bar:SetValue(b.n / max(1, top))
             row.bar:SetColor(i == 1 and "wowGold" or "bronze")
             row.n:SetText(b.n)
             UI:SetTextColor(row.n, i == 1 and "wowGold" or "text")
             row:Show()
-            -- a new top bin chicken gets one light sweep across the crown row
+            -- a new top fiend gets one light sweep across the crown row
             if i == 1 and side.crowned ~= b.key then
                 side.crowned = b.key
                 UI:Shine(row, 0.9)
@@ -2525,7 +2681,7 @@ local function refreshLog()
 end
 
 UI:RegisterPage({
-    key = "loot", title = "Loot Log", subtitle = "Who got what. Receipts for the bin chickens.",
+    key = "loot", title = "Loot Log", subtitle = "Who got what. Receipts weren't kept, except these.",
     icon = "bag", group = "raid", order = 30,
     build = function(page)
         buildLog(page)
@@ -2534,6 +2690,7 @@ UI:RegisterPage({
     end,
     onShow = function() refreshLog() end,
 })
+end -- log block
 
 -------------------------------------------------------------------------------
 -- Wiring

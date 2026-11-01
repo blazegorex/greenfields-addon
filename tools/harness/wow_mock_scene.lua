@@ -88,8 +88,9 @@ function MOCK.ExportScene(root)
         local st = S[frame]
         local pc = st.parent and clipOf(st.parent) or nil
         local own
-        if st.clips or st.otype == "ScrollFrame" then
-            local x, y, w, h = screenRect(frame)
+        if st.clips or st.scrollFrame then
+            -- a ScrollFrame clips its scroll child, not its other children (a scrollbar can hang outside)
+            local x, y, w, h = screenRect(st.scrollFrame or frame)
             if x then own = { x, y, w, h } end
         end
         local res = intersect(pc, own)

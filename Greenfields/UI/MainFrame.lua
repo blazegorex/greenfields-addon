@@ -1,5 +1,6 @@
 --[[ Greenfields - UI/MainFrame.lua
-     The main window: road-sign header, sidebar navigation, page host.
+     The main window: a night scene behind the road-sign header, sidebar navigation, page host,
+     all inside a forged gold frame.
 
        UI:RegisterPage{ key, title, subtitle, icon, order, group,
                         build(page)          -- called once, lazily, the first time the page opens
@@ -16,6 +17,7 @@ local UI = GF.UI
 local T = GF.Theme
 local C = T.c
 local API, U = GF.API, GF.Util
+local max = math.max
 
 UI.pages = {}
 UI.pageList = {}
@@ -33,8 +35,11 @@ local NAV_H_MIN, NAV_H_MAX = 30, 36
 local NAV_ICON = 20
 local NAV_TOP, NAV_HEAD, NAV_GAP = 12, 16, 6
 local ME_H = 64
-local SIDEBAR_W = 220
+local SIDEBAR_W = 232     -- "Neighbourhood Watch" has to fit beside a count
 local HEADER_H = 76
+local SCENE_W, SCENE_H = 1040, 148   -- what the banner art is painted for, in UI units
+local SCENE_SOLID = 130   -- fully opaque down to here, then it dissolves into the window
+local CORNER = 112        -- gum-leaf corner pieces
 
 function UI:RegisterPage(def)
     assert(def.key and def.title, "page needs key + title")
@@ -54,21 +59,17 @@ local function navButton(parent)
     b:SetHeight(NAV_H_MIN)
     b.hl = b:CreateTexture(nil, "BACKGROUND")
     b.hl:SetAllPoints()
-    b.hl:SetColorTexture(1, 1, 1, 0.04)
+    UI:Gradient(b.hl, "HORIZONTAL", 1, 0.90, 0.68, 0.075, 0)
     b.hl:Hide()
     b.sel = b:CreateTexture(nil, "BACKGROUND", nil, 1)
     b.sel:SetAllPoints()
-    b.sel:SetTexture(T.tex.white)
-    if b.sel.SetGradient and CreateColor then
-        b.sel:SetGradient("HORIZONTAL", CreateColor(1, 0.78, 0.25, 0.20), CreateColor(1, 0.78, 0.25, 0))
-    else
-        b.sel:SetColorTexture(1, 0.78, 0.25, 0.10)
-    end
+    UI:Gradient(b.sel, "HORIZONTAL", 1, 0.78, 0.25, 0.22, 0)
     b.sel:Hide()
     b.bar = b:CreateTexture(nil, "ARTWORK")
-    b.bar:SetPoint("TOPLEFT")
-    b.bar:SetPoint("BOTTOMLEFT")
-    b.bar:SetWidth(3)
+    -- in from the edge: the window's rim covers the first few units
+    b.bar:SetPoint("TOPLEFT", 5, 0)
+    b.bar:SetPoint("BOTTOMLEFT", 5, 0)
+    b.bar:SetWidth(2)
     b.bar:SetColorTexture(C.wowGold[1], C.wowGold[2], C.wowGold[3], 1)
     b.bar:Hide()
     b.icon = UI:Icon(b, NAV_ICON)
@@ -83,7 +84,7 @@ local function navButton(parent)
     -- bounded on the right so a long name truncates instead of spilling into the page
     b.label:SetPoint("RIGHT", b, "RIGHT", -10, 0)
     b.badge = UI:Pill(b, "", "green", { height = 16, size = 10 })
-    b.badge:SetPoint("RIGHT", -12, 0)
+    b.badge:SetPoint("RIGHT", -8, 0)
     b.badge:Hide()
     b:SetScript("OnEnter", function(self)
         if not self.selected then self.hl:Show(); self:Tint("text") end
@@ -121,7 +122,8 @@ function UI:BuildNav()
         if any then
             local h = nav.headers[g.key]
             if not h then
-                h = UI:Text(nav, 10, "bronze", "ui")
+                h = UI:Text(nav, 11, "bronze", "ui")
+                h:SetAlpha(0.9)
                 nav.headers[g.key] = h
             end
             h:SetText(g.label)
@@ -175,7 +177,7 @@ function UI:LayoutNav()
         else
             if i > 1 then y = y - NAV_GAP end
             e.head:ClearAllPoints()
-            e.head:SetPoint("TOPLEFT", 18, y)
+            e.head:SetPoint("TOPLEFT", 16, y)
             y = y - NAV_HEAD
         end
     end
@@ -189,7 +191,7 @@ function UI:RefreshNav()
         if val and val ~= 0 and val ~= "" then
             b.badge:SetText(tostring(val), type(val) == "string" and "yellow" or "green")
             b.badge:Show()
-            b.label:SetPoint("RIGHT", b.badge, "LEFT", -6, 0)
+            b.label:SetPoint("RIGHT", b.badge, "LEFT", -4, 0)
         else
             b.badge:Hide()
             b.label:SetPoint("RIGHT", b, "RIGHT", -10, 0)
@@ -201,6 +203,7 @@ end
 -- Pages
 -------------------------------------------------------------------------------
 function UI:ShowPage(key, arg)
+    if GF.gateShut then return self:ShowGate() end
     if not main then self:BuildMain() end
     local def = self.pages[key] or self.pageList[1]
     if not def then return end
@@ -217,11 +220,11 @@ function UI:ShowPage(key, arg)
         page:SetAllPoints(main.content)
         page.def = def
         def.frame = page
-        UI:AddHeroArt(page, def.key)
         GF:Safe("page:build:" .. def.key, def.build, page)
     end
     main.current = def.key
     GF.db.ui.lastPage = def.key
+    UI:SetScene(def)
     def.frame:Show()
     UI:FadeIn(def.frame, 0.16)
     if def.onShow then GF:Safe("page:show:" .. def.key, def.onShow, def.frame, arg) end
@@ -232,37 +235,73 @@ end
 
 function UI:CurrentPage() return main and main.current end
 
---- Painted banner behind a page's header when Media/art has one (Data/Art.lua). It bleeds
--- to the content edges and fades out into the slate so the cards sit on top cleanly.
-function UI:AddHeroArt(page, key)
-    local path = GF.Art and GF.Art.heroes and GF.Art.heroes[key]
-    if not path then return end
-    local hero = page:CreateTexture(nil, "BACKGROUND", nil, -2)
-    hero:SetTexture(path)
-    hero:SetPoint("TOPLEFT", page, "TOPLEFT", -22, 18)
-    hero:SetPoint("TOPRIGHT", page, "TOPRIGHT", 22, 18)
-    hero:SetHeight(170)
-    hero:SetAlpha(0.75)
-    -- crop the 4:1 art to the strip's shape, centred vertically
-    local function crop()
-        local w = hero:GetWidth() or 0
-        if w <= 0 then return end
-        local visible = math.min(1, (170 / w) * 4)
-        local top = (1 - visible) / 2
-        hero:SetTexCoord(0, 1, top, top + visible)
-    end
-    page:HookScript("OnSizeChanged", crop)
-    crop()
-    local fade = page:CreateTexture(nil, "BACKGROUND", nil, -1)
-    fade:SetPoint("TOPLEFT", hero, "TOPLEFT")
-    fade:SetPoint("BOTTOMRIGHT", hero, "BOTTOMRIGHT")
-    fade:SetTexture(T.tex.white)
-    if fade.SetGradient and CreateColor then
-        fade:SetGradient("VERTICAL", CreateColor(C.bg0[1], C.bg0[2], C.bg0[3], 1), CreateColor(C.bg0[1], C.bg0[2], C.bg0[3], 0.15))
+--- The night outside the window. One scene runs across the top of the whole window, behind the
+-- header and the page title, and changes with the page (Data/Art.lua, tools/make_scenes.py).
+local function sceneLayer(parent)
+    local l = CreateFrame("Frame", nil, parent)
+    l:SetPoint("TOPLEFT", 1, -1)
+    l:SetPoint("TOPRIGHT", -1, -1)
+    l:SetHeight(SCENE_H)
+    l.top = l:CreateTexture(nil, "BACKGROUND")
+    l.top:SetPoint("TOPLEFT")
+    l.top:SetPoint("TOPRIGHT")
+    l.top:SetHeight(SCENE_SOLID)
+    l.low = l:CreateTexture(nil, "BACKGROUND")
+    l.low:SetPoint("TOPLEFT", l.top, "BOTTOMLEFT")
+    l.low:SetPoint("BOTTOMRIGHT")
+    l.fade = l:CreateAnimationGroup()
+    local a = l.fade:CreateAnimation("Alpha")
+    a:SetFromAlpha(0)
+    a:SetToAlpha(1)
+    a:SetDuration(0.28)
+    a:SetSmoothing("OUT")
+    l:Hide()
+    return l
+end
+
+-- A narrower window than the art was painted for loses its sides. A wider one scales the art up
+-- and loses more sky than ground, because the lit windows sit low and the band fades out there.
+local function cropScene(l)
+    local w = l:GetWidth() or 0
+    if w <= 0 then return end
+    local u0, u1, v0, v1 = 0, 1, 0, 1
+    if w < SCENE_W then
+        u0 = (1 - w / SCENE_W) / 2
+        u1 = 1 - u0
     else
-        fade:SetColorTexture(C.bg0[1], C.bg0[2], C.bg0[3], 0.5)
+        local spare = 1 - SCENE_W / w
+        v0 = spare * 0.6
+        v1 = 1 - spare * 0.4
     end
-    page.hero = hero
+    local vm = v0 + (v1 - v0) * (SCENE_SOLID / SCENE_H)
+    l.top:SetTexCoord(u0, u1, v0, vm)
+    l.low:SetTexCoord(u0, u1, vm, v1)
+end
+
+--- Crossfades to a page's scene: its own, else its nav parent's, else The Street's.
+function UI:SetScene(def)
+    if not main then return end
+    local heroes = GF.Art and GF.Art.heroes
+    local path = heroes and (heroes[def.scene or def.key] or heroes[def.navParent or ""] or heroes.home)
+    if not path or main.scenePath == path then return end
+    main.scenePath = path
+    local new, old = main.sceneA, main.sceneB
+    if main.sceneOn == new then new, old = old, new end
+    main.sceneOn = new
+    new.top:SetTexture(path)
+    new.low:SetTexture(path)
+    self:Gradient2(new.low, "VERTICAL", 1, 1, 1, 0, 1)
+    cropScene(new)
+    new:SetFrameLevel(main:GetFrameLevel() + 2)
+    old:SetFrameLevel(main:GetFrameLevel() + 1)
+    new:Show()
+    if main:IsShown() and old:IsShown() then
+        new.fade:SetScript("OnFinished", function() if main.sceneOn == new then old:Hide() end end)
+        new.fade:Stop()
+        new.fade:Play()
+    else
+        old:Hide()
+    end
 end
 
 function UI:IsMainShown() return main and main:IsShown() or false end
@@ -273,11 +312,16 @@ function UI:OpenMain(key, arg)
 end
 
 function UI:ToggleMain()
+    if GF.gateShut then return self:ToggleGate() end
     if main and main:IsShown() then
         main:Hide()
     else
         self:OpenMain()
     end
+end
+
+function UI:HideMain()
+    if main then main:Hide() end
 end
 
 --- Refresh the visible page (modules call this after data changes).
@@ -299,6 +343,18 @@ local function saveGeometry()
     GF.db.ui.w, GF.db.ui.h = main:GetWidth(), main:GetHeight()
 end
 
+-- the greeting stops short of the pills, whichever are showing
+local function fitGreeting()
+    local leftmost = (main.updatePill:IsShown() and main.updatePill) or (main.statusPill:IsShown() and main.statusPill) or main.onlinePill
+    local right, left = leftmost:GetLeft(), main.pageTitle:GetLeft()
+    if right and left then
+        local w = max(60, right - left - 14)
+        main.pageTitle:SetWidth(w)
+        -- the second line sits lower than the pills, so it can run on underneath them
+        main.pageSub:SetWidth(max(w, (main.syncDot:GetRight() or right) - left))
+    end
+end
+
 function UI:BuildMain()
     if main then return main end
     local f = CreateFrame("Frame", "GreenfieldsMainFrame", UIParent, "BackdropTemplate")
@@ -315,55 +371,53 @@ function UI:BuildMain()
     local p = GF.db.ui.point
     if p then f:SetPoint(p[1], UIParent, p[2], p[3], p[4]) else f:SetPoint("CENTER", 0, 30) end
     f:SetScale(GF.db.settings.scale or 1)
-    UI:SetBackdrop(f, C.bg0, C.line)
-    UI:Shadow(f, 22)
+    UI:SetBackdrop(f, { 0, 0, 0, 0 }, false)
+    UI:Shadow(f, 26)
     tinsert(UISpecialFrames, "GreenfieldsMainFrame")
 
-    -- worn slate under everything, then film grain
-    local slate = f:CreateTexture(nil, "BACKGROUND", nil, 1)
-    slate:SetTexture(T.tex.stone, "REPEAT", "REPEAT")
-    slate:SetHorizTile(true)
-    slate:SetVertTile(true)
-    slate:SetPoint("TOPLEFT", 1, -1)
-    slate:SetPoint("BOTTOMRIGHT", -1, 1)
-    slate:SetVertexColor(0.45, 0.5, 0.47, 0.55)
-    -- film grain over everything (very subtle)
-    local grain = f:CreateTexture(nil, "BACKGROUND", nil, 2)
-    grain:SetTexture(T.tex.noise, "REPEAT", "REPEAT")
-    grain:SetHorizTile(true)
-    grain:SetVertTile(true)
-    grain:SetPoint("TOPLEFT", 1, -1)
-    grain:SetPoint("BOTTOMRIGHT", -1, 1)
-    grain:SetAlpha(0.55)
+    -- the night behind everything; it stretches, so it carries no fine detail
+    local night = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+    night:SetTexture(T.tex.windowBg)
+    night:SetPoint("TOPLEFT", 1, -1)
+    night:SetPoint("BOTTOMRIGHT", -1, 1)
+
+    ---------------------------------------------------------------- scene
+    f.sceneA = sceneLayer(f)
+    f.sceneB = sceneLayer(f)
+    f:HookScript("OnSizeChanged", function()
+        cropScene(f.sceneA)
+        cropScene(f.sceneB)
+    end)
+    -- shade over the scene: where text and controls sit on it, plus a little grain to bed it in
+    local shade = CreateFrame("Frame", nil, f)
+    shade:SetPoint("TOPLEFT", 1, -1)
+    shade:SetPoint("TOPRIGHT", -1, -1)
+    shade:SetHeight(SCENE_H)
+    shade:SetFrameLevel(f:GetFrameLevel() + 3)
+    shade:EnableMouse(false)
+    UI:Scrim(shade, "TOP", HEADER_H, 0.22)
+    -- both of these are soft pools, the glow art tinted dark: a straight-edged shade draws a hard
+    -- line across the painting. One quarter of the glow, so it stops at the window's corner.
+    local ctrl = shade:CreateTexture(nil, "BACKGROUND", nil, 3)
+    ctrl:SetTexture(T.tex.glow)
+    ctrl:SetTexCoord(0, 0.5, 0.5, 1)
+    ctrl:SetVertexColor(0.012, 0.018, 0.035, 0.7)
+    ctrl:SetPoint("TOPRIGHT")
+    ctrl:SetSize(340, 120)
+    -- the page title writes on the sky: a little dark behind it
+    local titleShade = shade:CreateTexture(nil, "BACKGROUND", nil, 2)
+    titleShade:SetTexture(T.tex.glow)
+    titleShade:SetVertexColor(0.012, 0.018, 0.035, 0.72)
+    titleShade:SetPoint("CENTER", shade, "TOPLEFT", SIDEBAR_W + 130, -(HEADER_H + 34))
+    titleShade:SetSize(820, 190)
+    UI:Tiled(f, T.tex.noise, 1, 1, 1, 0.3, 1, "BACKGROUND", 2)
 
     ---------------------------------------------------------------- header
     local header = CreateFrame("Frame", nil, f)
     header:SetPoint("TOPLEFT", 1, -1)
     header:SetPoint("TOPRIGHT", -1, -1)
     header:SetHeight(HEADER_H)
-    header.bg = header:CreateTexture(nil, "BACKGROUND")
-    header.bg:SetAllPoints()
-    header.bg:SetColorTexture(C.bg1[1], C.bg1[2], C.bg1[3], 1)
-    header.leather = header:CreateTexture(nil, "BACKGROUND", nil, 1)
-    header.leather:SetAllPoints()
-    header.leather:SetTexture(T.tex.leather, "REPEAT", "REPEAT")
-    header.leather:SetHorizTile(true)
-    header.leather:SetVertTile(true)
-    header.leather:SetVertexColor(0.85, 0.8, 0.75, 0.85)
-    if GF.Art and GF.Art.header then
-        -- painted street scene behind the sign, darkened so the text stays readable
-        header.art = header:CreateTexture(nil, "BACKGROUND", nil, 2)
-        header.art:SetAllPoints()
-        header.art:SetTexture(GF.Art.header)
-        header.art:SetTexCoord(0, 1, 0.3, 0.7)
-        header.art:SetVertexColor(0.55, 0.55, 0.55, 1)
-    end
-    -- streetlight glow behind the sign
-    header.glow = header:CreateTexture(nil, "BACKGROUND", nil, 1)
-    header.glow:SetTexture(T.tex.glow)
-    header.glow:SetVertexColor(C.green[1], C.green[2], C.green[3], 0.10)
-    header.glow:SetSize(420, 220)
-    header.glow:SetPoint("CENTER", header, "LEFT", 140, 0)
+    header:SetFrameLevel(f:GetFrameLevel() + 6)
     header:EnableMouse(true)
     header:RegisterForDrag("LeftButton")
     header:SetScript("OnDragStart", function() f:StartMoving() end)
@@ -374,25 +428,30 @@ function UI:BuildMain()
     logo:SetTexture(T.tex.logo)
     logo:SetSize(256, 64)
     if GF.Art and GF.Art.crest then
-        -- painted guild crest hanging off the left of the sign
+        -- guild crest hanging off the left of the sign
         local crest = header:CreateTexture(nil, "ARTWORK", nil, 1)
         crest:SetTexture(GF.Art.crest)
-        crest:SetSize(72, 72)
-        crest:SetPoint("LEFT", 4, -1)
-        logo:SetPoint("LEFT", crest, "RIGHT", 0, 0)
+        crest:SetSize(66, 66)
+        crest:SetPoint("LEFT", 20, -1)
+        logo:SetPoint("LEFT", crest, "RIGHT", 2, 0)
         f.crest = crest
     else
-        logo:SetPoint("LEFT", 8, -1)
+        logo:SetPoint("LEFT", 22, -1)
     end
     f.logo = logo
 
-    f.pageTitle = UI:Text(header, 24, "wowGold", "title")
-    f.pageTitle:SetPoint("TOPLEFT", logo, "TOPRIGHT", 18, -12)
-    f.pageSub = UI:Text(header, 12, "dim")
-    f.pageSub:SetPoint("TOPLEFT", f.pageTitle, "BOTTOMLEFT", 0, -5)
+    -- a quiet greeting beside the sign: the page title below is the headline, not this
+    f.pageTitle = UI:Text(header, 15, { 0.96, 0.90, 0.76, 1 }, "ui")
+    f.pageTitle:SetPoint("TOPLEFT", logo, "TOPRIGHT", 14, -13)
+    f.pageSub = UI:Text(header, 11, "dim")
+    f.pageSub:SetPoint("TOPLEFT", f.pageTitle, "BOTTOMLEFT", 0, -4)
+    for _, fs in ipairs({ f.pageTitle, f.pageSub }) do
+        fs:SetShadowOffset(1, -1)
+        fs:SetShadowColor(0, 0, 0, 1)
+    end
 
     local close = UI:IconButton(header, "close", 28, "Close (Esc)", function() f:Hide() end)
-    close:SetPoint("TOPRIGHT", -10, -10)
+    close:SetPoint("TOPRIGHT", -26, -10)
     local gear = UI:IconButton(header, "gear", 28, "Settings", function() UI:ShowPage("settings") end)
     gear:SetPoint("RIGHT", close, "LEFT", -2, 0)
     f.syncDot = UI:IconButton(header, "sync", 28, function()
@@ -408,52 +467,49 @@ function UI:BuildMain()
     f.statusPill:Hide()
     -- "a newer Greenfields is out" (Core/Update.lua); click for how to update
     f.updatePill = UI:Pill(header, "", "yellow", { icon = "import", height = 20,
+        onClick = function() if GF.Update then GF.Update:ShowHowTo() end end,
         tooltip = function() return { "Update available", "A guildie is running a newer Greenfields. Click for how to update." } end })
-    f.updatePill:SetScript("OnMouseUp", function() if GF.Update then GF.Update:ShowHowTo() end end)
     f.updatePill:Hide()
-
-    local line = f:CreateTexture(nil, "ARTWORK")
-    line:SetPoint("TOPLEFT", header, "BOTTOMLEFT")
-    line:SetPoint("TOPRIGHT", header, "BOTTOMRIGHT")
-    line:SetHeight(2)
-    line:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 1)
-    local rule = f:CreateTexture(nil, "OVERLAY")
-    rule:SetTexture(T.tex.dividerGold)
-    rule:SetHeight(14)
-    rule:SetPoint("LEFT", line, "LEFT", 0, 0)
-    rule:SetPoint("RIGHT", line, "RIGHT", 0, 0)
-    local lineGlow = f:CreateTexture(nil, "ARTWORK")
-    lineGlow:SetPoint("TOPLEFT", line, "BOTTOMLEFT")
-    lineGlow:SetPoint("TOPRIGHT", line, "BOTTOMRIGHT")
-    lineGlow:SetHeight(10)
-    lineGlow:SetTexture(T.tex.white)
-    if lineGlow.SetGradient and CreateColor then
-        lineGlow:SetGradient("VERTICAL", CreateColor(0.24, 0.86, 0.47, 0), CreateColor(0.24, 0.86, 0.47, 0.10))
-    else
-        lineGlow:SetColorTexture(0.24, 0.86, 0.47, 0.05)
+    -- the tag art is see-through and a moon can sit right behind these: give them a dark plate
+    for _, pill in ipairs({ f.onlinePill, f.statusPill, f.updatePill }) do
+        pill.plate = UI:Nine(pill, "pill", "BACKGROUND", -1)
+        pill.plate:SetVertexColor(0.03, 0.04, 0.07, 0.9)
     end
 
     ---------------------------------------------------------------- sidebar
     local nav = CreateFrame("Frame", nil, f)
-    nav:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -2)
+    nav:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, 0)
     nav:SetPoint("BOTTOMLEFT", 1, 1)
     nav:SetWidth(SIDEBAR_W)
+    nav:SetFrameLevel(f:GetFrameLevel() + 5)
     nav.bg = nav:CreateTexture(nil, "BACKGROUND")
     nav.bg:SetAllPoints()
-    nav.bg:SetColorTexture(C.bg1[1], C.bg1[2], C.bg1[3], 0.85)
-    nav.leather = nav:CreateTexture(nil, "BACKGROUND", nil, 1)
-    nav.leather:SetAllPoints()
-    nav.leather:SetTexture(T.tex.leather, "REPEAT", "REPEAT")
-    nav.leather:SetHorizTile(true)
-    nav.leather:SetVertTile(true)
-    nav.leather:SetVertexColor(0.6, 0.56, 0.52, 0.55)
+    nav.bg:SetColorTexture(C.bg1[1], C.bg1[2], C.bg1[3], 0.97)
+    nav.leather = UI:Tiled(nav, T.tex.leather, 0.72, 0.74, 0.82, 0.34, 0, "BACKGROUND", 1)
+    nav.light = nav:CreateTexture(nil, "BACKGROUND", nil, 2)
+    nav.light:SetPoint("TOPLEFT")
+    nav.light:SetPoint("TOPRIGHT")
+    nav.light:SetHeight(90)
+    UI:Gradient(nav.light, "VERTICAL", 0.55, 0.62, 0.78, 0, 0.09)
+    -- a hard top and right edge, with its shadow falling onto the page
+    local navTop = UI:Hairline(nav, "bronze", 0.6, "none")
+    navTop:SetPoint("TOPLEFT")
+    navTop:SetPoint("TOPRIGHT")
     local navLine = nav:CreateTexture(nil, "ARTWORK")
     navLine:SetPoint("TOPRIGHT")
     navLine:SetPoint("BOTTOMRIGHT")
     navLine:SetWidth(1)
-    navLine:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.8)
+    navLine:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.5)
+    local navDrop = nav:CreateTexture(nil, "BACKGROUND", nil, 3)
+    navDrop:SetPoint("TOPLEFT", nav, "TOPRIGHT")
+    navDrop:SetPoint("BOTTOMLEFT", nav, "BOTTOMRIGHT")
+    navDrop:SetWidth(14)
+    UI:Gradient(navDrop, "HORIZONTAL", 0, 0, 0, 0.42, 0)
     f.nav = nav
-    f:HookScript("OnSizeChanged", function() UI:LayoutNav() end)
+    f:HookScript("OnSizeChanged", function()
+        UI:LayoutNav()
+        if f.onlinePill then fitGreeting() end
+    end)
 
     -- me card at the bottom of the sidebar
     local me = CreateFrame("Button", nil, nav)
@@ -462,14 +518,24 @@ function UI:BuildMain()
     me:SetHeight(ME_H)
     me.bg = me:CreateTexture(nil, "BACKGROUND")
     me.bg:SetAllPoints()
-    me.bg:SetColorTexture(0, 0, 0, 0.18)
-    me.avatar = UI:Avatar(me, 34)
-    me.avatar:SetPoint("LEFT", 14, 0)
-    me.name = UI:Text(me, 13, "text", "head")
+    me.bg:SetColorTexture(0, 0, 0, 0.26)
+    me.hl = me:CreateTexture(nil, "BACKGROUND", nil, 1)
+    me.hl:SetAllPoints()
+    me.hl:SetColorTexture(1, 0.90, 0.68, 0.05)
+    me.hl:Hide()
+    me.rule = UI:Hairline(me, "bronze", 0.42, "none")
+    me.rule:SetPoint("TOPLEFT")
+    me.rule:SetPoint("TOPRIGHT")
+    me.avatar = UI:Avatar(me, 36)
+    me.avatar:SetPoint("LEFT", 20, 0)
+    me.name = UI:Text(me, 13, "text", "ui")
     me.name:SetPoint("TOPLEFT", me.avatar, "TOPRIGHT", 10, -2)
+    me.name:SetWidth(SIDEBAR_W - 76)
     me.sub = UI:Text(me, 11, "dim")
     me.sub:SetPoint("TOPLEFT", me.name, "BOTTOMLEFT", 0, -3)
-    me.sub:SetWidth(SIDEBAR_W - 70)
+    me.sub:SetWidth(SIDEBAR_W - 76)
+    me:SetScript("OnEnter", function(self) self.hl:Show() end)
+    me:SetScript("OnLeave", function(self) self.hl:Hide() end)
     me:SetScript("OnClick", function()
         if UI.OpenProfile then UI:OpenProfile(API.MyKey()) end
     end)
@@ -477,41 +543,54 @@ function UI:BuildMain()
 
     ---------------------------------------------------------------- content
     local content = CreateFrame("Frame", nil, f)
-    content:SetPoint("TOPLEFT", nav, "TOPRIGHT", 22, -18)
+    content:SetPoint("TOPLEFT", nav, "TOPRIGHT", 22, -12)
     content:SetPoint("BOTTOMRIGHT", -22, 18)
+    content:SetFrameLevel(f:GetFrameLevel() + 5)
     f.content = content
 
     ---------------------------------------------------------------- gold frame
     local chrome = CreateFrame("Frame", nil, f)
-    chrome:SetPoint("TOPLEFT", -6, 6)
-    chrome:SetPoint("BOTTOMRIGHT", 6, -6)
+    chrome:SetAllPoints()
     chrome:SetFrameLevel(f:GetFrameLevel() + 40)
     chrome:EnableMouse(false)
-    chrome.rim = chrome:CreateTexture(nil, "OVERLAY")
-    chrome.rim:SetAllPoints()
-    UI.Sliced(chrome.rim, T.tex.frameGold, 16)
+    chrome.rim = UI:Nine(chrome, "window", "OVERLAY")
+    -- four corners in one atlas, each lit from the same side as everything else
     local CORNERS = {
-        { "TOPLEFT", -4, 4, 0, 1, 0, 1 }, { "TOPRIGHT", 4, 4, 1, 0, 0, 1 },
-        { "BOTTOMLEFT", -4, -4, 0, 1, 1, 0 }, { "BOTTOMRIGHT", 4, -4, 1, 0, 1, 0 },
+        { "TOPLEFT", -6, 6, 0, 0.5, 0, 0.5 }, { "TOPRIGHT", 6, 6, 0.5, 1, 0, 0.5 },
+        { "BOTTOMLEFT", -6, -6, 0, 0.5, 0.5, 1 }, { "BOTTOMRIGHT", 6, -6, 0.5, 1, 0.5, 1 },
     }
     for _, c in ipairs(CORNERS) do
         local t = chrome:CreateTexture(nil, "OVERLAY", nil, 1)
-        t:SetTexture(T.tex.cornerGold)
-        t:SetSize(46, 46)
-        t:SetPoint(c[1], chrome, c[1], c[2], c[3])
+        t:SetTexture(T.tex.frameCorners)
         t:SetTexCoord(c[4], c[5], c[6], c[7])
+        t:SetSize(CORNER, CORNER)
+        t:SetPoint(c[1], chrome, c[1], c[2], c[3])
+        if t.SetSnapToPixelGrid then t:SetSnapToPixelGrid(false) end
+        if t.SetTexelSnappingBias then t:SetTexelSnappingBias(0) end
     end
     f.chrome = chrome
 
     ---------------------------------------------------------------- resize grip
+    -- the bottom-right corner piece is the handle: its gem lights up under the mouse
     local grip = CreateFrame("Button", nil, f)
-    grip:SetSize(16, 16)
-    grip:SetPoint("BOTTOMRIGHT", -2, 2)
+    grip:SetSize(30, 30)
+    grip:SetPoint("BOTTOMRIGHT", 6, -6)
+    grip:SetFrameLevel(chrome:GetFrameLevel() + 1)
     grip.tex = grip:CreateTexture(nil, "OVERLAY")
-    grip.tex:SetAllPoints()
-    grip.tex:SetTexture(T.Icon("chevron_right"))
-    grip.tex:SetRotation(-math.pi / 4)
-    grip.tex:SetVertexColor(C.faint[1], C.faint[2], C.faint[3], 0.8)
+    grip.tex:SetTexture(T.tex.glow)
+    grip.tex:SetPoint("CENTER", -2, 2)
+    grip.tex:SetSize(38, 38)
+    grip.tex:SetBlendMode("ADD")
+    grip.tex:SetVertexColor(C.green[1], C.green[2], C.green[3], 0.8)
+    grip.tex:Hide()
+    grip:SetScript("OnEnter", function(self)
+        self.tex:Show()
+        UI:Tip(self, nil, { "Drag to resize" })
+    end)
+    grip:SetScript("OnLeave", function(self)
+        self.tex:Hide()
+        UI:HideTip()
+    end)
     grip:SetScript("OnMouseDown", function() f:StartSizing("BOTTOMRIGHT") end)
     grip:SetScript("OnMouseUp", function() f:StopMovingOrSizing(); saveGeometry() end)
 
@@ -535,16 +614,17 @@ end
 --- Header pills + me-card; cheap, called on show and on roster/peer changes.
 function UI:UpdateChrome(fresh)
     if not main then return end
-    -- header: a greeting (or the GM's message of the day) over a rotating tagline;
+    -- header: a greeting over a rotating tagline, or the GM's message of the day in their place;
     -- the page's own header carries the page title, so it isn't repeated up here
     local motd = GF.Roster:Config().motd
-    if type(motd) == "string" and motd ~= "" then
-        main.pageTitle:SetText(U.Truncate(motd, 60))
-    else
-        main.pageTitle:SetText(("G'DAY, %s"):format(U.ShortName(API.MyKey() or "legend")):upper())
-    end
     if fresh or not main.tagline then main.tagline = U.Pick(GF.Flavor.taglines) end
-    main.pageSub:SetText(main.tagline)
+    if type(motd) == "string" and motd ~= "" then
+        main.pageTitle:SetText("Word from the top")
+        main.pageSub:SetText(U.Truncate(motd, 60))
+    else
+        main.pageTitle:SetText(("G'day, %s"):format(U.ShortName(API.MyKey() or "legend")))
+        main.pageSub:SetText(main.tagline)
+    end
     local online = GF.Roster:OnlineCount()
     main.onlinePill:SetText(online .. " ONLINE", "green")
     local me = API.MyKey()
@@ -584,6 +664,7 @@ function UI:UpdateChrome(fresh)
     else
         main.updatePill:Hide()
     end
+    fitGreeting()
 end
 
 GF:On("GF_ROSTER_UPDATED", function() if main and main:IsShown() then UI:UpdateChrome() end end)
@@ -591,6 +672,16 @@ GF:On("GF_ROSTER_UPDATED", function() if main and main:IsShown() then UI:UpdateC
 GF:On("GF_LOGIN", function()
     UI:BuildMain()
     UI:BuildNav()
+    -- updated with the game open, then /reloaded: the game may not see files that are brand new, and
+    -- every panel would come up blank. Say so, or it just looks broken.
+    local probe = main:CreateTexture()
+    if probe:SetTexture(T.nine.card.path) == false then
+        GF:Print("Fresh paint's in the shed, but it only turns up after you quit and reopen WoW.")
+        GF:After(5, function()
+            UI:Toast({ title = "Fresh paint", text = "The new art only turns up after you quit and reopen WoW. A /reload won't find it.",
+                icon = "warning", style = "yellow", duration = 15, force = true, key = "fresh-paint" })
+        end)
+    end
 end)
 
 GF:RegisterSlash("show", function(arg) UI:OpenMain(arg ~= "" and arg or nil) end, "[page] - open the window (optionally on a page)")

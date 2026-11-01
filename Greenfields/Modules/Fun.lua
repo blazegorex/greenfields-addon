@@ -2,6 +2,8 @@
      The larrikin bits. None of this is load-bearing; all of it is important.
 
        Login greeting   a road sign ~6 s after logging in (setting `welcome`), once a session
+       First login      three chat lines on what the addon needs from you, once per character,
+                        held back until the guild lock's open
        Wipe roasts      a yellow sign on a raid/dungeon wipe just for you (`wipeRoastsLocal`);
                         a raid leader who opts in (`wipeRoastsRaid`) gets a sign that reads the
                         line out in raid chat when clicked (RAID sends are click-only on
@@ -26,6 +28,7 @@ local gsub, sub, upper, lower, byte = string.gsub, string.sub, string.upper, str
 local CleanString, CleanNumber = API.CleanString, API.CleanNumber
 
 local GREET_DELAY = 6
+local NEW_DELAY = 15           -- after the login spam, so the first-login lines don't scroll away
 local RAID_ROAST_GAP = 60          -- seconds between roasts in raid chat
 local ROAST_TRIES = 4              -- clicks on a "chat's locked" sign before we let it go
 local MAX_NAME = 24
@@ -36,8 +39,8 @@ local MAX_NAME = 24
 local EXTRA = {
     greetings = {
         "G'day {name}. The estuary's calm and the raid isn't. Welcome back.",
-        "{name}'s back. Someone tell the bin chickens to clear the footpath.",
-        "Welcome back {name}. Thongs on, kettle on, logged on.",
+        "{name}'s back. Someone move the trolleys off the footpath.",
+        "Welcome back {name}. Shoes on. Whoever's they are.",
         "{name} has rolled in like a ute with a dodgy muffler.",
         "Look who's back from Crab Fest. Welcome home, {name}.",
         "Oi {name}, the dolphins were asking about you.",
@@ -47,23 +50,24 @@ local EXTRA = {
         "That pull was a Kwinana Freeway merge: everyone at once, nobody indicating.",
         "The dolphins in the estuary have better coordination than that.",
         "Down like the Peel Inlet tide. Back up in six hours, apparently.",
-        "Seen tidier scenes at a Bunnings sausage sizzle in a hailstorm.",
+        "Seen tidier scenes at a 4am eviction.",
         "Crab Fest had less carnage, and they boil the guests.",
         "Everyone lie down and pretend it's a beach day at Silver Sands.",
     },
     kills = {
-        "{boss} folded like a deck chair on the foreshore.",
-        "{boss} is done. Snags are on at Bunnings to celebrate.",
+        "{boss} folded like a bloke on day four.",
+        "{boss} is done. The copper's gone by morning.",
+        "{boss} got towed off the Kwinana Freeway. Nobody's claiming it.",
         "{boss} took the Kwinana Freeway in the wrong lane. Gone.",
         "Another one for the estuary. Rest easy, {boss}.",
-        "{boss} down. The bin chickens have been notified.",
+        "{boss} down. The pawn shop's been notified.",
     },
 }
 
 local ROASTS = {
-    "{name} plays like they learned the rotation off a Bunnings catalogue.",
+    "{name} plays like they learned the rotation off a court-ordered pamphlet.",
     "{name}'s DPS is lower than the Peel Inlet at low tide.",
-    "{name} has the map awareness of a bin chicken in a revolving door.",
+    "{name} has the map awareness of a bloke who's been up since Tuesday.",
     "{name} once got lost on the Kwinana Freeway. It's a straight line, mate.",
     "{name} pulls like a dolphin chasing the ferry: enthusiastic, pointless.",
     "{name}'s gear is held together with thongs and hope.",
@@ -71,8 +75,21 @@ local ROASTS = {
     "{name} brings the energy of a 4am servo pie: lukewarm and full of regret.",
     "{name} stands in fire like it's a heater on a Mandurah winter night.",
     "{name} has more alts than the estuary has jellyfish.",
-    "If {name} was a Bunnings snag, they'd be the one that fell through the grill.",
+    "If {name} was a Commodore, they'd be the one on bricks.",
     "{name} parks the ute across two bays and the raid across two wipes.",
+    "{name} plays like they're being followed.",
+    "{name} has checked the curtains four times this pull.",
+    "{name}'s rotation has more gaps than the back fence.",
+    "{name} is wanted in three zones and still can't find the raid.",
+    "{name} would pawn their own epics for forty bucks and a lift home.",
+    "{name} has been five minutes away since Tuesday.",
+    "{name} has been going through the shagpile for a dropped point since Tuesday, and that's still better uptime.",
+    "{name} has sold more gear than they've ever equipped.",
+    "{name} would swap their mum's telly for a flask and call it a good deal.",
+    "{name} has pulled apart three remotes this week and still can't pull a boss.",
+    "{name} sees more shadow people than adds.",
+    "{name} has the attention span of a bloke halfway through pulling the oven apart at 4am.",
+    "{name} reckons the neighbours are in the walls. {name} also reckons they were in position.",
 }
 
 local SERVO = {
@@ -96,8 +113,8 @@ local SERVO = {
     },
     verdicts = {
         { 10, "flawless. Somebody frame the paper bag" }, { 9, "would wipe to Onyxia for another" },
-        { 7, "solid. Like a raid that only wipes twice" }, { 6, "does the job. Like a Bunnings snag, but sadder" },
-        { 4, "edible, the way a bin chicken considers things edible" }, { 2, "even the dolphins wouldn't touch it" },
+        { 7, "solid. Like a raid that only wipes twice" }, { 6, "does the job. Like a court-appointed lawyer" },
+        { 4, "edible, if you've been up since Tuesday" }, { 2, "even the dolphins wouldn't touch it" },
     },
 }
 
@@ -108,9 +125,9 @@ local YEAHNAH = {
     { "Nah nah.", "Not a chance, mate.", "red" },
     { "Yeah nah yeah.", "Honestly? Ask again after a servo pie.", "yellow" },
     { "Nah yeah nah.", "The dolphins say no.", "red" },
-    { "Yeah, nah, yeah, nah...", "Flip a thong. Heads it's a yes.", "yellow" },
-    { "Yeah mate.", "The bin chickens approve.", "green" },
-    { "Nah, mate.", "Even Bunnings is closed for this one.", "red" },
+    { "Yeah, nah, yeah, nah...", "Flip a coin. If you've got one.", "yellow" },
+    { "Yeah mate.", "Daz reckons it's sweet.", "green" },
+    { "Nah, mate.", "Even the servo's shut for this one.", "red" },
     { "Ehh... yeah?", "Same odds as finding parking at Crab Fest.", "yellow" },
 }
 
@@ -183,6 +200,28 @@ GF:On("GF_ENTER_WORLD", function(_, isReload)
     -- a /reload isn't a new arrival
     if API.Clean(isReload) == true then return end
     GF:After(GREET_DELAY, function() greet(0) end)
+end)
+
+-------------------------------------------------------------------------------
+-- First login: what the addon needs from you. Chat, not a popup, once per character.
+-------------------------------------------------------------------------------
+local FIRST_LOGIN = {
+    "New to the street. Open your profession windows once, so the locals know what you can cook.",
+    "If this is an alt, /gf main <name> keeps your rap sheet in one place.",
+    "You're ranked richest to poorest. The amount's hidden on screen, but the shared score gives your gold away to within about double. Settings turns it off.",
+}
+
+--- Waits out the guild lock: the gate opening brings us back, so a late joiner still hears it.
+local function tellNewcomer()
+    local c = GF.cdb
+    if GF.gateShut or type(c) ~= "table" or c.toldNew then return end
+    c.toldNew = true
+    for _, line in ipairs(FIRST_LOGIN) do GF:Print(line) end
+end
+
+GF:On("GF_ENTER_WORLD", function() GF:After(NEW_DELAY, tellNewcomer) end)
+GF:On("GF_GATE_CHANGED", function(shut)
+    if not shut then GF:After(NEW_DELAY, tellNewcomer) end
 end)
 
 -------------------------------------------------------------------------------

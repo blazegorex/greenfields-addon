@@ -925,7 +925,7 @@ function Raids:InviteCandidates(id)
     local list = {}
     for _, s in ipairs(self:SignupsFor(id)) do
         local k = s.char
-        if (s.status == "yes" or s.status == "late") and k ~= me and R:IsOnline(k) and not R:InGroup(k) then
+        if (s.status == "yes" or s.status == "late") and k ~= me and R:IsOnline(k) and not R:InGroup(k) and not R:Clash(k) then
             list[#list + 1] = { key = k, rank = placed[k] and 0 or (s.status == "yes" and 1 or 2), t = s.t }
         end
     end

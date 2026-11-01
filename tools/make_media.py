@@ -1,25 +1,30 @@
-"""Generates every texture in Greenfields/Media.
+"""Generates the road signs, crest, line icons and small utility textures in Greenfields/Media.
+tools/make_chrome.py owns the metal, panels and pills; don't add those here.
 
 WoW wants uncompressed 32-bit TGA (image type 2, descriptor 0x08, bottom-left origin)
 with power-of-two sizes, which is exactly what Forever-era addons ship. Everything is
-drawn at 4x and downsampled so edges are antialiased.
+drawn big and downsampled so edges are antialiased.
 
-    python tools/make_media.py
+    python -P tools/make_media.py            # everything
+    python -P tools/make_media.py signs      # one group: signs, crest, utility, icons
 """
 import math
 import os
 import random
 import struct
+import sys
 
-from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
+import numpy as np
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import artkit as ak  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "Greenfields", "Media")
 FONTS = r"C:\Windows\Fonts"
 SS = 4  # supersample factor
 
-SIGN_GREEN_TOP = (16, 128, 72)
-SIGN_GREEN_BOT = (6, 88, 48)
 WHITE = (255, 255, 255)
 HAZARD = (255, 204, 0)
 
@@ -49,153 +54,351 @@ def font(file, size, variation=None):
     return f
 
 
-def vgradient(size, top, bot):
-    w, h = size
-    g = Image.new("RGBA", (1, h))
-    for y in range(h):
-        t = y / max(1, h - 1)
-        g.putpixel((0, y), tuple(int(top[i] + (bot[i] - top[i]) * t) for i in range(3)) + (255,))
-    return g.resize((w, h))
-
-
 def rounded_mask(size, box, radius):
     m = Image.new("L", size, 0)
     ImageDraw.Draw(m).rounded_rectangle(box, radius=radius, fill=255)
     return m
 
 
-def grime(size, seed, amount=0.05, dark=True):
-    """Speckle + scratch layer (RGBA) so signs look like they've lived on a Greenfields corner."""
-    rnd = random.Random(seed)
-    w, h = size
-    layer = Image.new("RGBA", size, (0, 0, 0, 0))
-    d = ImageDraw.Draw(layer)
-    col = (0, 0, 0) if dark else (255, 255, 255)
-    for _ in range(int(w * h * amount / 400)):
-        x, y = rnd.uniform(0, w), rnd.uniform(0, h)
-        r = rnd.uniform(0.5, 2.2) * SS
-        d.ellipse((x - r, y - r, x + r, y + r), fill=col + (rnd.randint(18, 60),))
-    for _ in range(6):
-        x, y = rnd.uniform(0, w), rnd.uniform(0, h)
-        ang = rnd.uniform(-0.5, 0.5)
-        ln = rnd.uniform(20, 70) * SS
-        d.line((x, y, x + math.cos(ang) * ln, y + math.sin(ang) * ln), fill=(255, 255, 255, 28), width=SS)
-    return layer
+# --------------------------------------------------------------------------------------
+# Road signs: pressed aluminium, matte enamel, embossed lettering. Built as a height field by
+# artkit so they share the window's top-left light. Layouts are in "design units" of the old
+# 512-wide sign; everything is drawn at 4x that and shrunk to the size the file ships at.
+# --------------------------------------------------------------------------------------
+U = 4  # big pixels per design unit
+
+FACE_GREEN = ak.ramp((0, "#02180d"), (0.30, "#06482a"), (0.50, "#0c6b3e"), (0.70, "#158a52"), (0.88, "#43b582"), (1, "#b9ecd2"))
+FACE_YELLOW = ak.ramp((0, "#3f2d02"), (0.28, "#b98a04"), (0.50, "#efbb0c"), (0.70, "#fbd02e"), (0.88, "#ffe579"), (1, "#fff7cf"))
+FACE_RED = ak.ramp((0, "#220304"), (0.30, "#7c1216"), (0.50, "#ae1f22"), (0.70, "#cd3a38"), (0.88, "#e77f76"), (1, "#f9d3cc"))
+FACE_BLUE = ak.ramp((0, "#030a1d"), (0.30, "#0d2a63"), (0.50, "#143c8a"), (0.70, "#2256ab"), (0.88, "#6b92d0"), (1, "#cfdcf3"))
+INK_WHITE = ak.ramp((0, "#5b625d"), (0.28, "#aeb5ad"), (0.50, "#eceee5"), (0.72, "#fafbf4"), (1, "#ffffff"))
+INK_SOFT = ak.ramp((0, "#4d5a52"), (0.28, "#9eaea4"), (0.50, "#dae6dd"), (0.72, "#f0f7f1"), (1, "#ffffff"))
+INK_BLACK = ak.ramp((0, "#000000"), (0.50, "#15140f"), (0.72, "#34322a"), (0.90, "#77735f"), (1, "#c9c4a8"))
+ALUMINIUM = ak.ramp((0, "#17191a"), (0.25, "#55595b"), (0.50, "#8f9496"), (0.72, "#c3c7c8"), (0.90, "#e8eaea"), (1, "#ffffff"))
 
 
-def sign(w, h, top, bot, border, seed, text_fn=None, radius=14, inset=5, border_w=4):
-    """A rounded Australian guide sign: coloured face, white inset border, soft drop shadow."""
-    W, H = w * SS, h * SS
-    img = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    face_box = (inset * SS, inset * SS, W - inset * SS, H - inset * SS - 3 * SS)
-    # shadow
-    sh = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    ImageDraw.Draw(sh).rounded_rectangle(
-        (face_box[0], face_box[1] + 3 * SS, face_box[2], face_box[3] + 3 * SS), radius=radius * SS, fill=(0, 0, 0, 150))
-    sh = sh.filter(ImageFilter.GaussianBlur(3 * SS))
-    img.alpha_composite(sh)
-    # face
-    face = vgradient((W, H), top, bot)
-    mask = rounded_mask((W, H), face_box, radius * SS)
-    img.paste(face, (0, 0), mask)
-    # border
-    b = (face_box[0] + 4 * SS, face_box[1] + 4 * SS, face_box[2] - 4 * SS, face_box[3] - 4 * SS)
-    ImageDraw.Draw(img).rounded_rectangle(b, radius=(radius - 4) * SS, outline=border + (255,), width=border_w * SS)
-    if text_fn:
-        text_fn(img, ImageDraw.Draw(img), face_box)
-    # grime only on the face
-    g = grime((W, H), seed)
-    g.putalpha(ImageChops.multiply(g.getchannel("A"), mask))
-    img.alpha_composite(g)
-    # top sheen
-    sheen = Image.new("RGBA", (W, H), (255, 255, 255, 0))
-    ImageDraw.Draw(sheen).rectangle((0, 0, W, face_box[1] + (face_box[3] - face_box[1]) * 0.45), fill=(255, 255, 255, 18))
-    sheen.putalpha(ImageChops.multiply(sheen.getchannel("A"), mask))
-    img.alpha_composite(sheen)
-    return img.resize((w, h), Image.LANCZOS)
+def text_mask(canvas):
+    return ImageDraw.Draw(canvas.img)
 
 
-def centered(draw, box, y, text, fnt, fill, spacing=0):
+def road_sign(w, h, dw, dh, face, ink=INK_WHITE, soft=INK_SOFT, seed=1, paint=None, radius=14, inset=5, border_w=4,
+              bolts=(), stickers=(), name=None, wear_band=16):
+    """w x h is what ships, dw x dh the layout space. paint(main, sub, box) draws lettering in big
+    pixels onto two masks: main takes `ink`, sub takes the softer `soft` used for small print."""
+    W, H = dw * U, dh * U
+    box = (inset * U, inset * U, W - inset * U, H - (inset + 3) * U)
+    plate = ak.Canvas(W, H).rrect(*box, radius * U).array()
+    b = 4 * U
+    bw = border_w * U
+    ring = (ak.Canvas(W, H).rrect(box[0] + b, box[1] + b, box[2] - b, box[3] - b, (radius - 4) * U).array()
+            * (1 - ak.Canvas(W, H).rrect(box[0] + b + bw, box[1] + b + bw, box[2] - b - bw, box[3] - b - bw,
+                                         max(1, radius - 4 - border_w) * U).array()))
+    main, sub = ak.Canvas(W, H), ak.Canvas(W, H)
+    if paint:
+        paint(main, sub, box)
+    main_a, sub_a = np.maximum(main.array(), ring), sub.array()
+    raised = np.maximum(main_a, sub_a)
+
+    # the sheet: rolled edge, a little waviness from being pressed, then the raised lettering
+    wobble = ak.fbm_noise(H, W, seed, cells=3, octaves=3) * 2.6 * U
+    rolled = ak.bevel(plate, 1.6 * U, 1.3 * U)
+    emboss = ak.blur(ak.bevel(raised, 0.95 * U, 0.85 * U), 0.14 * U)
+    height = rolled + wobble + emboss
+
+    ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
+    # gentle falloff away from the light, not a gloss band
+    drift = (0.5 - (xs / W * 0.6 + ys / H * 0.4)) * 0.10
+
+    def lit(material, amount=1.0):
+        return ak.shade(height, lambda v: material(np.clip(v + drift * amount, 0, 1)), strength=1.0, base=0.5, gain=0.72,
+                        spec=0.10, shininess=14, grain=0.5, seed=seed + 1, sheen=0.035)
+
+    L = ak.Layer(W, H)
+    L.over((0, 0, 0), ak.drop_shadow(plate, 0, 1.4 * U, 2.4 * U, 0.60) * (1 - plate))
+    L.over(lit(face), plate)
+    L.over((0, 0, 0), ak.drop_shadow(raised, 0.45 * U, 0.65 * U, 0.55 * U, 0.34) * (1 - raised) * plate)
+    L.over(lit(ink, 0.6), main_a * plate)
+    L.over(lit(soft, 0.6), sub_a * (1 - main_a) * plate)
+
+    # honest wear, out by the edges where text never goes
+    rng = np.random.default_rng(seed + 2)
+    edge_dist = ak.sdf(plate) / U
+    band = np.clip(1 - edge_dist / wear_band, 0, 1) * plate
+    weather = np.clip(ak.fbm_noise(H, W, seed + 4, cells=5, octaves=4) - 0.52, 0, 1) * 2.2
+    L.over((238, 236, 222), weather * band * 0.10)
+    chips = ak.Canvas(W, H)
+    for _ in range(14):
+        a = rng.random() * 2 * math.pi
+        x = rng.random() * W
+        y = rng.random() * H
+        if rng.random() < 0.5:
+            y = box[1] + rng.random() * 9 * U if rng.random() < 0.5 else box[3] - rng.random() * 9 * U
+        else:
+            x = box[0] + rng.random() * 9 * U if rng.random() < 0.5 else box[2] - rng.random() * 9 * U
+        r = (0.3 + rng.random() * 0.7) * U
+        chips.poly([(x + math.cos(a + i * 1.26) * r * (0.7 + rng.random() * 0.6),
+                     y + math.sin(a + i * 1.26) * r * (0.7 + rng.random() * 0.6)) for i in range(5)])
+    chip_a = ak.blur(chips.array(), 0.1 * U) * plate
+    L.over((150, 154, 154), chip_a * 0.55)
+    L.over((0, 0, 0), ak.drop_shadow(chip_a, 0, 0.3 * U, 0.2 * U, 0.3) * (1 - chip_a) * plate)
+
+    # raw metal showing along the cut edge
+    edge = plate * (1 - ak.Canvas(W, H).rrect(box[0] + 0.75 * U, box[1] + 0.75 * U, box[2] - 0.75 * U, box[3] - 0.75 * U,
+                                              (radius - 0.75) * U).array())
+    L.over(lit(ALUMINIUM), edge * 0.9)
+
+    for (bx, by, br) in bolts:
+        draw_bolt(L, W, H, bx * U, by * U, br * U, plate)
+    for st in stickers:
+        draw_sticker(L, W, H, *st)
+    img = L.image(w, h)
+    if name:
+        save_tga(img, name)
+    return img
+
+
+def draw_bolt(L, W, H, cx, cy, r, plate):
+    washer = ak.Canvas(W, H).circle(cx, cy, r * 1.35).array()
+    head = ak.Canvas(W, H).circle(cx, cy, r).array()
+    # a thin rust weep running down from the bolt
+    ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
+    weep = np.exp(-((xs - cx) / (r * 0.55)) ** 2) * np.clip((ys - cy) / (r * 7), 0, 1) ** 0.4 * np.clip(1 - (ys - cy) / (r * 7), 0, 1)
+    L.over((60, 34, 14), weep * plate * 0.16)
+    L.over((0, 0, 0), ak.drop_shadow(washer, 0.25 * U, 0.4 * U, 0.35 * U, 0.55) * (1 - washer) * plate)
+    h_washer = ak.bevel(washer, r * 0.4, r * 0.25)
+    L.over(ak.shade(h_washer, ALUMINIUM, strength=1.0, base=0.40, gain=0.9, spec=0.2), washer)
+    h_head = ak.bevel(head, r, r * 0.85)
+    L.over(ak.shade(h_head, ALUMINIUM, strength=0.9, base=0.52, gain=0.85, spec=0.55, shininess=30), head)
+
+
+def draw_sticker(L, W, H, cx, cy, text, angle, fill=HAZARD, ink=(20, 20, 20)):
+    """A vinyl sticker slapped on crooked. cx, cy in design units."""
+    f = font("bahnschrift.ttf", 13 * U, "Bold")
+    tmp = Image.new("RGBA", (160 * U, 40 * U), (0, 0, 0, 0))
+    d = ImageDraw.Draw(tmp)
+    tw = d.textlength(text, font=f)
+    pad = 6 * U
+    bx = (0, 0, tw + pad * 2, 22 * U)
+    d.rounded_rectangle(bx, radius=3 * U, fill=fill + (255,))
+    d.text((pad, 2.5 * U), text, font=f, fill=ink + (255,))
+    tmp = tmp.crop((0, 0, int(bx[2]) + 1, int(bx[3]) + 1)).rotate(angle, resample=Image.BICUBIC, expand=True)
+    full = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    full.alpha_composite(tmp, (int(cx * U - tmp.width / 2), int(cy * U - tmp.height / 2)))
+    arr = np.asarray(full, dtype=np.float32)
+    a = arr[..., 3] / 255.0
+    L.over((0, 0, 0), ak.drop_shadow(a, 0.3 * U, 0.6 * U, 0.6 * U, 0.5) * (1 - a))
+    ys, xs = np.mgrid[0:H, 0:W].astype(np.float32)
+    lift = 1.04 - (ys - cy * U) / (22 * U) * 0.07
+    L.over(np.clip(arr[..., :3] * lift[..., None], 0, 255), a)
+
+
+def centered(d, box, y, text, fnt, fill, spacing=0):
+    """Text centred across box. y is the top of the line, all in big pixels."""
     if spacing:
-        widths = [draw.textlength(ch, font=fnt) for ch in text]
+        widths = [d.textlength(ch, font=fnt) for ch in text]
         total = sum(widths) + spacing * (len(text) - 1)
         x = box[0] + (box[2] - box[0] - total) / 2
         for ch, cw in zip(text, widths):
-            draw.text((x, y), ch, font=fnt, fill=fill)
+            d.text((x, y), ch, font=fnt, fill=fill)
             x += cw + spacing
     else:
-        tw = draw.textlength(text, font=fnt)
-        draw.text((box[0] + (box[2] - box[0] - tw) / 2, y), text, font=fnt, fill=fill)
-
-
-def sticker(img, cx, cy, text, angle, fill=HAZARD, ink=(20, 20, 20)):
-    f = font("bahnschrift.ttf", 13 * SS, "Bold")
-    tmp = Image.new("RGBA", (120 * SS, 30 * SS), (0, 0, 0, 0))
-    d = ImageDraw.Draw(tmp)
-    tw = d.textlength(text, font=f)
-    pad = 6 * SS
-    box = (0, 0, tw + pad * 2, 22 * SS)
-    d.rounded_rectangle(box, radius=3 * SS, fill=fill + (255,))
-    d.text((pad, 2.5 * SS), text, font=f, fill=ink + (255,))
-    tmp = tmp.crop((0, 0, int(box[2]) + 1, int(box[3]) + 1)).rotate(angle, resample=Image.BICUBIC, expand=True)
-    img.alpha_composite(tmp, (int(cx - tmp.width / 2), int(cy - tmp.height / 2)))
-
-
-def bullet_hole(img, cx, cy, r):
-    d = ImageDraw.Draw(img)
-    for i in range(7):
-        a = i * 2 * math.pi / 7 + 0.3
-        d.line((cx, cy, cx + math.cos(a) * r * 2.6, cy + math.sin(a) * r * 2.6), fill=(255, 255, 255, 70), width=SS)
-    d.ellipse((cx - r * 1.35, cy - r * 1.35, cx + r * 1.35, cy + r * 1.35), fill=(210, 210, 210, 200))
-    d.ellipse((cx - r, cy - r, cx + r, cy + r), fill=(15, 15, 15, 255))
+        tw = d.textlength(text, font=fnt)
+        d.text((box[0] + (box[2] - box[0] - tw) / 2, y), text, font=fnt, fill=fill)
 
 
 def make_logo():
-    def text(img, d, box):
-        big = font("bahnschrift.ttf", 62 * SS, "Bold")
-        small = font("bahnschrift.ttf", 16 * SS, "SemiBold")
-        centered(d, box, box[1] + 10 * SS, "GREENFIELDS", big, WHITE + (255,), spacing=2 * SS)
-        centered(d, box, box[1] + 82 * SS, "MANDURAH  \u2022  WA 6210", small, (220, 240, 228, 255), spacing=3 * SS)
-        bullet_hole(img, box[2] - 40 * SS, box[3] - 18 * SS, 3.2 * SS)
-        bullet_hole(img, box[0] + 30 * SS, box[1] + 22 * SS, 2.4 * SS)
-        sticker(img, box[2] - 52 * SS, box[1] + 10 * SS, "EST. 2026", -9)
-    save_tga(sign(512, 128, SIGN_GREEN_TOP, SIGN_GREEN_BOT, WHITE, 6210, text), "logo")
+    def text(main, sub, box):
+        big = font("bahnschrift.ttf", 62 * U, "Bold")
+        small = font("bahnschrift.ttf", 16 * U, "SemiBold")
+        centered(text_mask(main), box, box[1] + 10 * U, "GREENFIELDS", big, 255, spacing=2 * U)
+        centered(text_mask(sub), box, box[1] + 82 * U, "MANDURAH  •  WA 6210", small, 255, spacing=3 * U)
+    road_sign(512, 128, 512, 128, FACE_GREEN, seed=6210, paint=text, name="logo",
+              bolts=((35, 27, 2.6), (512 - 45, 128 - 26, 2.6)),
+              stickers=((512 - 57, 15, "EST. 2026", -9),))
 
 
 def make_signs():
-    save_tga(sign(512, 128, SIGN_GREEN_TOP, SIGN_GREEN_BOT, WHITE, 11), "sign_green")
-    save_tga(sign(512, 128, (255, 214, 10), (236, 178, 0), (20, 20, 20), 12), "sign_yellow")
-    save_tga(sign(512, 128, (214, 40, 40), (160, 20, 24), WHITE, 13), "sign_red")
-    save_tga(sign(512, 128, (24, 70, 160), (14, 46, 112), WHITE, 14), "sign_blue")
+    # toasts stretch the middle fifth of these when they grow a line (UI/Toast.lua), so the bolts
+    # sit clear of it, one up top and one down low
+    bolts = ((22, 37, 2.6), (512 - 22, 128 - 3 - 37, 2.6))
+    road_sign(1024, 256, 512, 128, FACE_GREEN, seed=11, bolts=bolts, name="sign_green", wear_band=13)
+    road_sign(1024, 256, 512, 128, FACE_YELLOW, ink=INK_BLACK, soft=INK_BLACK, seed=12, bolts=bolts, name="sign_yellow", wear_band=13)
+    road_sign(1024, 256, 512, 128, FACE_RED, seed=13, bolts=bolts, name="sign_red", wear_band=13)
+    road_sign(1024, 256, 512, 128, FACE_BLUE, seed=14, bolts=bolts, name="sign_blue", wear_band=13)
 
-    def welcome(img, d, box):
-        a = font("bahnschrift.ttf", 22 * SS, "SemiBold")
-        b = font("bahnschrift.ttf", 64 * SS, "Bold")
-        c = font("bahnschrift.ttf", 17 * SS, "SemiBold")
-        centered(d, box, box[1] + 26 * SS, "WELCOME TO", a, WHITE + (255,), spacing=6 * SS)
-        centered(d, box, box[1] + 56 * SS, "GREENFIELDS", b, WHITE + (255,), spacing=2 * SS)
-        d.line((box[0] + 60 * SS, box[1] + 140 * SS, box[2] - 60 * SS, box[1] + 140 * SS), fill=(255, 255, 255, 160), width=2 * SS)
-        centered(d, box, box[1] + 152 * SS, "PLEASE DRIVE CAREFULLY.  OR DON'T.", c, (220, 240, 228, 255), spacing=2 * SS)
-        centered(d, box, box[1] + 178 * SS, "POP. 40 RAIDERS  \u2022  1 SERVO", c, (220, 240, 228, 255), spacing=2 * SS)
-        bullet_hole(img, box[2] - 60 * SS, box[1] + 40 * SS, 3.5 * SS)
-        bullet_hole(img, box[0] + 46 * SS, box[3] - 40 * SS, 2.8 * SS)
-        sticker(img, box[0] + 70 * SS, box[3] - 16 * SS, "NAH YEAH", 7, fill=(255, 62, 138), ink=WHITE)
-    save_tga(sign(512, 256, SIGN_GREEN_TOP, SIGN_GREEN_BOT, WHITE, 99, welcome, radius=20), "welcome")
+    def welcome(main, sub, box):
+        # this shows at about 0.43 of its design size, so the small print has to be big or it's not there
+        a = font("bahnschrift.ttf", 24 * U, "SemiBold")
+        b = font("bahnschrift.ttf", 64 * U, "Bold")
+        c = font("bahnschrift.ttf", 31 * U, "SemiBold")
+        centered(text_mask(main), box, box[1] + 16 * U, "WELCOME TO", a, 255, spacing=6 * U)
+        centered(text_mask(main), box, box[1] + 42 * U, "GREENFIELDS", b, 255, spacing=2 * U)
+        y = box[1] + 124 * U
+        main.rrect(box[0] + 60 * U, y - U, box[2] - 60 * U, y + U, U)
+        centered(text_mask(sub), box, box[1] + 134 * U, "POP. 40 RAIDERS", c, 255, spacing=U)
+        centered(text_mask(sub), box, box[1] + 174 * U, "1 SERVO. NO QUESTIONS.", c, 255, spacing=U)
+    road_sign(512, 256, 512, 256, FACE_GREEN, seed=99, paint=welcome, radius=20, name="welcome",
+              bolts=((512 - 34, 32, 3), (34, 256 - 38, 3)))
+
+    def watch(main, sub, box):
+        # the eye: an almond outline, a solid iris, one catch-light
+        cx, cy, hw, hh = 76 * U, 62 * U, 44 * U, 27 * U
+        top = ak.bezier((cx - hw, cy), (cx, cy - hh * 1.9), (cx + hw, cy), n=48)
+        bot = ak.bezier((cx + hw, cy), (cx, cy + hh * 1.9), (cx - hw, cy), n=48)
+        almond = np.concatenate((top, bot))
+        main.poly(almond)
+        k = 0.80
+        main.poly([(cx + (x - cx) * k, cy + (y - cy) * k) for (x, y) in almond], fill=0)
+        main.circle(cx, cy, 17.5 * U)
+        main.circle(cx - 5.5 * U, cy - 6 * U, 4.6 * U, fill=0)
+        f = font("bahnschrift.ttf", 43 * U, "Bold")
+        d = text_mask(main)
+        x0, x1 = 132 * U, (512 - 22) * U
+        for text, base in (("NEIGHBOURHOOD", 56), ("WATCH AREA", 100)):
+            total = d.textlength(text, font=f)
+            d.text((x0 + (x1 - x0 - total) / 2, base * U), text, font=f, fill=255, anchor="ls")
+    road_sign(512, 128, 512, 128, FACE_YELLOW, ink=INK_BLACK, soft=INK_BLACK, seed=77, paint=watch, name="sign_watch",
+              bolts=((22, 37, 2.4), (512 - 22, 128 - 3 - 37, 2.4)))
+
+
+# --------------------------------------------------------------------------------------
+# The crest: a heater shield in sign-green enamel, gold rim, and the glass pipe, borne upright
+# --------------------------------------------------------------------------------------
+def shield_outline(cx, top, half, bottom, shoulder, inset=0.0):
+    """Heater shield outline in big pixels: flat top, straight shoulders, curving to a point."""
+    x0, x1 = cx - half + inset, cx + half - inset
+    t, b = top + inset, bottom - inset * 1.5
+    s = shoulder
+    left = ak.bezier((x0, s), (x0, s + (b - s) * 0.50), (cx - (half - inset) * 0.42, s + (b - s) * 0.80), (cx, b), n=60)
+    right = left.copy()
+    right[:, 0] = 2 * cx - right[:, 0]
+    return [(x0, t), (x1, t)] + [tuple(p) for p in right] + [tuple(p) for p in left[::-1]]
+
+
+def pipe_masks(N, P, w, wisp_w=2.6):
+    """The charge on the shield, borne upright the way another family would carry a sword: a straight
+    stem up the middle from the point of the shield, a blown bulb, a curl of smoke. As masks: the
+    white glass lines, the see-through inside of it, the burn low in the bulb, the ember, and the
+    smoke. The hollow stem and the ember are what stop it being a magnifying glass. P maps (x, y) in
+    a 128-wide layout to big pixels, w scales a width."""
+    glass, body, soot, ember, wisp = ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N)
+    cx, cy, r = 64, 56, 16.5
+    # the bulb: a ring of glass round a clear middle
+    glass.circle(*P(cx, cy), w(r))
+    glass.circle(*P(cx, cy), w(r - 3.5), fill=0)
+    body.circle(*P(cx, cy), w(r - 3.5))
+    soot.circle(*P(cx - 1.0, cy + 6.0), w(r - 6.5))
+    soot.circle(*P(cx + 2.0, cy + 0.5), w(r - 5.5), fill=0)
+    # the stem, a touch wider where it's blown out of the bulb
+    stem = ak.bezier(P(cx, cy + r - 2.0), P(cx, cy + 30), P(cx, 105), n=40)
+    glass.poly(ak.ribbon(stem, np.linspace(w(9.0), w(7.0), 40)))
+    hollow = ak.bezier(P(cx, cy + r - 3.6), P(cx, cy + 30), P(cx, 106), n=40)
+    glass.poly(ak.ribbon(hollow, np.linspace(w(4.0), w(2.6), 40)), fill=0)
+    body.poly(ak.ribbon(hollow, np.linspace(w(4.0), w(2.6), 40)))
+    ember.circle(*P(cx, cy + 8.0), w(4.2))
+    # the glints, and the little hole in the top
+    glass.circle(*P(cx + 5.2, cy - 5.6), w(2.7))
+    glass.circle(*P(cx - 6.4, cy - 3.2), w(1.2))
+    # the smoke, curling up toward the top of the shield
+    curl = ak.bezier(P(cx, cy - r + 1), P(cx + 11, cy - r - 6), P(cx - 9, cy - r - 8), P(cx + 2, 28), n=50)
+    wisp.poly(ak.ribbon(curl, np.linspace(w(wisp_w), w(wisp_w * 1.5), 50)))
+    return glass.array(), body.array(), soot.array(), ember.array(), wisp.array()
+
+
+def make_crest():
+    px = 128
+    N = px * 8
+    u = N / 128.0
+
+    def P(x, y):
+        return (x * u, y * u)
+
+    def w(x):
+        return x * u
+    cx = 64 * u
+    top, half, bottom, shoulder = 21 * u, 36 * u, 121 * u, 58 * u
+    outer = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder)).array()
+    inner = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder, inset=4.6 * u)).array()
+    rim = outer * (1 - inner)
+
+    # two gum leaves crossed behind the shield, tips and stems showing either side
+    leaves, ribs = ak.Canvas(N, N), ak.Canvas(N, N)
+    for (p0, c, p1, wd) in (((9, 104), (58, 96), (117, 7), 24), ((119, 104), (70, 96), (11, 7), 24)):
+        mid = ak.bezier(P(*p0), P(*c), P(*p1), n=80)
+        # fat all along, or the bits that show past the shield come out as spikes
+        leaves.poly(ak.ribbon(mid, w(wd) * np.sin(np.linspace(0, 1, 80) * math.pi) ** 0.62))
+        ribs.poly(ak.ribbon(mid[3:-5], w(0.9)))
+    leaves_a = leaves.array()
+    h_leaf = ak.blur(ak.bevel(leaves_a, 3.0 * u, 3.6 * u) - ak.blur(ribs.array(), 0.25 * u) * 1.3 * u, 0.2 * u)
+    gold_leaf = ak.shade(h_leaf, ak.GOLD, strength=1.15, base=0.50, gain=1.15, spec=0.45, shininess=28, grain=0.5, seed=3, wear=0.5, sheen=0.06)
+
+    # the shield itself
+    h_rim = ak.blur(ak.bevel(rim, 1.9 * u, 3.0 * u), 0.2 * u)
+    gold_rim = ak.shade(h_rim, ak.GOLD, strength=1.2, base=0.56, gain=1.25, spec=0.55, shininess=30, grain=0.5, seed=5, wear=0.7, sheen=0.05)
+    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
+    drift = (0.5 - (xs + ys) / (2.0 * N)) * 0.30
+    dome = ak.blur(ak.bevel(inner, 26 * u, 5.0 * u, profile="smooth"), 9 * u)
+    face = ak.shade(dome, lambda v: FACE_GREEN(np.clip(v + drift, 0, 1)), strength=1.0, base=0.47, gain=0.8, spec=0.12, shininess=12)
+
+    glass, body, soot, ember, wisp = pipe_masks(N, P, w)
+    h_glass = ak.blur(ak.bevel(glass, 1.7 * u, 2.2 * u), 0.2 * u)
+    c_glass = ak.shade(h_glass, INK_WHITE, strength=1.0, base=0.56, gain=0.8, spec=0.2)
+    pipe = np.maximum(glass, body)
+
+    L = ak.Layer(N, N)
+    solid = np.maximum(outer, leaves_a)
+    L.over((3, 3, 4), ak.drop_shadow(solid, 0.6 * u, 1.2 * u, 1.5 * u, 0.7) * (1 - solid))
+    L.over(gold_leaf, leaves_a)
+    L.over((4, 3, 2), ak.drop_shadow(outer, 0.9 * u, 1.4 * u, 1.3 * u, 0.72) * (1 - outer) * leaves_a)
+    L.over(gold_rim, rim)
+    L.over(face, inner)
+    L.over((0, 0, 0), np.clip(1 - ak.sdf(inner) / (3.4 * u), 0, 1) ** 2 * inner * 0.55)
+    L.over((0, 0, 0), ak.drop_shadow(pipe, 0.5 * u, 0.8 * u, 0.7 * u, 0.5) * (1 - pipe) * inner)
+    L.over((226, 240, 232), body * 0.20)
+    L.over((9, 20, 15), ak.blur(soot, 1.1 * u) * body * 0.62)
+    L.over((255, 118, 36), ak.blur(ember, 2.4 * u) * body * 0.92)
+    L.add((255, 196, 120), ak.blur(ember, 0.8 * u) * body * 0.42)
+    L.over((236, 241, 238), wisp * inner * 0.82)
+    L.over(c_glass, glass)
+    out = L.image(px, px)
+    save_tga(out, os.path.join("art", "crest"))
 
 
 def make_minimap():
-    W = 64 * SS
-    img = Image.new("RGBA", (W, W), (0, 0, 0, 0))
-    disc = vgradient((W, W), SIGN_GREEN_TOP, SIGN_GREEN_BOT)
-    m = Image.new("L", (W, W), 0)
-    ImageDraw.Draw(m).ellipse((2 * SS, 2 * SS, W - 2 * SS, W - 2 * SS), fill=255)
-    img.paste(disc, (0, 0), m)
-    d = ImageDraw.Draw(img)
-    d.ellipse((6 * SS, 6 * SS, W - 6 * SS, W - 6 * SS), outline=WHITE + (255,), width=3 * SS)
-    f = font("bahnschrift.ttf", 40 * SS, "Bold")
-    tw = d.textlength("G", font=f)
-    d.text(((W - tw) / 2, 9 * SS), "G", font=f, fill=WHITE + (255,))
-    save_tga(img.resize((64, 64), Image.LANCZOS), "minimap")
+    """Small version for the minimap: shield and pipe, heavier shapes, nothing fine. Masked to a
+    circle in game, so it stays inside one."""
+    px = 64
+    N = px * 16
+    u = N / 128.0
+
+    def P(x, y):
+        return (x * u, (y - 8) * u)
+
+    def w(x):
+        return x * u * 1.22
+    cx = 64 * u
+    top, half, bottom, shoulder = 12 * u, 46 * u, 124 * u, 58 * u
+    outer = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder)).array()
+    inner = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder, inset=7.0 * u)).array()
+    rim = outer * (1 - inner)
+    h_rim = ak.blur(ak.bevel(rim, 3.0 * u, 4.0 * u), 0.3 * u)
+    gold_rim = ak.shade(h_rim, ak.GOLD, strength=1.1, base=0.58, gain=1.15, spec=0.5, shininess=26, seed=5)
+    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
+    drift = (0.5 - (xs + ys) / (2.0 * N)) * 0.28
+    dome = ak.blur(ak.bevel(inner, 30 * u, 5.0 * u, profile="smooth"), 10 * u)
+    face = ak.shade(dome, lambda v: FACE_GREEN(np.clip(v + drift, 0, 1)), strength=1.0, base=0.50, gain=0.8, spec=0.1, shininess=12)
+    glass, body, soot, ember, wisp = pipe_masks(N, P, w, wisp_w=3.2)
+    c_glass = ak.shade(ak.blur(ak.bevel(glass, 3.0 * u, 2.2 * u), 0.3 * u), INK_WHITE, strength=1.0, base=0.58, gain=0.7, spec=0.1)
+    L = ak.Layer(N, N)
+    L.over(gold_rim, rim)
+    L.over(face, inner)
+    L.over((226, 240, 232), body * 0.20)
+    L.over((9, 20, 15), ak.blur(soot, 1.5 * u) * body * 0.62)
+    L.over((255, 118, 36), ak.blur(ember, 2.4 * u) * body * 0.95)
+    L.add((255, 196, 120), ak.blur(ember, 1.0 * u) * body * 0.45)
+    L.over((236, 241, 238), wisp * inner * 0.85)
+    L.over(c_glass, glass)
+    save_tga(L.image(px, px), "minimap")
 
 
 def make_utility():
@@ -240,46 +443,20 @@ def make_utility():
             px[x, y] = HAZARD + (255,) if ((x + y) // 16) % 2 == 0 else (24, 24, 24, 255)
     save_tga(img, "hazard")
 
-    # status bar fill with a gentle gloss (white, tinted in game)
-    W, H = 256, 32
-    img = Image.new("RGBA", (W, H))
-    px = img.load()
-    for y in range(H):
-        t = y / (H - 1)
-        v = int(255 * (1.0 - 0.28 * t))
-        a = 255
-        for x in range(W):
-            px[x, y] = (v, v, v, a)
-    d = ImageDraw.Draw(img)
-    d.rectangle((0, 0, W, 9), fill=(255, 255, 255, 255))
-    save_tga(img, "bar")
-
-    # solid circle + fully rounded pill (toggle tracks, status dots)
+    # solid circle (status dots)
     W = 32 * SS
     m = Image.new("L", (W, W), 0)
     ImageDraw.Draw(m).ellipse((0, 0, W - 1, W - 1), fill=255)
     img = Image.new("RGBA", (W, W), WHITE + (0,))
     img.putalpha(m)
     save_tga(img.resize((32, 32), Image.LANCZOS), "circle")
-    W, H = 64 * SS, 32 * SS
-    m = Image.new("L", (W, H), 0)
-    ImageDraw.Draw(m).rounded_rectangle((0, 0, W - 1, H - 1), radius=H // 2, fill=255)
-    img = Image.new("RGBA", (W, H), WHITE + (0,))
-    img.putalpha(m)
-    save_tga(img.resize((64, 32), Image.LANCZOS), "pill")
 
-    # rounded-rect fill + edge used for pills/chips (corner radius 6 at 32px)
-    for r, name in ((6, "round6"), (10, "round10")):
-        W = 32 * SS
-        m = rounded_mask((W, W), (0, 0, W - 1, W - 1), r * SS)
-        img = Image.new("RGBA", (W, W), WHITE + (0,))
-        img.putalpha(m)
-        save_tga(img.resize((32, 32), Image.LANCZOS), name)
-        e = Image.new("L", (W, W), 0)
-        ImageDraw.Draw(e).rounded_rectangle((0, 0, W - 1, W - 1), radius=r * SS, outline=255, width=SS * 1)
-        img = Image.new("RGBA", (W, W), WHITE + (0,))
-        img.putalpha(e)
-        save_tga(img.resize((32, 32), Image.LANCZOS), name + "_edge")
+    # rounded-rect fill for icon button hovers (corner radius 6 at 32px)
+    W = 32 * SS
+    m = rounded_mask((W, W), (0, 0, W - 1, W - 1), 6 * SS)
+    img = Image.new("RGBA", (W, W), WHITE + (0,))
+    img.putalpha(m)
+    save_tga(img.resize((32, 32), Image.LANCZOS), "round6")
 
 
 # --------------------------------------------------------------------------------------
@@ -618,14 +795,25 @@ def preview():
     return sheet
 
 
-if __name__ == "__main__":
-    os.makedirs(OUT, exist_ok=True)
-    make_logo()
-    make_signs()
-    make_minimap()
-    make_utility()
+def make_icons():
     for n, fn in ICONS.items():
         icon(n, fn)
-    out = os.path.join(ROOT, "tools", "media_preview.png")
-    preview().save(out)
-    print("wrote", len(os.listdir(OUT)), "files; preview:", out)
+
+
+GROUPS = {
+    "signs": [make_logo, make_signs],
+    "crest": [make_crest, make_minimap],
+    "utility": [make_utility],
+    "icons": [make_icons],
+}
+
+if __name__ == "__main__":
+    os.makedirs(OUT, exist_ok=True)
+    for group in sys.argv[1:] or list(GROUPS):
+        for fn in GROUPS[group]:
+            fn()
+            print("made", fn.__name__)
+    if not sys.argv[1:]:
+        out = os.path.join(ROOT, "tools", "media_preview.png")
+        preview().save(out)
+        print("preview:", out)
