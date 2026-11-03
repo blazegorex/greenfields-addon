@@ -4,6 +4,12 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.2.1 - 2026-11-03
+
+- Pixel-art street: every page banner, all 32 Hall of Fame portraits, the crest and the minimap button are redrawn as pixel art. The window, signs and menus stay as they were.
+- Small touches: buttons and the sidebar light up and fade smoothly, Soft Res and Roll Call glow when they want you, saying Yeah gets a green burst, and crowns and boss kills go off in gold on their sign.
+- The soft-res sign's item name is easier to read (an epic's purple was lost on the green), and the 25-deaths badge is now Graveyard Regular, so Frequent Flyer only means flight paths.
+
 ## 1.2.0 - 2026-11-02
 
 - New look, after dark: a new painted night on every page and a new crest, and the art and the jokes moved closer to where we actually came from. Three titles got new names to match: Been Up Since Tuesday, Loot Fiend and On The Gear.

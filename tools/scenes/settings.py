@@ -1,6 +1,6 @@
 """Settings: somebody's been tweaking the neighbourhood. A back yard at the quiet end of the night,
-a pair of jumper leads clamped straight on to the power line, and a fat cable sagging across the
-yard on bits of timber to a garden shed with foil on the window. It's only tomatoes."""
+a pair of jumper leads clamped straight on to the power line, taped side by side and sagging across
+the yard over a clothes prop to a garden shed, and in through the foil. It's only tomatoes."""
 import numpy as np
 
 from scenekit import SCRAWL, SS, Scene, bez, foil_window, gauss, gum_tree, lettering, power_pole, wires
@@ -9,27 +9,52 @@ BLUE = "#6fb4ff"
 
 
 def shed(s, x, base, w, h):
-    """Garden shed: a gable, corrugated, door shut. Bigger than it was, and doing better."""
+    """Garden shed: a gable of corrugated iron on a slab, cover strips on the corners. Bigger than it was,
+    and doing better."""
+    rise = w * 0.2
     m = s.mask()
-    m.spoly([(x, base), (x, base - h), (x + w / 2, base - h - w * 0.2), (x + w, base - h), (x + w, base)])
-    s.paint(m, "#0a1c1b", rim=0.3, rim_dx=-0.5, rim_dy=-0.8)
-    # corrugations catch a touch of moon
+    m.spoly([(x, base), (x, base - h), (x + w / 2, base - h - rise), (x + w, base - h), (x + w, base)])
+    s.paint(m, "#14302e", rim=0.3, rim_dx=-0.5, rim_dy=-0.8)
+    # the corrugations, wide enough to see, catching a touch of moon
     c = s.mask()
-    for k in range(1, int(w / 3)):
-        xx = x + k * 3
-        c.line([(xx, base), (xx, base - h - (w * 0.2) * (1 - abs(xx - x - w / 2) / (w / 2)) + 0.8)], 0.3)
-    s.paint(c, "#142b29")
+    for k in range(1, int(w / 3.4)):
+        xx = x + k * 3.4
+        c.line([(xx, base), (xx, base - h - rise * (1 - abs(xx - x - w / 2) / (w / 2)) + 1.5)], 0.9)
+    s.paint(c, "#0b201f")
+    # corner strips and a wall plate under the eave
+    t = s.mask()
+    t.rect(x, base - h, x + 1.6, base)
+    t.rect(x + w - 1.6, base - h, x + w, base)
+    s.paint(t, "#06110f", rim=0.16, rim_dx=-0.3, rim_dy=0)
+    # roof: barge boards over the gable, with a cap on the ridge
     r = s.mask()
-    r.spoly([(x - 2.5, base - h + 1.4), (x + w / 2, base - h - w * 0.2 - 1.2), (x + w + 2.5, base - h + 1.4),
-             (x + w + 2.5, base - h + 3), (x + w / 2, base - h - w * 0.2 + 0.6), (x - 2.5, base - h + 3)])
-    s.paint(r, "#061312", rim=0.42, rim_dx=-0.3, rim_dy=-0.9)
+    r.spoly([(x - 3.5, base - h + 2), (x + w / 2, base - h - rise - 1.4), (x + w + 3.5, base - h + 2),
+             (x + w + 3.5, base - h + 4.2), (x + w / 2, base - h - rise + 1.2), (x - 3.5, base - h + 4.2)])
+    r.spoly([(x + w / 2 - 3, base - h - rise - 0.2), (x + w / 2, base - h - rise - 2.2), (x + w / 2 + 3, base - h - rise - 0.2)])
+    s.paint(r, "#061312", rim=0.5, rim_dx=-0.3, rim_dy=-0.9)
 
 
 def shed_door(s, x0, x1, y0, y1):
     """The door, shut, with a line of blue under it and up the crack that no veggie patch ever made."""
     d = s.mask()
     d.rect(x0, y0, x1, y1)
-    s.paint(d, "#051110", rim=0.14, rim_dx=-0.4, rim_dy=-0.5)
+    s.paint(d, "#071715", rim=0.14, rim_dx=-0.4, rim_dy=-0.5)
+    # ledged and braced, the only way anybody's ever built a shed door: planks, two rails and a brace
+    b = s.mask()
+    for k in (1, 2, 3):
+        xx = x0 + (x1 - x0) * k / 4
+        b.line([(xx, y0), (xx, y1)], 0.7)
+    s.paint(b, "#030a09")
+    b = s.mask()
+    b.rect(x0, y0 + 1.5, x1, y0 + 4)
+    b.rect(x0, y1 - 5.5, x1, y1 - 3)
+    b.spoly([(x0, y1 - 4), (x0 + 3, y1 - 4), (x1, y0 + 3), (x1 - 3, y0 + 3)])
+    s.paint(b, "#132b28", rim=0.14, rim_dx=0, rim_dy=-0.5)
+    f = s.mask()
+    f.rect(x0 - 1.2, y0 - 1.2, x1 + 1.2, y0)
+    f.rect(x0 - 1.2, y0, x0, y1)
+    f.rect(x1, y0, x1 + 1.2, y1)
+    s.paint(f, "#030a09")
     g = s.mask()
     g.rect(x0 - 0.8, y1 - 1.5, x1 + 0.8, y1)
     a = g.array()
@@ -41,10 +66,21 @@ def shed_door(s, x0, x1, y0, y1):
     c.rect(x1 - 0.45, y0 + 5, x1, y1)
     ca = c.array()
     s.rgb += ca[..., None] * s.colour(BLUE) * 0.55
-    # a padlock on the door, because there's a lot of tomatoes in there
+    # a brass padlock through a hasp on the door's edge, because there's a lot of tomatoes in there
+    my = (y0 + y1) / 2 - 2
     p = s.mask()
-    p.rrect(x0 + 2, (y0 + y1) / 2, x0 + 5.6, (y0 + y1) / 2 + 4.4, 0.7)
-    s.paint(p, "#7f8c8a")
+    p.rect(x0 - 1.2, my - 1.3, x0 + 7.4, my + 0.7)
+    s.paint(p, "#59645f")
+    p = s.mask()
+    p.stroke(np.array(bez((x0 + 1.5, my + 3), (x0 + 1.5, my - 3.6), (x0 + 5.5, my - 3.6), (x0 + 5.5, my + 3), n=12)), 1.0, 1.0)
+    s.paint(p, "#c3cdc8")
+    p = s.mask()
+    p.rrect(x0 + 0.2, my + 2, x0 + 6.8, my + 7.4, 0.8)
+    s.paint(p, "#d2a23c", rim=0.3, rim_dx=-0.3, rim_dy=-0.4, rim_colour="#fff0c0")
+    p = s.mask()
+    p.ellipse(x0 + 3.5, my + 4.2, 0.8, 0.8)
+    p.rect(x0 + 3.2, my + 4.2, x0 + 3.8, my + 6.2)
+    s.paint(p, "#1b1206")
 
 
 def fence(s, y, x0=0, x1=1040):
@@ -75,29 +111,43 @@ def spark(s, x, y, size, seed=1):
     a = m.array()
     s.rgb += a[..., None] * s.colour("#fff4c8") * 1.8
     s.rgb += gauss(a, 0.9 * SS)[..., None] * s.colour("#ffd070") * 0.9
-    s.glow(x, y - 1, size * 0.5, colour="#fff0c0", strength=0.95)
-    s.glow(x, y - 1, size * 2.0, colour="#ffc058", strength=0.2)
+    s.glow(x, y - 1, size * 0.28, colour="#fff0c0", strength=0.85)
+    s.glow(x, y - 1, size * 1.5, colour="#ffc058", strength=0.14)
 
 
 def clamp(s, x, y, colour):
-    """A jumper-lead clamp biting the wire from underneath: two big jaws and a handle. Its colour's
-    the only thing saying which is which, not that it was consulted."""
+    """A jumper-lead clamp biting the wire: two pointed jaws closing on it from above and below, a pivot
+    and two handles splayed apart, and the lead out the bottom. Its colour's the only thing saying which
+    is which, not that it was consulted."""
     m = s.mask()
-    # jaws over the wire, handles splayed below
-    m.spoly([(x - 4.2, y - 2.2), (x + 4.2, y - 2.2), (x + 1.8, y + 3), (x - 1.8, y + 3)])
-    m.spoly([(x - 1.8, y + 2.4), (x - 5.2, y + 9.2), (x - 2.6, y + 9.8), (x, y + 3.2)])
-    m.spoly([(x + 1.8, y + 2.4), (x + 5.2, y + 9.2), (x + 2.6, y + 9.8), (x, y + 3.2)])
+    # jaws, a mouth you can see the wire go through
+    m.spoly([(x - 2.8, y - 3.2), (x - 0.5, y - 0.5), (x + 1.2, y + 5.5), (x - 1.2, y + 5.5)])
+    m.spoly([(x + 2.8, y - 3.2), (x + 0.5, y - 0.5), (x + 1.2, y + 5.5), (x - 1.2, y + 5.5)])
+    # handles
+    m.spoly([(x - 1.2, y + 4.6), (x + 0.2, y + 5.8), (x - 3.2, y + 12.5), (x - 5.4, y + 11.6)])
+    m.spoly([(x + 1.2, y + 4.6), (x - 0.2, y + 5.8), (x + 3.2, y + 12.5), (x + 5.4, y + 11.6)])
     s.paint(m, colour, rim=0.5, rim_dx=0.2, rim_dy=-0.7, rim_colour="#ffffff")
+    p = s.mask()
+    p.ellipse(x, y + 5.2, 1.5, 1.5)
+    s.paint(p, "#c9c6b0")
 
 
-def prop(m, x, base, top, lean, seed=1):
-    """A bit of old fence paling stuck in the lawn on a lean, with a notch for the cable."""
-    d = lean
-    m.spoly([(x - 1.6, base), (x + 1.6, base), (x + d + 1.3, top), (x + d - 1.3, top)])
-    # the cross-piece nailed on, skew, that the cable lies in
-    m.line([(x + d - 6, top + 2.8), (x + d + 6, top + 0.6)], 1.8)
-    # brace, because it fell over the first time
-    m.line([(x + d * 0.5, (base + top) / 2), (x - lean * 3 - 9, base)], 1.1)
+def prop(m, foot, crotch):
+    """A clothes prop off the line out the back: one long sapling, foot in the lawn, on a lean, with a
+    little notch at the top. The lead lies in the notch, because the clothes line was already holding up
+    the other thing."""
+    fx, fy = foot
+    cx, cy = crotch
+    m.spoly([(fx - 1.0, fy), (fx + 1.0, fy), (cx + 0.7, cy + 0.6), (cx - 0.7, cy + 0.6)])
+    m.stroke(np.array([(cx, cy + 1), (cx - 2.3, cy - 3.2)]), 1.2, 0.9)
+    m.stroke(np.array([(cx, cy + 1), (cx + 2.3, cy - 3.2)]), 1.2, 0.9)
+
+
+def side(path, off):
+    """The same run, moved off to one side: two leads taped together lie next to each other."""
+    d = np.gradient(path, axis=0)
+    d /= np.maximum(1e-6, np.linalg.norm(d, axis=1, keepdims=True))
+    return path + np.stack((-d[:, 1], d[:, 0]), axis=1) * off
 
 
 def paint():
@@ -123,9 +173,9 @@ def paint():
     m = s.mask()
     heads = power_pole(m, 566, 142, 114)
     heads2 = power_pole(m, 884, 142, 114)
-    wires(m, heads[0], heads2[0], sag=9, width=0.6)
-    wires(m, heads[1], heads2[1], sag=9, width=0.6)
-    wires(m, heads[3], heads2[3], sag=9, width=0.6)
+    wires(m, heads[0], heads2[0], sag=9, width=0.9)
+    wires(m, heads[1], heads2[1], sag=9, width=0.9)
+    wires(m, heads[3], heads2[3], sag=9, width=0.9)
     s.paint(m, "#03090a", rim=0.12, rim_dx=0.4, rim_dy=-0.6)
 
     def on_line(h0, h1, t, sag=9.0):
@@ -162,35 +212,43 @@ def paint():
     shed_door(s, sx0 + 55, sx0 + 79, sbase - 31, 134.8)
     s.glow(sx0 + 67, 139, 16, colour=BLUE, strength=0.18)
 
-    # the props the cable lies on
-    p1 = (668, 106)
-    p2 = (712, 112)
+    # the bypass. Clamps on the street wires, the two leads down off them and taped together, then the pair
+    # sagging across the yard, over the clothes prop, and in through a hole in the foil
+    join = np.array((652.0, 88.0))
+    crotch = np.array((696.0, 96.0))
+    entry = np.array((sx0 + 11.5, sbase - 24.0))
     m = s.mask()
-    prop(m, p1[0] - 2, 139, p1[1], 2)
-    prop(m, p2[0] + 1, 139, p2[1], -1)
-    s.paint(m, "#2a2c1f", rim=0.34, rim_dx=-0.5, rim_dy=-0.7, rim_colour="#d9cf8f")
-
-    # the cable: thick as your wrist, and not rated for any of this. It joins up with the leads just
-    # off the line, wrapped in about a roll of tape, and goes into the shed through a hole in the foil
-    join = (c1[0] + 7, c1[1] + 30)
-    run = np.vstack((bez(join, (join[0] + 1, join[1] + 26), (p1[0], p1[1] - 1), n=16),
-                     bez((p1[0], p1[1] - 1), (p1[0] + 22, p1[1] + 16), (p2[0], p2[1] - 1), n=14),
-                     bez((p2[0], p2[1] - 1), (p2[0] + 14, p2[1] + 10), (sx0 + 16, sbase - 22), n=14)))
+    prop(m, (688, 139.5), crotch)
+    s.paint(m, "#5e5c3e", rim=0.4, rim_dx=-0.5, rim_dy=-0.3, rim_colour="#efe6b0")
+    # the grass the foot's standing in
     m = s.mask()
-    m.stroke(run, 3.0, 3.0)
-    s.paint(m, "#020605", rim=0.5, rim_dx=-0.3, rim_dy=-0.8, rim_colour="#e8dfa6")
-
-    # the leads themselves, red and black, down from the clamps to the join
+    for dx, lean in ((-2.4, -0.8), (-0.9, 0.5), (1.0, -0.4), (2.5, 0.9)):
+        m.line([(688 + dx, 140), (688 + dx + lean, 136.6)], 0.5)
+    s.paint(m, "#051110")
+    # the hole, punched through the foil with a screwdriver
     m = s.mask()
-    m.stroke(bez((c1[0], c1[1] + 9), (c1[0] - 3, c1[1] + 20), join, n=14), 1.5, 1.5)
-    s.paint(m, "#e23028")
+    m.ellipse(entry[0], entry[1], 2.0, 1.7)
+    s.paint(m, "#020605")
+    run = np.vstack((bez(join, join + (17, 12), crotch + (-17, 6), crotch, n=20),
+                     bez(crotch, crotch + (12, 14), entry + (-16, 4), entry, n=20)[1:]))
+    red_run, black_run = side(run, -0.72), side(run, 0.72)
+    # the leads down from the clamps, into the top of the pair
+    red = np.vstack((bez((c1[0], c1[1] + 6), (c1[0] + 1, c1[1] + 30), (join[0] - 22, join[1] - 6), red_run[0], n=20), red_run[1:]))
+    black = np.vstack((bez((c2[0], c2[1] + 6), (c2[0] - 1, c2[1] + 24), (join[0] - 6, join[1] - 8), black_run[0], n=20), black_run[1:]))
     m = s.mask()
-    m.stroke(bez((c2[0], c2[1] + 9), (c2[0] - 2, c2[1] + 22), join, n=14), 1.5, 1.5)
-    s.paint(m, "#101412", rim=0.3, rim_dx=0.3, rim_dy=-0.3, rim_colour="#ffffff")
-    # the tape, and a good lot of it
+    m.stroke(black, 1.35, 1.35)
+    s.paint(m, "#070b0a", rim=0.4, rim_dx=-0.2, rim_dy=-0.5, rim_colour="#efe6b0")
     m = s.mask()
-    m.rrect(join[0] - 3.8, join[1] - 3, join[0] + 3.8, join[1] + 5.5, 1.5)
-    s.paint(m, "#3c3f2e", rim=0.4, rim_dx=-0.3, rim_dy=-0.6, rim_colour="#d9cf8f")
+    m.stroke(red, 1.35, 1.35)
+    s.paint(m, "#d62c24")
+    # the tape: two wraps of it, one where they meet and one short of the prop
+    m = s.mask()
+    for i in (0, 12):
+        u = run[i + 1] - run[i]
+        u = u / np.linalg.norm(u)
+        n = np.array((-u[1], u[0]))
+        m.stroke(np.array((run[i] - n * 1.9, run[i] + n * 1.9)), 2.2, 2.2)
+    s.paint(m, "#5d6049")
 
     clamp(s, c1[0], c1[1], "#e23028")
     clamp(s, c2[0], c2[1], "#141816")
@@ -204,7 +262,7 @@ def paint():
 
     # dark gum and a hint of branch to frame it, and to give the title something to sit on
     m = s.mask()
-    gum_tree(m, 234, 176, 170, seed=31, lean=0.05)
+    gum_tree(m, 234, 176, 170, seed=37, lean=0.05)
     gum_tree(m, 1024, 176, 150, seed=33, lean=-0.12, spread=1.0)
     m.rect(0, 144, 1040, 148)
     s.paint(m, "#020706")

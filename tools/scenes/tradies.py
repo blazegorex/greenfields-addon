@@ -3,7 +3,7 @@ and the extractor going flat out, the ute across the drive with a ladder on the 
 sword strapped alongside it. He's licensed. He sprayed it on the door himself."""
 import numpy as np
 
-from scenekit import SCRAWL, SS, Scene, bez, fbm, foil_window, gauss, gum_tree, lettering, lit_rim
+from scenekit import SCRAWL, SS, Scene, bez, foil_window, gauss, gum_tree, lettering, lit_rim
 
 COLD = "#58f0cc"
 COLD_HOT = "#c8fff0"
@@ -80,17 +80,20 @@ def fan(s, x, y, r):
 
 
 def steam(s, x, y):
-    """What the fan's moving: fat soft puffs leaning off to the left, thinning out before the moons.
-    Steam, officer."""
-    m = s.mask()
-    path = bez((x, y), (x - 16, y - 1), (x - 34, y - 8), (x - 74, y - 24), n=9)
-    for i, (px, py) in enumerate(path):
-        r = 3.5 + i * 1.5
-        m.ellipse(px, py + (i % 2) * 1.5, r * 1.15, r * 0.85)
-    n = fbm(s.h, s.w, 77, cells=14, octaves=3)
-    fade = np.clip((s.X / SS - (x - 84)) / 74, 0, 1)
-    a = gauss(m.array(), 2.2 * SS) * (0.45 + 0.55 * n) * fade * 0.62
-    s.rgb = s.rgb * (1 - a[..., None]) + s.colour("#b4ece0") * a[..., None]
+    """What the fan's moving: one thin thread curling off over the roof, widening a little as it goes and
+    thinning out in hard flat steps, gone before the moons. Steam, officer."""
+    t = np.linspace(0, 1, 90)
+    path = bez((x - 1, y - 7), (x - 18, y - 16), (x - 32, y - 6), (x - 66, y - 30), n=90)
+    d = np.gradient(path, axis=0)
+    d /= np.maximum(1e-6, np.linalg.norm(d, axis=1, keepdims=True))
+    nrm = np.stack((-d[:, 1], d[:, 0]), axis=1)
+    path = path + nrm * (np.sin(t * 13.0) * (0.3 + 4.2 * t))[:, None]
+    wide = 0.75 + 1.25 * t
+    for lo, hi, alpha in ((0, 42, 0.55), (42, 68, 0.30), (68, 90, 0.14)):
+        m = s.mask()
+        m.stroke(path[lo:hi], wide[lo], wide[hi - 1])
+        a = m.array() * alpha
+        s.rgb = s.rgb * (1 - a[..., None]) + s.colour("#b4ece0") * a[..., None]
 
 
 def drum(s, x, base, w, h):
@@ -151,125 +154,233 @@ def rack(s, x0, x1, base, levels):
             flask(s, xx + rng.uniform(-1, 1), y, rng.uniform(3.6, 4.6), colour=COLD, glow=0.35)
 
 
-def alchemist(s, x, base, h, flask_at):
-    """Long apron, gumboots, gas mask with a snout on it. He's facing out the door, holding one up to
-    the light to see if it's done."""
+def bone(m, pts, widths):
+    """An arm or a leg as one outline, tapering, with a corner at the bend. A sleeve folds at the elbow;
+    it doesn't have a ball in it."""
+    pts = [np.array(p, float) for p in pts]
+    left, right = [], []
+    for i, (p, w) in enumerate(zip(pts, widths)):
+        d0 = pts[i] - pts[i - 1] if i else pts[1] - pts[0]
+        d1 = pts[i + 1] - pts[i] if i < len(pts) - 1 else d0
+        n0 = np.array([-d0[1], d0[0]]) / max(1e-6, np.linalg.norm(d0))
+        n1 = np.array([-d1[1], d1[0]]) / max(1e-6, np.linalg.norm(d1))
+        mit = n0 + n1
+        mit /= max(1e-6, np.linalg.norm(mit))
+        off = mit * (w / 2) / max(0.72, float(mit @ n0))
+        left.append(tuple(p + off))
+        right.append(tuple(p - off))
+    m.spoly(left + right[::-1])
+
+
+def alchemist(s, x, base, h, hand):
+    """Gumboots planted, long stiff apron, gas mask with two round filters on it. One fist on his hip, the
+    other holding up the good one by its neck, to the light, to see if it's done. hand is that fist."""
     def P(u, v):  # u toward the street (left), v up, as fractions of h
         return (x - u * h, base - v * h)
+
+    def limb(pts, *widths):
+        bone(m, pts, [h * w for w in widths])
+
     m = s.mask()
-    # gumboots and legs under the apron
-    m.spoly([P(-0.13, 0.42), P(0.04, 0.42), P(0.03, 0.0), P(-0.11, 0.0)])
-    m.spoly([P(0.0, 0.42), P(0.16, 0.42), P(0.15, 0.0), P(0.01, 0.0)])
-    m.rect(*P(0.03, 0.03)[:1], P(0, 0.03)[1], P(-0.13, 0)[0], base)
-    m.rect(P(0.2, 0.03)[0], P(0, 0.03)[1], P(0.01, 0)[0], base)
-    # the back of him, shoulders hunched
-    pts = bez(P(-0.1, 0.8), P(-0.2, 0.75), P(-0.19, 0.55), P(-0.16, 0.4), n=10).tolist()
-    pts += [P(0.15, 0.4)]
-    pts += bez(P(0.15, 0.4), P(0.17, 0.6), P(0.17, 0.74), P(0.08, 0.8), n=10).tolist()
-    m.spoly(pts)
-    # far arm hanging
-    m.stroke(bez(P(-0.12, 0.74), P(-0.21, 0.6), P(-0.2, 0.5), n=10), h * 0.075, h * 0.06)
-    # the arm with the flask, up at eye level
-    sh = P(0.08, 0.74)
-    m.stroke(bez(sh, P(0.12, 0.5), P(0.3, 0.42), flask_at, n=14), h * 0.085, h * 0.06)
-    m.ellipse(flask_at[0], flask_at[1], h * 0.06, h * 0.05)
+    # legs apart with daylight between them, boots with a heel and a toe
+    limb([P(0.06, 0.5), P(0.085, 0.26), P(0.115, 0.06)], 0.105, 0.08, 0.07)
+    limb([P(-0.05, 0.5), P(-0.075, 0.26), P(-0.105, 0.06)], 0.105, 0.08, 0.07)
+    for a in (0.12, -0.11):
+        m.spoly([P(a - 0.055, 0.2), P(a + 0.05, 0.2), P(a + 0.055, 0.07), P(a + 0.135, 0.035), P(a + 0.135, 0.0), P(a - 0.06, 0.0)])
+    # the body, shoulders sloping off a proper neck, so the head's on something
+    m.spoly([P(0.045, 0.77), P(0.13, 0.735), P(0.135, 0.68), P(0.105, 0.48), P(-0.095, 0.48), P(-0.115, 0.68), P(-0.105, 0.735), P(-0.03, 0.77)])
+    m.spoly([P(0.05, 0.84), P(0.045, 0.75), P(-0.03, 0.75), P(-0.035, 0.84)])
+    # fist on the hip, elbow out behind him, with a gap you can see the shelves through
+    limb([P(-0.085, 0.715), P(-0.27, 0.585), P(-0.095, 0.5)], 0.08, 0.068, 0.056)
+    # the working arm: down from the shoulder, a bend at the elbow, the forearm back up to the flask
+    elbow = (hand[0] + 13, hand[1] + 13)
+    limb([P(0.1, 0.715), elbow, (hand[0] + 3.4, hand[1] + 1.8)], 0.08, 0.068, 0.05)
     s.paint(m, "#030a0a")
     lit_rim(s, m, x - h * 0.5, base - h * 0.7, h * 1.2, COLD, 0.9, soft=0.3)
 
-    # the apron, long and stiff, so it reads as an apron and not a dress
+    # the apron, stiff, hem well above the boots so the legs still show
     a = s.mask()
-    a.spoly([P(-0.05, 0.76), P(0.13, 0.76), P(0.16, 0.56), P(0.21, 0.11), P(-0.11, 0.11), P(-0.09, 0.56)])
-    s.paint(a, "#12211f", bottom="#091514", top_y=base - h - 40)
-    lit_rim(s, a, x - h * 0.5, base - h * 0.7, h * 1.2, COLD, 0.7, soft=0.3)
+    a.spoly([P(0.0, 0.69), P(0.125, 0.69), P(0.13, 0.5), P(0.2, 0.25), P(-0.07, 0.25), P(-0.03, 0.5)])
+    s.paint(a, "#0c2624", rim=0.5, rim_dx=0.5, rim_dy=0, rim_colour=COLD)
     st = s.mask()
-    st.line([P(-0.05, 0.76), P(0.0, 0.84)], 0.8)
-    st.line([P(0.13, 0.76), P(0.06, 0.84)], 0.8)
-    s.paint(st, "#04100f")
+    st.line([P(0.01, 0.69), P(0.0, 0.76)], 0.9)
+    s.paint(st, "#0c2624")
 
-    # hood and mask, big enough to see from the road
+    # the head, a rubber snout on the front of it, and the two filters hanging off the snout: one out in
+    # front past the outline, one on the near cheek, well below the eyes so they're not a pair of glasses
+    far, near = P(0.155, 0.825), P(0.035, 0.825)
+    cr = h * 0.05
     g = s.mask()
-    g.ellipse(*P(0.01, 0.89), h * 0.125, h * 0.125)
-    # snout and the can on the end of it
-    g.spoly([P(0.06, 0.95), P(0.21, 0.88), P(0.22, 0.79), P(0.05, 0.8)])
-    g.ellipse(*P(0.25, 0.83), h * 0.075, h * 0.09)
+    g.ellipse(*P(0.015, 0.915), h * 0.098, h * 0.104)
+    g.spoly([P(0.09, 0.90), P(0.14, 0.865), P(0.145, 0.80), P(0.02, 0.80)])
+    g.ellipse(*far, cr, cr)
+    g.ellipse(*near, cr, cr)
     s.paint(g, "#030a0a")
-    lit_rim(s, g, x - h * 0.6, base - h * 0.7, h * 1.0, COLD_HOT, 1.1, soft=0.3)
-    # one big round eyepiece, glass picking up the flask
-    e = s.mask()
-    e.ellipse(*P(0.1, 0.92), h * 0.05, h * 0.05)
-    ea = e.array()
-    s.rgb = s.rgb * (1 - ea[..., None]) + s.colour(COLD_HOT) * ea[..., None]
-    s.rgb += gauss(ea, 1.2 * SS)[..., None] * s.colour(COLD) * 0.8
-    # the can's ribs
+    lit_rim(s, g, x - h * 0.6, base - h * 0.7, h * 1.0, COLD_HOT, 0.8, soft=0.3)
+    # the filters' faces: flat pale discs in a dark ring
     r = s.mask()
-    cc = P(0.25, 0.83)
-    r.line([(cc[0] + h * 0.02, cc[1] - h * 0.07), (cc[0] + h * 0.02, cc[1] + h * 0.07)], 0.5)
-    s.paint(r, "#2c5a54")
+    r.ellipse(*far, cr * 0.62, cr * 0.62)
+    r.ellipse(*near, cr * 0.62, cr * 0.62)
+    s.paint(r, "#4b9184")
+    # one flat visor across the eyes, the glass picking up the flask
+    e = s.mask()
+    e.rrect(P(0.115, 0)[0], P(0, 0.95)[1], P(0.0, 0)[0], P(0, 0.915)[1], 0.7)
+    s.paint(e, "#a8f5e2")
+
+    # the good one, no bigger than the ones on the shelf, and his fist round the neck of it
+    r_flask = 5.0
+    s.glow(hand[0], hand[1] + 6, 26, colour=COLD, strength=0.26)
+    flask(s, hand[0], hand[1] + 1.225 * r_flask + r_flask, r_flask, colour="#7cffdc", glow=1.2)
+    f = s.mask()
+    f.rrect(hand[0] - 2.0, hand[1] - 1.4, hand[0] + 2.6, hand[1] + 1.4, 0.8)
+    s.paint(f, "#030a0a")
+    lit_rim(s, f, hand[0] - 8, hand[1], 20, COLD_HOT, 1.0, soft=0.25)
 
 
 def ute(s, x, base, k):
-    """Old Aussie tray-back ute, facing the shed, lit from the door side. x is its tail."""
+    """A work ute, the one every tradie's got: upright square cab, short snout, bull bar, and an alloy
+    tray sat up on the chassis with drop sides. About 5 m long in these units (118 = 5 m), so a wheel's
+    9 and the roof's 43. Rack over the tray and cab, ladder on the rack, sword on the ladder. x is its tail."""
     def P(u, v):
         return (x + u * k, base - v * k)
+
+    def box(u0, v0, u1, v1):
+        return (P(u0, 0)[0], P(0, v1)[1], P(u1, 0)[0], P(0, v0)[1])
+
+    wheels = (26, 96)
+    WR = 9.0
+    # chassis rail, running the length under everything, and the bearers the tray sits on, with a gap of
+    # sky-dark between them: that gap's what says tray and not a sedan's boot
     m = s.mask()
-    wheels = [(22, 7.0), (92, 7.0)]
-    # the tray (long, flat, with headboard), cab and bonnet as one sweep
-    pts = [P(2, 8), P(2, 17), P(55, 17)]                         # tray deck
-    pts += [P(55, 19), P(59, 19)]
-    pts += bez(P(59, 19), P(61, 28), P(62, 33), P(65, 34), n=8).tolist()   # back of cab
-    pts += bez(P(65, 34), P(72, 35.2), P(79, 35), P(84, 33.4), n=8).tolist()  # roof
-    pts += bez(P(84, 33.4), P(89, 28), P(91, 25.6), P(93, 24.8), n=8).tolist()  # windscreen
-    pts += bez(P(93, 24.8), P(101, 24), P(110, 22.5), P(114, 18), n=8).tolist()  # bonnet
-    pts += bez(P(114, 18), P(116, 14), P(116, 11), P(115, 8), n=6).tolist()  # nose
+    m.rect(*box(0, 12.5, 110, 16.5))
+    for u in (8, 22, 36, 50):
+        m.rect(*box(u, 16, u + 2.2, 20))
+    s.paint(m, "#06040a")
+
+    # the rack goes on behind the tray and cab
+    rk = s.mask()
+    # its legs carry straight on up from the tray's end posts, each with a brace back down to the tray
+    for u in (0, 54.6):
+        rk.rect(*box(u, 24, u + 1.4, 51))
+    rk.rect(*box(76, 43, 77.5, 51))
+    rk.rect(*box(-1, 49.6, 82, 51.2))
+    rk.stroke(np.array([P(1, 30), P(16, 50)]), 1.2 * k, 1.2 * k)
+    rk.stroke(np.array([P(55, 30), P(40, 50)]), 1.2 * k, 1.2 * k)
+    s.paint(rk, "#241a26", rim=0.5, rim_dx=-0.3, rim_dy=-0.7, rim_colour="#ffb46a")
+
+    # alloy tray: deck edge and drop side, with the hinges and the latch posts on it
+    m = s.mask()
+    m.rect(*box(0, 20, 56, 30))
+    s.paint(m, "#54454f", rim=0.55, rim_dx=0, rim_dy=-0.7, rim_colour="#ffb46a")
+    m = s.mask()
+    m.rect(*box(0, 20, 56, 22.6))
+    for u in (0, 18.2, 36.8, 54.6):
+        m.rect(*box(u, 22.6, u + 1.4, 30))
+    s.paint(m, "#241a26")
+    # the rack's feet, bolted on top of the drop side
+    m = s.mask()
+    for u in (-1.4, 53.2):
+        m.rect(*box(u, 29.6, u + 4.2, 31.4))
+    s.paint(m, "#241a26", rim=0.4, rim_dx=0, rim_dy=-0.7, rim_colour="#ffb46a")
+    # the tail light on the end of the chassis, in its housing and on, and a square of mud flap behind the wheel
+    m = s.mask()
+    m.rect(*box(-1.4, 13.6, 5, 20))
+    s.paint(m, "#06040a")
+    m = s.mask()
+    m.rect(*box(-1.4, 15, 3.6, 18.8))
+    s.paint(m, "#e8402c")
+    s.glow(*P(-1.4, 17), 5, colour="#ff4030", strength=0.32)
+    m = s.mask()
+    m.rect(*box(11.5, 5, 13.5, 13))
+    s.paint(m, "#06040a")
+    # headboard, standing proud of the tray behind the cab
+    m = s.mask()
+    m.rect(*box(55.5, 20, 58, 46))
+    s.paint(m, "#2a1f2c", rim=0.45, rim_dx=-0.3, rim_dy=-0.7, rim_colour="#ffb46a")
+
+    # the cab: back wall dead upright, a flat roof, a steep screen, then a short bonnet and a blunt nose
+    m = s.mask()
+    pts = [P(59, 12.5), P(59, 41.5), P(60.5, 43.5), P(79, 44), P(81.5, 43), P(90, 31), P(112, 29.5), P(115.5, 27.5), P(116, 12.5)]
     m.spoly(pts)
-    # chassis and arches
-    m.rrect(*P(0, 10)[:1], P(0, 10)[1], P(118, 6)[0], P(118, 6)[1], 1)
-    s.paint(m, "#120c18", rim=0.55, rim_dx=-0.4, rim_dy=-0.8, rim_colour="#ffa458")
+    s.paint(m, "#3b2c3a", rim=0.6, rim_dx=-0.4, rim_dy=-0.8, rim_colour="#ffa458")
     # the nose catches what's coming out of the door
     lit_rim(s, m, 800, 118, 70, COLD, 0.9, soft=0.3)
-    # glass, the far side of it going green
+    # wheel arches cut dark round the tyres
+    a = s.mask()
+    a.ellipse(*P(wheels[1], WR), (WR + 2.6) * k, (WR + 2.6) * k)
+    c = s.mask()
+    c.rect(0, 0, 1040, P(0, 12.5)[1] + 0.01)
+    arch = a.array() * c.array()
+    s.rgb = s.rgb * (1 - arch[..., None]) + s.colour("#06040a") * arch[..., None]
+    # glass: a side window, the far side of it going green toward the door
     g = s.mask()
-    pts = [P(65.5, 22)]
-    pts += [P(66, 31), P(72, 32.8), P(78, 32.8), P(83, 31.4), P(88.5, 25), P(88.5, 22)]
-    g.spoly(pts)
+    g.spoly([P(62, 30), P(62, 41), P(79, 41.4), P(86.2, 31), P(86.2, 30)])
     a = g.array()
-    t = np.clip((s.X / SS - P(65, 0)[0]) / (24 * k), 0, 1)
+    t = np.clip((s.X / SS - P(62, 0)[0]) / (24 * k), 0, 1)
     s.rgb = s.rgb * (1 - a[..., None]) + (s.colour("#3a2233") * (1 - t[..., None]) + s.colour("#3aa892") * t[..., None]) * a[..., None]
-    post = s.mask()
-    post.line([P(77, 22), P(77, 33)], 1.0 * k)
-    s.paint(post, "#120c18")
-    # tray side rail
-    r = s.mask()
-    r.rect(P(2, 0)[0], P(0, 17)[1], P(55, 0)[0], P(0, 15.6)[1])
-    s.paint(r, "#1e141f", rim=0.25, rim_dx=0, rim_dy=-0.5, rim_colour="#ffa458")
-    # wheels
+    # door: the shut lines, the handle and the mirror
+    d = s.mask()
+    d.rect(*box(61, 14, 61.8, 30))
+    d.rect(*box(85.4, 14, 86.2, 30))
+    d.rect(*box(61, 29.4, 91, 30))
+    d.rect(*box(64, 25.4, 69, 26.8))
+    d.rect(*box(76.4, 30, 77.4, 41.4))
+    d.rrect(*box(86.2, 31.5, 89.4, 35.5), 0.5)
+    s.paint(d, "#0d0912")
+    # headlight
+    m = s.mask()
+    m.rect(*box(111.5, 21.5, 116, 26))
+    s.paint(m, "#ffe0a8")
+    # bull bar: a hoop stood off the nose, with air through it
+    b = s.mask()
+    b.rect(*box(113, 11.5, 120.5, 17))
+    b.stroke(np.array([P(119.6, 15), P(119.6, 31)]), 1.7 * k, 1.7 * k)
+    b.stroke(np.array([P(120.4, 30.4), P(112, 31.2)]), 1.7 * k, 1.7 * k)
+    b.rect(*box(115.5, 21.5, 120, 23))
+    s.paint(b, "#07050b", rim=0.5, rim_dx=0.4, rim_dy=-0.4, rim_colour=COLD)
+
+    # wheels: proper tyre, plain steel rim, nut in the middle
     w = s.mask()
-    for u, r_ in wheels:
-        w.ellipse(*P(u, r_), r_ * k + 1.0, r_ * k + 1.0)
+    for u in wheels:
+        w.ellipse(*P(u, WR), WR * k, WR * k)
     s.paint(w, "#040307", rim=0.3, rim_dx=-0.3, rim_dy=-0.4, rim_colour="#ffa458")
     h = s.mask()
-    for u, r_ in wheels:
-        h.ellipse(*P(u, r_), r_ * k * 0.42, r_ * k * 0.42)
-    s.paint(h, "#3a2d35", rim=0.5, rim_dx=-0.3, rim_dy=-0.3, rim_colour="#ffbf80")
-    # the rack: uprights front and back of the tray, a crossbar running over the cab
-    rk = s.mask()
-    for u in (7, 54):
-        rk.stroke(np.array([P(u, 17), P(u, 42)]), 1.25 * k, 1.1 * k)
-    rk.stroke(np.array([P(5, 42), P(88, 42)]), 1.3 * k, 1.3 * k)
-    rk.stroke(np.array([P(76, 42), P(76, 34)]), 1.2 * k, 1.2 * k)
+    for u in wheels:
+        h.ellipse(*P(u, WR), WR * k * 0.52, WR * k * 0.52)
+    s.paint(h, "#6b5b63", rim=0.5, rim_dx=-0.3, rim_dy=-0.3, rim_colour="#ffbf80")
+    h = s.mask()
+    for u in wheels:
+        h.ellipse(*P(u, WR), WR * k * 0.2, WR * k * 0.2)
+    s.paint(h, "#1c141c")
+
     # ladder on the rack, overhanging the bonnet: rails and rungs
-    rk.stroke(np.array([P(0, 44.0), P(104, 44.0)]), 1.0 * k)
-    rk.stroke(np.array([P(0, 48.4), P(104, 48.4)]), 1.0 * k)
-    for u in np.arange(3, 104, 7.3):
-        rk.line([P(u, 44), P(u, 48.4)], 0.65 * k)
-    s.paint(rk, "#0b0710", rim=0.38, rim_dx=-0.3, rim_dy=-0.7, rim_colour="#ffb46a")
-    # and strapped along the top of it: a greatsword. Nobody asks.
+    rk = s.mask()
+    rk.rect(*box(-4, 51.2, 104, 52.6))
+    rk.rect(*box(-4, 56, 104, 57.4))
+    for u in np.arange(-1, 104, 7.3):
+        rk.rect(*box(u, 52.6, u + 0.9, 56))
+    s.paint(rk, "#1a1320", rim=0.5, rim_dx=-0.3, rim_dy=-0.7, rim_colour="#ffb46a")
+
+    # and lashed along the top of it: a greatsword, the guard down over the near rail. Nobody asks.
     b = s.mask()
-    b.spoly([P(20, 49.4), P(20, 54.6), P(100, 53.2), P(110, 51.6), P(100, 50.2)])
-    b.stroke(np.array([P(19, 45.4), P(19, 58.6)]), 2.4 * k)
-    b.stroke(np.array([P(7, 52), P(19, 52)]), 2.0 * k)
-    b.ellipse(*P(5.6, 52), 2.4 * k, 2.4 * k)
-    s.paint(b, "#0b0710", rim=0.55, rim_dx=0.3, rim_dy=-0.8, rim_colour="#ffc98a")
+    b.spoly([P(17, 57.4), P(17, 63), P(98, 62), P(111, 59.8), P(98, 57.4)])
+    s.paint(b, "#a39aa2", rim=0.8, rim_dx=0.2, rim_dy=-0.8, rim_colour="#ffe2bd")
+    f = s.mask()
+    f.rect(*box(18, 59.7, 92, 60.7))
+    s.paint(f, "#4e4550")
+    # the grip in dark leather, then a brass crossguard with flared ends and a brass pommel
+    h = s.mask()
+    h.rect(*box(5.5, 58.4, 15.6, 62))
+    s.paint(h, "#17101a", rim=0.5, rim_dx=-0.3, rim_dy=-0.8, rim_colour="#ffc98a")
+    h = s.mask()
+    h.spoly([P(14.8, 52.0), P(19.4, 52.0), P(18.4, 54.5), P(18.4, 65.9), P(19.4, 68.4), P(14.8, 68.4), P(15.8, 65.9), P(15.8, 54.5)])
+    h.ellipse(*P(4, 60.2), 3.3 * k, 3.3 * k)
+    s.paint(h, "#c8962f", rim=0.8, rim_dx=-0.3, rim_dy=-0.8, rim_colour="#ffe9b0")
+    # two ratchet straps, the only bit of it that's up to code
+    r = s.mask()
+    for u in (42, 78):
+        r.rect(*box(u, 50.6, u + 2.2, 63.6))
+    s.paint(r, "#a8392c")
 
 
 def paint():
@@ -304,8 +415,8 @@ def paint():
     drum(s, 947, base, 17, 26)
     drum(s, 967, base + 0.5, 17, 26)
     shed(s, sx, base, sw, 82, door0, door1, door_top, gap)
-    fan(s, 804, 53.5, 4.8)
-    steam(s, 798, 53)
+    fan(s, 843, 50.5, 6.0)
+    steam(s, 843, 50.5)
     foil_window(s, 906, 72, 28, 18, seed=5, strength=0.8)
     m = s.mask()
     m.rect(904.6, 70.6, 935.4, 73)
@@ -331,12 +442,10 @@ def paint():
     s.rgb += (a * fade)[..., None] * s.colour(COLD) * 0.5
 
     # the stock, then him stood in front of it with the good one
-    rack(s, 806, 894, base, (113, 137))
+    rack(s, 818, 894, base, (113, 137))
     s.glow(790, 112, 62, colour=COLD, strength=0.13)
-    fx, fbase = 768, 118
-    alchemist(s, 797, 139.5, 47, (fx + 1, fbase + 1.2))
-    s.glow(fx, fbase - 9, 34, colour=COLD, strength=0.34)
-    flask(s, fx, fbase, 9.2, colour="#7cffdc", glow=1.4)
+    fx, fy = 768, 101
+    alchemist(s, 792, 139.5, 47, (fx, fy))
 
     ute(s, 572, 140, 1.34)
 

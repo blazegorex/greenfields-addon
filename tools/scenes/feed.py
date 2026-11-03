@@ -1,13 +1,15 @@
 """Neighbourhood Watch: 2am, and the street's got its best seat out. The police chopper has found a
 bloke halfway over the back fence with someone's telly under his arm, and the one lit window has a
 telescope trained on him. Someone's been through the Watch sign already, with a gun and a can."""
+import cv2
 import numpy as np
 
 from scenekit import SS, Scene, bez, gauss, gum_tree, house
 
-MAN_X, FENCE_Y = 762, 104   # where he's got to: on the capping rail, right of the house
+MAN_X, FENCE_Y = 778, 104   # where he's got to: on the capping rail, right of the house
 SIGN_TOP, SIGN_BOTTOM = "#a97a0c", "#865d07"   # the page's own road sign, as it looks under the page's light
-TAG = "#8a0a2c"
+TAG = "#6b0620"
+TAG_EDGE = "#120306"
 
 
 def lit_edges(s, a, lx, ly, reach, colour, strength):
@@ -38,7 +40,7 @@ def cat(m, x, base, h):
 
 def window_scene(s, x, y, w, h):
     """The lit window: warm room, curtains drawn back at the middle, a nosy head between them, nose
-    pointed at the fence like everything else on this veranda."""
+    pointed at the fence like everything else in this house."""
     wall = s.mask()
     wall.rect(x, y, x + w, y + h)
     a = wall.array()[..., None]
@@ -154,20 +156,20 @@ def watch_sign(s, x, y, w, h, base):
     k.spoly(slab(x0 + 1.5, y + 1.5, x1 - 1.5, y1 - 1.5))
     k.spoly(slab(x0 + 2.9, y + 2.9, x1 - 2.9, y1 - 2.9), fill=0)
     ex, ey = x0 + 14.5, y + h * 0.5
-    ew, eh = 11.0, 9.6
+    ew, eh = 8.8, 7.8
     outer = bez((ex - ew, ey), (ex - ew * 0.3, ey - eh * 1.2), (ex + ew * 0.3, ey - eh * 1.2), (ex + ew, ey), n=20).tolist()
     outer += bez((ex + ew, ey), (ex + ew * 0.3, ey + eh * 1.2), (ex - ew * 0.3, ey + eh * 1.2), (ex - ew, ey), n=20).tolist()
     k.spoly([Q(*q) for q in outer])
-    iw, ih = ew - 3.2, eh - 2.7
+    iw, ih = ew - 2.6, eh - 2.2
     inner = bez((ex - iw, ey), (ex - iw * 0.3, ey - ih * 1.2), (ex + iw * 0.3, ey - ih * 1.2), (ex + iw, ey), n=20).tolist()
     inner += bez((ex + iw, ey), (ex + iw * 0.3, ey + ih * 1.2), (ex - iw * 0.3, ey + ih * 1.2), (ex - iw, ey), n=20).tolist()
     k.spoly([Q(*q) for q in inner], fill=0)
-    k.ellipse(*Q(ex, ey), 4.5, 4.5)
-    k.ellipse(*Q(ex + 1.7, ey - 1.7), 1.1, 1.1, fill=0)
+    k.ellipse(*Q(ex, ey), 3.7, 3.7)
+    k.ellipse(*Q(ex + 1.4, ey - 1.4), 0.9, 0.9, fill=0)
     s.paint(k, "#0a0a08")
 
     # the holes: wherever he happened to be pointing, none of it near a corner on purpose
-    holes = ((-0.20, -0.30, 1.4), (0.13, -0.27, 1.7), (0.19, -0.13, 1.1), (-0.06, 0.30, 1.2), (0.36, 0.27, 1.4))
+    holes = ((-0.20, -0.33, 1.4), (0.13, -0.32, 1.7), (0.27, -0.33, 1.1), (0.04, 0.33, 1.2), (0.36, 0.30, 1.4))
     r = s.mask()
     for u, v, rad in holes:
         r.ellipse(*Q(x + u * w, y + h * 0.5 + v * h), rad + 0.7, rad + 0.7)
@@ -179,7 +181,11 @@ def watch_sign(s, x, y, w, h, base):
 
     # the opinion, over the top of all of it
     t = s.mask()
-    spray_dogs(t, x + 11, y + h * 0.5, 13)
+    spray_dogs(t, x + 13, y + h * 0.5, 12)
+    # a thin dark edge, where the can's gone over the yellow, so the red holds on it
+    ta = t.array()
+    e = cv2.dilate(ta, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5)))
+    s.rgb = s.rgb * (1 - e[..., None]) + s.colour(TAG_EDGE) * e[..., None]
     s.paint(t, TAG)
 
 
@@ -220,69 +226,110 @@ def chopper(s, x, y, k):
     return P(7, 11)
 
 
+def bone(m, pts, widths):
+    """An arm or a leg as one outline, tapering, with a corner at the bend. A sleeve folds at the elbow;
+    it doesn't have a ball in it."""
+    pts = [np.array(p, float) for p in pts]
+    left, right = [], []
+    for i, (p, w) in enumerate(zip(pts, widths)):
+        d0 = pts[i] - pts[i - 1] if i else pts[1] - pts[0]
+        d1 = pts[i + 1] - pts[i] if i < len(pts) - 1 else d0
+        n0 = np.array([-d0[1], d0[0]]) / max(1e-6, np.linalg.norm(d0))
+        n1 = np.array([-d1[1], d1[0]]) / max(1e-6, np.linalg.norm(d1))
+        mit = n0 + n1
+        mit /= max(1e-6, np.linalg.norm(mit))
+        off = mit * (w / 2) / max(0.72, float(mit @ n0))
+        left.append(tuple(p + off))
+        right.append(tuple(p - off))
+    m.spoly(left + right[::-1])
+
+
 def thief(s, x, y, k, lamp):
-    """The bloke on the fence: hood up, one knee hooked over the capping rail, the other leg dangling,
-    a big old telly clamped under his arm, and every light in the suburb on him. Sits on (x, y)."""
+    """The bloke on the fence: arse on the capping rail, near leg dangling down our side looking for
+    the ground, back foot still planted on the rail behind him. Telly carried under his right arm on the
+    forearm, hood turned back to the chopper and the other hand up at it, palm out: not me, officer.
+    Dark hoodie, lit only down the side facing the light. Sits on (x, y)."""
     def P(u, v):
         return (x + u * k, y - v * k)
 
-    m = s.mask()
-    # the dangling leg, skinny as they come, nowhere near the ground and looking for it
-    m.stroke(np.array(bez(P(-4, 7), P(-11, -2), P(-11, -11), n=8)), 6.0 * k, 4.6 * k)
-    m.stroke(np.array(bez(P(-11, -11), P(-11, -16), P(-8, -21), n=8)), 4.6 * k, 3.4 * k)
-    m.spoly([P(-10.5, -20), P(-5.5, -20), P(0, -24.5), P(-0.5, -27), P(-10, -25)])
-    # the other leg, knee hooked up over the rail, the rest of it already on the wrong side
-    m.stroke(np.array(bez(P(0, 8), P(9, 9), P(18, 7.5), n=8)), 6.0 * k, 4.8 * k)
-    m.stroke(np.array([P(18, 7.5), P(19.5, 0)]), 4.8 * k, 4.2 * k)
-    # back, hunched forward over the telly, the jumper hanging off him
-    body = bez(P(-8, 3), P(-12, 16), P(-8, 31), P(2, 37), n=12).tolist()
-    body += bez(P(2, 37), P(8, 36), P(11, 29), P(10, 20), n=10).tolist()
-    body += [P(8, 3)]
-    m.spoly(body)
-    # hood: narrow, a peak at the back, pushed right forward; no face to see
-    hood = bez(P(-1, 32), P(-7, 39), P(-8, 47), P(-5, 55), n=12).tolist()
-    hood += bez(P(-5, 55), P(3, 55), P(12, 53), P(17, 47), n=10).tolist()
-    hood += bez(P(17, 47), P(13, 44), P(12, 40), P(14, 35), n=6).tolist()
-    hood += [P(9, 30)]
-    m.spoly(hood)
-    a = m.array()
-    s.paint(m, "#121c2b", bottom="#0a111d", top_y=y - 70)
-    lit_edges(s, a, lamp[0], lamp[1], 130, "#f4fbff", 2.0)
-    # the fold of the hood, running down from the peak to the neck, so it isn't just a ball
-    f = s.mask()
-    f.stroke(bez(P(13, 47), P(5, 45), P(4, 38), P(9, 33), n=10), 1.1, 0.8)
-    s.paint(f, "#44597a")
+    def arm(mask, pts, widths):
+        bone(mask, [P(*q) for q in pts], [w * k for w in widths])
 
-    # the telly: a proper old tube one, rabbit ears still on it
-    tv = (15, 11.5, 44, 37)   # left, bottom, right, top
+    # up and to the left, where the light is
+    rim = dict(rim=0.8, rim_dx=-1.05, rim_dy=-0.6, rim_colour="#e4f2ff")
+    m = s.mask()
+    # the back leg: knee up, runner planted on the capping rail, the weight still on it
+    arm(m, [(-4, 7), (-19, 18), (-22.5, 4)], [9.5, 6.0, 4.0])
+    m.spoly([P(-25.2, 5), P(-20.6, 5), P(-16.2, 2.4), P(-15.6, 1.0), P(-25.6, 1.0)])
+    # the near leg, hanging over our side of the fence
+    arm(m, [(4, 7), (12.5, -10), (8, -25)], [9.5, 6.0, 4.0])
+    m.spoly([P(5.8, -24), P(10, -24), P(16, -27), P(16.6, -30), P(5.6, -30)])
+    # the free arm, up at the light
+    arm(m, [(-7, 31), (-20, 26), (-23, 41.5)], [6.4, 4.6, 3.4])
+    # and the hand: a flat palm, four fingers near enough together, thumb out. Not me, officer
+    m.spoly([P(-26.1, 41), P(-21.1, 41), P(-20.5, 46.6), P(-26.7, 46.6)])
+    for b0, b1 in ((-26.0, (-27.6, 51.2)), (-24.3, (-25.0, 52.6)), (-22.6, (-22.4, 52.6)), (-21.0, (-19.9, 51.0))):
+        m.stroke(np.array([P(b0, 46), P(*b1)]), 1.4 * k, 1.1 * k)
+    m.stroke(np.array([P(-21, 42.4), P(-17.4, 46.2)]), 1.6 * k, 1.1 * k)
+    # the body in its jumper, sat square on the rail, shoulders dropping away from the neck
+    body = bez(P(-10, 1), P(-12, 14), P(-12.5, 26), P(-9.5, 32.5), n=12).tolist()
+    body += [P(-3.5, 35.5), P(5.5, 35.5)]
+    body += bez(P(5.5, 35.5), P(11, 34.5), P(13.5, 28), P(12.5, 18), n=10).tolist()
+    body += [P(11, 1)]
+    m.spoly(body)
+    # the hood, narrower than the shoulders so there's a notch either side of the neck, the front of it
+    # hanging out past where his face is and a bit of a point at the back
+    hood = bez(P(-3.5, 35), P(-7.2, 38), P(-8.6, 44), P(-8.6, 49.5), n=10).tolist()
+    hood += bez(P(-8.6, 49.5), P(-7.4, 54), P(-1, 56.8), P(4.5, 56.6), n=10).tolist()
+    hood += [P(9.8, 56.2)]
+    hood += bez(P(9.8, 56.2), P(11, 50), P(10.4, 42), P(5.5, 35), n=10).tolist()
+    m.spoly(hood)
+    s.paint(m, "#0f1827", bottom="#090f1b", top_y=y - 70, **rim)
+    # the runners' pale soles: they're what says shoe at this size
+    f = s.mask()
+    f.spoly([P(-25.8, 1.4), P(-15.4, 1.4), P(-15.4, 0.1), P(-25.8, 0.1)])
+    f.spoly([P(5.4, -30.2), P(16.8, -30.2), P(16.7, -28.8), P(5.4, -28.8)])
+    s.paint(f, "#b9c6d2")
+    # inside the hood: the far wall of it takes the light, and in front of that, where a face would be
+    # if he had any intention of showing it, nothing
+    f = s.mask()
+    f.spoly(bez(P(-6.8, 51), P(0.5, 52.5), P(3.6, 44), P(-0.8, 37.2), n=12).tolist() + [P(-3.4, 38.2), P(-6.8, 45)])
+    s.paint(f, "#50708f")
+    f = s.mask()
+    f.spoly(bez(P(-6.8, 50.6), P(-1.2, 51.6), P(1.6, 44), P(-2, 38), n=12).tolist() + [P(-3.8, 38.6), P(-6.8, 45)])
+    s.paint(f, "#03060b")
+
+    # the telly: a proper old tube one, rabbit ears still on it, jammed against his ribs
+    tv = (10, 13, 35, 33)   # left, bottom, right, top
     w = s.mask()
-    w.line([P(29, tv[3]), P(22, tv[3] + 13)], 0.9)
-    w.line([P(30, tv[3]), P(40, tv[3] + 12)], 0.9)
+    w.line([P(21, tv[3]), P(15, tv[3] + 11)], 0.9)
+    w.line([P(23, tv[3]), P(32, tv[3] + 10)], 0.9)
     s.paint(w, "#d7e3ea")
     m = s.mask()
-    m.rrect(P(tv[0], 0)[0], P(0, tv[3])[1], P(tv[2], 0)[0], P(0, tv[1])[1], 2.4 * k)
-    s.paint(m, "#8d8f8c", bottom="#55595c", top_y=y - 80, rim=0.9, rim_dx=-0.6, rim_dy=-0.7, rim_colour="#ffffff")
+    m.rrect(P(tv[0], 0)[0], P(0, tv[3])[1], P(tv[2], 0)[0], P(0, tv[1])[1], 2.2 * k)
+    s.paint(m, "#8d8f8c", bottom="#55595c", top_y=y - 80, rim=0.55, rim_dx=-0.6, rim_dy=-0.7, rim_colour="#ffffff")
     # the screen, curved and blank, taking the searchlight across one corner
     g = s.mask()
-    g.rrect(P(tv[0] + 3, 0)[0], P(0, tv[3] - 3)[1], P(tv[2] - 8, 0)[0], P(0, tv[1] + 3)[1], 3.2 * k)
+    g.rrect(P(tv[0] + 5, 0)[0], P(0, tv[3] - 2.6)[1], P(tv[2] - 6.5, 0)[0], P(0, tv[1] + 2.6)[1], 2.8 * k)
     s.paint(g, "#0c1520", bottom="#16263a", top_y=y - 60)
     l = s.mask()
-    l.spoly([P(tv[0] + 5, tv[3] - 5), P(tv[0] + 13, tv[3] - 5), P(tv[0] + 5, tv[3] - 14)])
+    l.spoly([P(tv[0] + 7, tv[3] - 4.4), P(tv[0] + 13, tv[3] - 4.4), P(tv[0] + 7, tv[3] - 11)])
     s.paint(l, "#a9c6dc")
     # two knobs
     n = s.mask()
-    for v in (tv[3] - 7, tv[3] - 14):
-        n.ellipse(*P(tv[2] - 4, v), 1.5 * k, 1.5 * k)
+    for v in (tv[3] - 4.5, tv[3] - 9.5):
+        n.ellipse(*P(tv[2] - 3.2, v), 1.3 * k, 1.3 * k)
     s.paint(n, "#17202a")
 
-    # his arm, down over the side of it and under, the set sitting on his forearm, hand at the far corner
+    # his arm: down his ribs in the same dark as the rest of him, a hard bend at the elbow, the forearm
+    # taking the set's weight along underneath, the hand under the far corner and three fat fingers curled
+    # up over the front of it
     m = s.mask()
-    m.stroke(np.array(bez(P(4, 33), P(9, 26), P(12, 11.5), n=8)), 6.0 * k, 5.0 * k)
-    m.stroke(np.array([P(12, 10.5), P(36, 9.5)]), 5.0 * k, 4.0 * k)
-    m.stroke(np.array([P(36, 9.5), P(40, 14)]), 4.4 * k, 3.2 * k)
-    a = m.array()
-    s.paint(m, "#1b2839")
-    lit_edges(s, a, lamp[0], lamp[1], 130, "#f4fbff", 1.6)
+    arm(m, [(7, 24), (7, 9), (29, 10.6)], [5.6, 5.6, 4.4])
+    m.spoly([P(28.5, 8.2), P(34.6, 7.9), P(36.8, 10.4), P(36.8, 13.6), P(28.5, 13.0)])
+    for fx, top in ((35.4, 18), (32.9, 18), (30.4, 17)):
+        m.stroke(np.array([P(fx, 11.5), P(fx, top)]), 2.0 * k, 1.8 * k)
+    s.paint(m, "#0d1625")
 
 
 def searchlight(s, x, y, tx, ty, spread, reach, colour, strength, soft):
@@ -318,7 +365,7 @@ def paint():
     # the house with the light on
     m = s.mask()
     house(m, 536, 138, 172, 44, veranda=False, antenna=True, chimney=True)
-    # veranda roof and posts, drawn here so the window stays clear
+    # a deep eave along the front, drawn here so the window stays clear
     m.spoly([(526, 106), (718, 106), (708, 98), (536, 98)])
     m.rect(0, 136, 1040, 148)
     s.paint(m, "#0a1426", bottom="#060c1a", top_y=70, rim=0.26, rim_colour="#a3cfe0")
@@ -327,12 +374,6 @@ def paint():
     d.rect(558, 110, 588, 130)
     s.paint(d, "#040811")
     window_scene(s, 620, 108, 42, 26)
-    m = s.mask()
-    for px in (540, 606, 672, 700):
-        m.rect(px, 106, px + 1.6, 138)
-    a = m.array()
-    s.paint(m, "#050a16")
-    lit_edges(s, a, 641, 120, 48, "#ffb45e", 0.8)
 
     # Colorbond: ribbed panels with posts and a capping rail, caught by the moon along the top
     fx0, fy = 720, FENCE_Y
@@ -343,15 +384,15 @@ def paint():
     body = m.array() * smooth_down(s.Y / SS, fy + 1.5)
     s.rgb += gauss(ribs * body, 0.25 * SS)[..., None] * s.colour("#7f9fb8") * 0.075
     m = s.mask()
-    for px in range(int(fx0) + 54, 1040, 98):
+    for px in range(int(fx0) + 30, 1040, 98):
         m.rect(px, fy - 1.0, px + 3, 148)
     m.rect(fx0, fy - 1.0, fx0 + 3, 148)
     s.paint(m, "#060c18", rim=0.22, rim_dx=-0.6, rim_dy=-0.6, rim_colour="#b9d6e6")
 
     # the chopper and its light: a hard edge, because it's meant to hurt
     lamp = chopper(s, 700, 27, 0.92)
-    target = (MAN_X + 13, FENCE_Y - 18)
-    searchlight(s, lamp[0], lamp[1], target[0], target[1], 15.5, 0.75, "#dcecfb", 0.6, 0.45)
+    target = (MAN_X + 2, FENCE_Y - 26)
+    searchlight(s, lamp[0], lamp[1], target[0], target[1], 17.5, 0.75, "#dcecfb", 0.6, 0.45)
     s.glow(lamp[0], lamp[1], 4.5, colour="#ffffff", strength=1.3)
     # where it lands on the fence, soft-edged, so it's light and not a cut-out
     pool = s.mask()
@@ -382,7 +423,7 @@ def paint():
     gum_tree(m, 232, 176, 166, seed=12, lean=0.08)
     s.paint(m, "#02040b")
     # the sign goes on after the gum, so no branch runs through the tag
-    watch_sign(s, 862, 52, 68, 35, 142)
+    watch_sign(s, 862, 52, 76, 35, 142)
     eyes = s.mask()
     for ex in (1006.6, 1011.4):
         eyes.ellipse(ex, 74.5, 1.05, 0.65)

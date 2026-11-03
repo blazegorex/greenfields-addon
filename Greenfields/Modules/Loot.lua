@@ -1248,6 +1248,15 @@ local function flushRollBatch()
     feedDesk(items, currentBoss(), info.name)
 end
 
+-- an item link's quality colour, lifted halfway to white: an epic's purple is hard to read on the green sign
+local function onSign(l)
+    if type(l) ~= "string" or not API.Readable(l) then return l end
+    return (l:gsub("|c(%x%x)(%x%x)(%x%x)(%x%x)", function(a, r, g, b)
+        local function lift(h) return ("%02x"):format(math.floor((tonumber(h, 16) + 255) / 2)) end
+        return "|c" .. a .. lift(r) .. lift(g) .. lift(b)
+    end))
+end
+
 local function srPopup(itemID, link, rollID)
     if settings().srPopups == false then return end
     local list = reservesFor(itemID)
@@ -1257,7 +1266,7 @@ local function srPopup(itemID, link, rollID)
     for _, e in ipairs(list) do
         if e.player == me then mine = true else others[#others + 1] = e end
     end
-    local l = linkOf(itemID, link)
+    local l = onSign(linkOf(itemID, link))
     if mine then
         local text = "You SR'd " .. l .. " - smash NEED"
         if #others > 0 then text = text .. ". Up against " .. coloredNames(others, 3) .. "." end

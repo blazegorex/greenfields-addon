@@ -76,6 +76,24 @@ def figure(x, base, h, f=1):
     return lambda u, v: (x + u * h * f, base - v * h)
 
 
+def limb(m, P, h, pts, widths):
+    """A jointed limb in local coordinates: straight bones and round joints, widths in fractions of h."""
+    q = [np.array(P(*p), float) for p in pts]
+    w = [k * h for k in widths]
+    for a, b, wa, wb in zip(q[:-1], q[1:], w[:-1], w[1:]):
+        d = (b - a) / max(1e-6, np.linalg.norm(b - a))
+        n = np.array([-d[1], d[0]])
+        m.spoly([tuple(a + n * wa / 2), tuple(b + n * wb / 2), tuple(b - n * wb / 2), tuple(a - n * wa / 2)])
+    for c, r in zip(q, w):
+        m.ellipse(c[0], c[1], r / 2, r / 2)
+
+
+def boot(m, P, u, size=1.0):
+    """A boot flat on the ground under an ankle at u, toe forward."""
+    s = size
+    m.spoly([P(u - 0.06 * s, 0.0), P(u - 0.055 * s, 0.085 * s), P(u + 0.05 * s, 0.085 * s), P(u + 0.14 * s, 0.035 * s), P(u + 0.14 * s, 0.0)])
+
+
 def pauldron(m, P, h, u, v, r, spikes=3):
     """The thing that makes it Warcraft: a shoulder the size of a head, with spikes on it."""
     cx, cy = P(u, v)
@@ -89,109 +107,139 @@ def pauldron(m, P, h, u, v, r, spikes=3):
         m.spoly([tuple(base + n * r * h * 0.3), tuple(c + d * r * h * 1.8), tuple(base - n * r * h * 0.3)])
 
 
-def legs(m, P, h, spread=0.13, thick=0.11):
-    m.stroke(np.array([P(-0.04, 0.5), P(-spread, 0.03)]), h * thick * 1.2, h * thick)
-    m.stroke(np.array([P(0.04, 0.5), P(spread, 0.03)]), h * thick * 1.2, h * thick)
-    for u in (-spread, spread):
-        m.spoly([P(u - 0.07, 0.0), P(u - 0.06, 0.07), P(u + 0.07, 0.07), P(u + 0.12, 0.0)])
-
-
-def tank(m, x, base, h, hand):
-    """Biggest of the lot and the only one who read the plan: spikes, horns, the back end of the ram."""
+def tank(m, near, x, base, h):
+    """Biggest of the lot and the only one who read the plan: spikes, horns, the back end of the ram, and
+    leaning into it from the back foot. The near arm goes in its own mask, over the ram."""
     P = figure(x, base, h)
-    legs(m, P, h, spread=0.17, thick=0.14)
-    m.spoly([P(-0.2, 0.84), P(0.22, 0.84), P(0.19, 0.46), P(-0.17, 0.46)])
-    m.spoly([P(-0.2, 0.5), P(0.2, 0.5), P(0.25, 0.3), P(0.04, 0.34), P(-0.25, 0.3)])
-    pauldron(m, P, h, -0.21, 0.82, 0.17)
-    pauldron(m, P, h, 0.21, 0.82, 0.15)
-    # horned helm, and the arms going down to the ram
-    m.ellipse(*P(0.02, 0.93), h * 0.095, h * 0.105)
-    m.stroke(bez(P(-0.06, 0.97), P(-0.2, 1.0), P(-0.17, 1.17), n=10), h * 0.055, h * 0.012)
-    m.stroke(bez(P(0.09, 0.97), P(0.23, 1.0), P(0.2, 1.17), n=10), h * 0.055, h * 0.012)
-    m.stroke(np.array([P(0.18, 0.76), hand]), h * 0.1, h * 0.085)
-    m.stroke(np.array([P(-0.14, 0.72), P(0.02, 0.5), (hand[0] - h * 0.24, hand[1] + h * 0.02)]), h * 0.1, h * 0.085)
+    # back leg driving, front knee bent
+    limb(m, P, h, [(-0.06, 0.48), (-0.2, 0.27), (-0.34, 0.06)], [0.19, 0.13, 0.1])
+    boot(m, P, -0.34, 1.15)
+    limb(m, P, h, [(0.07, 0.48), (0.26, 0.31), (0.2, 0.06)], [0.19, 0.13, 0.1])
+    boot(m, P, 0.2, 1.15)
+    # the barrel of him, tipped forward, and plate skirts
+    m.spoly([P(-0.19, 0.44), P(-0.2, 0.62), P(-0.1, 0.86), P(0.2, 0.88), P(0.25, 0.66), P(0.18, 0.44)])
+    m.spoly([P(-0.2, 0.5), P(0.19, 0.5), P(0.25, 0.33), P(0.03, 0.38), P(-0.27, 0.32)])
+    # helm sunk between the shoulders, and two horns you could hang a coat on
+    m.ellipse(*P(0.2, 0.97), h * 0.1, h * 0.105)
+    m.spoly([P(0.25, 0.94), P(0.36, 0.9), P(0.27, 0.87)])
+    m.stroke(bez(P(0.13, 1.03), P(-0.04, 1.06), P(-0.02, 1.25), n=10), h * 0.06, h * 0.012)
+    m.stroke(bez(P(0.25, 1.05), P(0.38, 1.1), P(0.33, 1.27), n=10), h * 0.06, h * 0.012)
+    # the far arm, out front of the chest, and its hand on the wood
+    limb(m, P, h, [(0.2, 0.78), (0.4, 0.62), (0.46, 0.44)], [0.1, 0.09, 0.08])
+    # the near arm and the great spiked shoulder it hangs off
+    limb(near, P, h, [(0.05, 0.78), (0.2, 0.6), (0.3, 0.42)], [0.12, 0.1, 0.085])
+    near.ellipse(*P(0.31, 0.415), h * 0.062, h * 0.062)
+    near.ellipse(*P(0.46, 0.415), h * 0.056, h * 0.056)
+    pauldron(near, P, h, 0.03, 0.84, 0.17)
 
 
-def dwarf(m, x, base, h, hand):
+def dwarf(m, near, x, base, h):
     """Half the height, same width, beard to the belt. Takes the front of the ram because he's already low."""
     P = figure(x, base, h)
-    legs(m, P, h, spread=0.2, thick=0.2)
-    m.spoly([P(-0.34, 0.78), P(0.34, 0.78), P(0.34, 0.34), P(-0.34, 0.34)])
-    m.ellipse(*P(0, 0.56), h * 0.38, h * 0.3)
-    pauldron(m, P, h, -0.34, 0.76, 0.2, spikes=2)
-    pauldron(m, P, h, 0.3, 0.76, 0.17, spikes=2)
-    # helm with proper horns, and the beard out the front of it
-    m.ellipse(*P(0.06, 0.92), h * 0.17, h * 0.16)
-    m.stroke(bez(P(-0.05, 1.0), P(-0.3, 1.04), P(-0.28, 1.3), n=10), h * 0.09, h * 0.015)
-    m.stroke(bez(P(0.17, 1.0), P(0.42, 1.04), P(0.38, 1.3), n=10), h * 0.09, h * 0.015)
-    m.spoly(bez(P(0.0, 0.88), P(0.14, 0.62), P(0.28, 0.4), n=10).tolist() + bez(P(0.28, 0.4), P(0.36, 0.66), P(0.24, 0.88), n=10).tolist())
-    m.stroke(np.array([P(0.28, 0.68), hand]), h * 0.15, h * 0.13)
-    m.stroke(np.array([P(-0.22, 0.64), (hand[0] - h * 0.56, hand[1] + h * 0.06)]), h * 0.15, h * 0.13)
+    # stumps, wide apart, a clear gap between them
+    limb(m, P, h, [(-0.12, 0.42), (-0.2, 0.22), (-0.2, 0.08)], [0.25, 0.2, 0.18])
+    boot(m, P, -0.2, 1.5)
+    limb(m, P, h, [(0.14, 0.42), (0.22, 0.22), (0.2, 0.08)], [0.25, 0.2, 0.18])
+    boot(m, P, 0.2, 1.5)
+    # a keg with arms
+    m.ellipse(*P(0, 0.58), h * 0.33, h * 0.27)
+    m.ellipse(*P(0.04, 0.73), h * 0.3, h * 0.13)
+    # helm: a dome, a nasal, and stub horns either side
+    m.ellipse(*P(0.1, 0.91), h * 0.16, h * 0.15)
+    m.stroke(bez(P(0.0, 0.98), P(-0.2, 1.0), P(-0.22, 1.2), n=10), h * 0.085, h * 0.015)
+    m.stroke(bez(P(0.2, 1.0), P(0.36, 1.04), P(0.34, 1.22), n=10), h * 0.085, h * 0.015)
+    # the near arm over the ram, and the beard over the arm, blown out front because he's going forward
+    limb(near, P, h, [(-0.08, 0.74), (0.04, 0.58), (0.16, 0.56)], [0.15, 0.13, 0.11])
+    near.ellipse(*P(0.18, 0.555), h * 0.095, h * 0.095)
+    near.ellipse(*P(0.27, 0.53), h * 0.075, h * 0.075)
+    near.spoly(bez(P(0.08, 0.87), P(0.14, 0.72), P(0.26, 0.64), n=10).tolist() + bez(P(0.26, 0.64), P(0.42, 0.74), P(0.27, 0.88), n=10).tolist())
+    pauldron(near, P, h, -0.14, 0.76, 0.14, spikes=2)
 
 
-def paladin(m, hammer, x, base, h):
-    """Plate, a cape, and a hammer the size of a bar fridge over one shoulder. The hammer goes in its own mask."""
+def paladin(m, cape, hammer, bands, haft, fists, x, base, h):
+    """Plate, a cape, and a hammer the size of a bar fridge, carried across the chest in both fists. The
+    hammer, the haft and the fists each go in their own mask, so the fists sit over the haft."""
     P = figure(x, base, h)
-    # cape first, streaming back
-    m.spoly(bez(P(-0.12, 0.84), P(-0.34, 0.6), P(-0.4, 0.3), P(-0.44, 0.04), n=12).tolist() + [P(-0.1, 0.06), P(0.0, 0.5)])
-    legs(m, P, h, spread=0.11, thick=0.12)
-    m.spoly([P(-0.16, 0.82), P(0.18, 0.82), P(0.14, 0.46), P(-0.13, 0.46)])
-    m.spoly([P(-0.15, 0.5), P(0.15, 0.5), P(0.19, 0.32), P(-0.19, 0.32)])
-    # big smooth domes on the shoulders, the holy kind
-    for u, r in ((-0.19, 0.145), (0.2, 0.13)):
-        m.ellipse(*P(u, 0.83), r * h, r * h * 0.85)
-    m.ellipse(*P(0.02, 0.92), h * 0.085, h * 0.095)
-    m.spoly([P(-0.03, 1.0), P(0.03, 1.15), P(0.07, 0.99)])
-    # the arm up to the haft
-    m.stroke(np.array([P(0.18, 0.78), P(0.26, 0.6), P(0.2, 0.62)]), h * 0.09, h * 0.08)
-    a, b = P(0.26, 0.48), P(-0.13, 1.42)
-    m.stroke(np.array([a, b]), h * 0.045, h * 0.045)
-    d = (np.array(b) - np.array(a))
-    d = d / np.linalg.norm(d)
+    # cape first, streaming back and clear of the back leg, in its own mask so it isn't more armour
+    cape.spoly(bez(P(-0.05, 0.86), P(-0.3, 0.72), P(-0.38, 0.4), P(-0.47, 0.06), n=12).tolist()
+               + [P(-0.36, 0.11), P(-0.31, 0.03), P(-0.23, 0.12), P(-0.17, 0.3), P(-0.1, 0.55)])
+    # striding: back leg long, front foot flat
+    limb(m, P, h, [(-0.04, 0.48), (-0.09, 0.27), (-0.17, 0.06)], [0.15, 0.1, 0.08])
+    boot(m, P, -0.17)
+    limb(m, P, h, [(0.05, 0.48), (0.16, 0.28), (0.16, 0.06)], [0.15, 0.1, 0.08])
+    boot(m, P, 0.16)
+    # breastplate, chest out, wasp waist, skirt of plates
+    m.spoly([P(-0.15, 0.84), P(0.16, 0.84), P(0.2, 0.7), P(0.11, 0.5), P(-0.11, 0.5), P(-0.14, 0.66)])
+    m.spoly([P(-0.14, 0.53), P(0.13, 0.53), P(0.2, 0.36), P(-0.2, 0.36)])
+    # the helm, and the crest off the back of it
+    m.ellipse(*P(0.03, 0.96), h * 0.085, h * 0.095)
+    m.spoly([P(0.08, 0.95), P(0.15, 0.93), P(0.09, 0.89)])
+    m.stroke(bez(P(0.03, 1.05), P(-0.07, 1.12), P(-0.16, 1.03), n=10), h * 0.05, h * 0.012)
+    # big smooth dome on the shoulder, the holy kind, and an arm down to each fist
+    limb(m, P, h, [(0.1, 0.8), (0.23, 0.5), (0.31, 0.58)], [0.09, 0.08, 0.07])
+    limb(m, P, h, [(0.0, 0.8), (0.03, 0.6), (0.13, 0.68)], [0.1, 0.09, 0.075])
+    m.ellipse(*P(-0.01, 0.83), h * 0.135, h * 0.115)
+    # the haft, from below the front fist, across the chest and out past the back shoulder
+    lo, hi = np.array(P(0.42, 0.51), float), np.array(P(-0.4, 1.02), float)
+    haft.stroke(np.array([lo, hi]), h * 0.05, h * 0.05)
+    u = hi - lo
+    for t in (0.135, 0.355):
+        c = lo + u * t
+        fists.ellipse(c[0], c[1], h * 0.058, h * 0.062)
+    # the head: a proper maul, square across the end of the haft, flat faces and two iron bands
+    d = (hi - lo) / np.linalg.norm(hi - lo)
     n = np.array([-d[1], d[0]])
-    c = np.array(b)
-    # the head: a block with flared faces, so it's a hammer and not a plank
-    hw, hl, fl = h * 0.25, h * 0.085, h * 0.135
-    hammer.spoly([tuple(c + n * hw + d * fl), tuple(c + n * hw * 0.62 + d * hl), tuple(c - n * hw * 0.62 + d * hl), tuple(c - n * hw + d * fl),
-                  tuple(c - n * hw - d * fl), tuple(c - n * hw * 0.62 - d * hl), tuple(c + n * hw * 0.62 - d * hl), tuple(c + n * hw - d * fl)])
+    hw, hl = h * 0.22, h * 0.1
+    hammer.spoly([tuple(hi + n * hw + d * hl), tuple(hi + n * hw - d * hl), tuple(hi - n * hw - d * hl), tuple(hi - n * hw + d * hl)])
+    for k in (-0.62, 0.62):
+        c = hi + n * hw * k
+        bands.spoly([tuple(c + n * h * 0.016 + d * hl), tuple(c - n * h * 0.016 + d * hl), tuple(c - n * h * 0.016 - d * hl), tuple(c + n * h * 0.016 - d * hl)])
 
 
-def rogue(m, x, base, h):
+def rogue(m, blades, x, base, h):
     """Skinny, crouched, hood to a point, one knife forward and one behind. Here for whatever's not bolted down."""
     P = figure(x, base, h)
-    m.stroke(np.array([P(-0.06, 0.5), P(-0.17, 0.27), P(-0.2, 0.03)]), h * 0.1, h * 0.075)
-    m.stroke(np.array([P(0.03, 0.5), P(0.2, 0.33), P(0.14, 0.03)]), h * 0.1, h * 0.075)
-    for u in (-0.2, 0.14):
-        m.spoly([P(u - 0.06, 0.0), P(u - 0.05, 0.05), P(u + 0.05, 0.05), P(u + 0.1, 0.0)])
-    # back bent forward, cloak hanging off it in tatters
-    m.spoly(bez(P(-0.08, 0.46), P(-0.16, 0.66), P(0.06, 0.8), n=10).tolist() + [P(0.2, 0.72), P(0.12, 0.46)])
-    m.spoly(bez(P(-0.03, 0.78), P(-0.22, 0.66), P(-0.34, 0.42), n=10).tolist() + [P(-0.24, 0.45), P(-0.25, 0.3), P(-0.14, 0.42), P(-0.1, 0.5)])
-    # the hood
-    m.spoly(bez(P(0.03, 0.74), P(0.0, 0.88), P(0.08, 0.98), n=8).tolist() + [P(-0.06, 1.1), P(0.2, 0.96), P(0.27, 0.84), P(0.2, 0.74)])
-    # knives
-    m.stroke(np.array([P(0.14, 0.7), P(0.36, 0.58)]), h * 0.065, h * 0.055)
-    m.spoly([P(0.34, 0.63), P(0.72, 0.68), P(0.36, 0.54)])
-    m.stroke(np.array([P(-0.04, 0.7), P(-0.25, 0.68)]), h * 0.065, h * 0.055)
-    m.spoly([P(-0.22, 0.73), P(-0.54, 0.92), P(-0.27, 0.64)])
+    # low on bent legs, tiptoeing up a lawn with five blokes and a tree trunk
+    limb(m, P, h, [(-0.04, 0.45), (-0.2, 0.26), (-0.32, 0.05)], [0.13, 0.08, 0.06])
+    boot(m, P, -0.32, 0.85)
+    limb(m, P, h, [(0.03, 0.45), (0.25, 0.34), (0.2, 0.05)], [0.13, 0.08, 0.06])
+    boot(m, P, 0.2, 0.85)
+    # back bent right over
+    limb(m, P, h, [(-0.01, 0.45), (0.13, 0.72)], [0.17, 0.2])
+    # the hood, its point out the back
+    m.spoly(bez(P(0.12, 0.72), P(0.04, 0.8), P(-0.1, 1.02), n=8).tolist() + bez(P(-0.1, 1.02), P(0.14, 1.02), P(0.3, 0.9), n=10).tolist() + [P(0.31, 0.83), P(0.24, 0.72)])
+    # knife arm out front
+    limb(m, P, h, [(0.15, 0.7), (0.31, 0.54), (0.46, 0.6)], [0.085, 0.07, 0.06])
+    m.ellipse(*P(0.47, 0.6), h * 0.048, h * 0.048)
+    blades.spoly([P(0.5, 0.64), P(0.8, 0.7), P(0.5, 0.57)])
+    # and the other one up behind him
+    limb(m, P, h, [(0.08, 0.7), (-0.13, 0.62), (-0.26, 0.72)], [0.085, 0.07, 0.06])
+    m.ellipse(*P(-0.27, 0.73), h * 0.048, h * 0.048)
+    blades.spoly([P(-0.3, 0.75), P(-0.42, 1.03), P(-0.24, 0.77)])
 
 
-def mage(m, x, base, h):
-    """Dress, pointy hat, stick. Stands at the back and won't be going through any doors. Returns the staff's top."""
+def mage(m, staff, fist, x, base, h):
+    """Dress, pointy hat, stick. Stands at the back and won't be going through any doors. The staff and the
+    hand on it get their own masks. Returns where the light sits, in the claw on top of the staff."""
     P = figure(x, base, h)
-    m.spoly(bez(P(-0.1, 0.8), P(-0.16, 0.45), P(-0.3, 0.0), n=10).tolist() + bez(P(0.3, 0.0), P(0.14, 0.45), P(0.11, 0.8), n=10).tolist())
-    m.ellipse(*P(-0.14, 0.78), h * 0.1, h * 0.08)
-    m.ellipse(*P(0.14, 0.78), h * 0.1, h * 0.08)
-    m.ellipse(*P(0.01, 0.89), h * 0.08, h * 0.085)
-    # brim and a hat with a bend in it
-    m.stroke(bez(P(-0.27, 0.93), P(0.01, 0.98), P(0.29, 0.9), n=10), h * 0.04, h * 0.03)
-    m.spoly([P(-0.12, 0.94), P(0.15, 0.94)] + bez(P(0.15, 0.94), P(0.05, 1.12), P(-0.15, 1.28), n=10).tolist() + bez(P(-0.15, 1.28), P(-0.08, 1.1), P(-0.12, 0.94), n=8).tolist())
-    # staff in the front hand, a claw on top to hold the light
-    sx = 0.36
-    m.stroke(np.array([P(sx, 0.0), P(sx, 1.25)]), h * 0.032, h * 0.028)
-    m.stroke(np.array([P(0.14, 0.72), P(sx, 0.62)]), h * 0.085, h * 0.07)
-    m.stroke(bez(P(sx, 1.2), P(sx - 0.12, 1.28), P(sx - 0.07, 1.41), n=10), h * 0.032, h * 0.012)
-    m.stroke(bez(P(sx, 1.2), P(sx + 0.12, 1.28), P(sx + 0.07, 1.41), n=10), h * 0.032, h * 0.012)
-    return P(sx, 1.32)
+    # the robe, flared to the ground with the back of the hem dragging
+    m.spoly(bez(P(-0.08, 0.82), P(-0.14, 0.45), P(-0.36, 0.0), n=10).tolist() + bez(P(0.24, 0.0), P(0.12, 0.45), P(0.1, 0.82), n=10).tolist())
+    m.ellipse(*P(0.0, 0.79), h * 0.115, h * 0.08)
+    # head poked forward, a beard off it, brim and a hat with a bend in it
+    m.ellipse(*P(0.05, 0.89), h * 0.07, h * 0.075)
+    m.spoly([P(0.05, 0.85), P(0.13, 0.86), P(0.15, 0.68), P(0.07, 0.76)])
+    m.stroke(bez(P(-0.24, 0.92), P(0.03, 0.98), P(0.3, 0.9), n=10), h * 0.04, h * 0.03)
+    m.spoly([P(-0.09, 0.94), P(0.15, 0.94)] + bez(P(0.15, 0.94), P(0.07, 1.14), P(-0.15, 1.3), n=10).tolist() + bez(P(-0.15, 1.3), P(-0.07, 1.1), P(-0.09, 0.94), n=8).tolist())
+    # staff planted out front, a claw on top to hold the light
+    sx = 0.42
+    staff.stroke(np.array([P(sx, 0.0), P(sx, 1.0)]), h * 0.05, h * 0.045)
+    staff.stroke(bez(P(sx, 0.98), P(sx - 0.14, 1.03), P(sx - 0.1, 1.17), n=10), h * 0.042, h * 0.016)
+    staff.stroke(bez(P(sx, 0.98), P(sx + 0.14, 1.03), P(sx + 0.1, 1.17), n=10), h * 0.042, h * 0.016)
+    # the arm out to it, and the sleeve hanging off the arm
+    limb(m, P, h, [(0.03, 0.76), (0.22, 0.62), (sx, 0.68)], [0.085, 0.07, 0.055])
+    m.spoly([P(0.2, 0.66), P(sx - 0.05, 0.7), P(sx - 0.1, 0.46), P(0.27, 0.49)])
+    fist.ellipse(*P(sx, 0.68), h * 0.06, h * 0.07)
+    return P(sx, 1.09)
 
 
 def ram(m, steel, x0, y0, x1, y1, w):
@@ -201,29 +249,36 @@ def ram(m, steel, x0, y0, x1, y1, w):
     d = (b - a) / np.linalg.norm(b - a)
     n = np.array([-d[1], d[0]])
     m.spoly([tuple(a + n * w / 2), tuple(b + n * w / 2), tuple(b - n * w / 2), tuple(a - n * w / 2)])
+    m.ellipse(a[0], a[1], w / 2, w / 2)
+    # a lopped branch, so it's come off a tree
+    c = a + d * w * 1.5
+    m.spoly([tuple(c + n * w * 0.3), tuple(c - d * 2.6 - n * w * 0.8), tuple(c - d * 4.4 - n * w * 0.8), tuple(c - d * 2.6 + n * w * 0.3)])
     head = b - d * w * 1.1
     steel.spoly([tuple(head + n * w * 0.62), tuple(head + n * w * 0.9 + d * w * 0.5), tuple(b + n * w * 0.9), tuple(b + n * w * 0.62 + d * w * 0.3),
                  tuple(b - n * w * 0.62 + d * w * 0.3), tuple(b - n * w * 0.9), tuple(head - n * w * 0.9 + d * w * 0.5), tuple(head - n * w * 0.62)])
-    for t in (0.3, 0.62):
-        c = a + (b - a) * t
-        steel.spoly([tuple(c + n * w * 0.6 - d * 0.9), tuple(c + n * w * 0.6 + d * 0.9), tuple(c - n * w * 0.6 + d * 0.9), tuple(c - n * w * 0.6 - d * 0.9)])
+    c = a + (b - a) * 0.42
+    steel.spoly([tuple(c + n * w * 0.58 - d * 0.9), tuple(c + n * w * 0.58 + d * 0.9), tuple(c - n * w * 0.58 + d * 0.9), tuple(c - n * w * 0.58 - d * 0.9)])
 
 
 def runner(m, x, base, h):
     """Hoodie, flat out, heading left. He heard them come up the drive about ten minutes ago."""
     P = figure(x, base, h, f=-1)
-    # the back leg kicked out, the front knee up, one runner off the ground
-    m.stroke(np.array([P(0.02, 0.5), P(-0.22, 0.34), P(-0.5, 0.26)]), h * 0.115, h * 0.075)
-    m.spoly([P(-0.47, 0.34), P(-0.6, 0.34), P(-0.63, 0.2), P(-0.5, 0.2)])
-    m.stroke(np.array([P(0.06, 0.5), P(0.34, 0.42), P(0.26, 0.1)]), h * 0.115, h * 0.075)
-    m.spoly([P(0.2, 0.13), P(0.28, 0.13), P(0.44, 0.04), P(0.44, 0.0), P(0.2, 0.0)])
-    # jumper leaning hard into it
-    m.spoly(bez(P(-0.1, 0.46), P(-0.12, 0.72), P(0.1, 0.88), n=10).tolist() + bez(P(0.1, 0.88), P(0.3, 0.84), P(0.32, 0.64), n=8).tolist() + [P(0.14, 0.44)])
-    # arms pumping
-    m.stroke(np.array([P(0.2, 0.76), P(0.42, 0.56), P(0.56, 0.7)]), h * 0.085, h * 0.065)
-    m.stroke(np.array([P(0.04, 0.76), P(-0.2, 0.6), P(-0.3, 0.74)]), h * 0.085, h * 0.065)
-    # hood, pushed forward
-    m.spoly(bez(P(0.06, 0.84), P(0.08, 0.98), P(0.22, 1.05), n=10).tolist() + bez(P(0.22, 1.05), P(0.4, 1.03), P(0.42, 0.88), n=8).tolist() + [P(0.32, 0.8)])
+    # back leg long behind him, just leaving the ground off the toe
+    limb(m, P, h, [(0.0, 0.5), (-0.17, 0.3), (-0.4, 0.14)], [0.13, 0.09, 0.06])
+    m.spoly([P(-0.44, 0.17), P(-0.37, 0.1), P(-0.31, 0.0), P(-0.4, 0.0), P(-0.48, 0.1)])
+    # front knee up at the hip, shin hanging, foot out ahead of it
+    limb(m, P, h, [(0.03, 0.5), (0.31, 0.5), (0.25, 0.24)], [0.13, 0.09, 0.06])
+    m.spoly([P(0.21, 0.27), P(0.28, 0.28), P(0.42, 0.2), P(0.42, 0.16), P(0.21, 0.17)])
+    # jumper, tipped right over, hem flapping out behind
+    m.spoly([P(-0.08, 0.45), P(-0.2, 0.47), P(-0.08, 0.56), P(0.04, 0.84), P(0.25, 0.8), P(0.13, 0.44)])
+    # far arm punched out ahead, near arm driving back with the elbow high, daylight round both
+    limb(m, P, h, [(0.22, 0.78), (0.42, 0.63), (0.54, 0.8)], [0.085, 0.07, 0.06])
+    m.ellipse(*P(0.55, 0.81), h * 0.045, h * 0.045)
+    limb(m, P, h, [(0.08, 0.78), (-0.2, 0.76), (-0.22, 0.56)], [0.085, 0.07, 0.06])
+    m.ellipse(*P(-0.22, 0.545), h * 0.045, h * 0.045)
+    # hood, head down into it, the peak of it blown off the back
+    m.spoly(bez(P(0.1, 0.82), P(0.04, 0.9), P(-0.03, 0.96), n=8).tolist() + bez(P(-0.03, 0.96), P(0.14, 1.06), P(0.3, 1.0), n=10).tolist()
+            + bez(P(0.3, 1.0), P(0.36, 0.92), P(0.31, 0.83), n=8).tolist() + [P(0.2, 0.78)])
 
 
 def wagon(s, x0, base, wide):
@@ -238,21 +293,40 @@ def wagon(s, x0, base, wide):
     body = [P(0, 11), P(1, 26), P(5, 30), P(33, 34), P(50, 50), P(66, 51), P(66, 56), P(150, 56), P(150, 11)]
     m.spoly(body)
     s.paint(m, "#1a2130", bottom="#0d1019", top_y=60, rim=0.5, rim_dx=-0.6, rim_dy=-0.7, rim_colour="#8fb0ff")
-    # glass, and the steel cage down the box
+    # glass
     g = s.mask()
     g.spoly([P(38, 33), P(51, 47), P(62, 47), P(62, 33)])
     s.paint(g, "#2c3d66", bottom="#121a30", top_y=base - 60)
-    cage = s.mask()
-    for k in range(9):
-        cage.rect(*P(72 + k * 8, 52), *P(73 + k * 8, 36))
-    cage.rect(*P(72, 52), *P(136, 51))
-    cage.rect(*P(72, 37), *P(136, 36))
-    s.paint(cage, "#6e7c9a")
-    # the checker strip and the wheels
-    ch = s.mask()
-    for k in range(18):
-        ch.rect(*P(6 + k * 8, 11.5), *P(10 + k * 8, 8.5))
-    s.paint(ch, "#d7e0ee")
+    # the back window: dark, with a steel frame and diamond mesh over it, so you can't get out or spit through
+    gx0, gy0, gx1, gy1 = P(72, 52) + P(138, 35)
+    pane = s.mask()
+    pane.rect(gx0, gy0, gx1, gy1)
+    s.paint(pane, "#060912")
+    mesh = s.mask()
+    span, gap = gy1 - gy0, 4.2
+    for d0 in np.arange(gx0 - span, gx1 + span, gap):
+        mesh.line([(d0, gy0), (d0 + span, gy1)], 0.5)
+        mesh.line([(d0 + span, gy0), (d0, gy1)], 0.5)
+    ma = mesh.array() * pane.array()
+    s.rgb = s.rgb * (1 - ma[..., None]) + s.colour("#7f8dab") * ma[..., None]
+    fr = s.mask()
+    fr.rect(gx0 - 1, gy0 - 1, gx1 + 1, gy0)
+    fr.rect(gx0 - 1, gy1, gx1 + 1, gy1 + 1)
+    fr.rect(gx0 - 1, gy0, gx0, gy1)
+    fr.rect(gx1, gy0, gx1 + 1, gy1)
+    s.paint(fr, "#6e7c9a")
+    # the chequers: two rows of squares down the flank, nose to tail and cut off by the body's own ends
+    white, blue = s.mask(), s.mask()
+    sq = 3.3
+    y0 = base - 31.6
+    for r in range(2):
+        for c, xx in enumerate(np.arange(x0 - sq, x0 + wide + sq, sq)):
+            (white if (r + c) % 2 == 0 else blue).rect(xx, y0 + r * sq, xx + sq, y0 + (r + 1) * sq)
+    ba = m.array()
+    wa, bl = white.array() * ba, blue.array() * ba
+    s.rgb = s.rgb * (1 - bl[..., None]) + s.colour("#1d3a8c") * bl[..., None]
+    s.rgb = s.rgb * (1 - wa[..., None]) + s.colour("#dfe7f2") * wa[..., None]
+    # the wheels
     w = s.mask()
     for a in (26, 122):
         c = P(a, 8)
@@ -348,56 +422,93 @@ def paint():
     door = s.mask()
     door.rect(784, 92, 806, 140)
     da = door.array()
-    s.rgb = s.rgb * (1 - da[..., None]) + s.colour(HOT) * 0.8 * da[..., None]
+    s.rgb = s.rgb * (1 - da[..., None]) + s.colour(HOT) * 0.62 * da[..., None]
     s.rgb += gauss(da, 3.5 * SS)[..., None] * s.colour(HOT) * 0.28
     s.rgb += gauss(da, 12 * SS)[..., None] * s.colour("#fff0d0") * 0.13
     d2 = s.mask()
     d2.rect(788, 97, 802, 113)
     d2.rect(788, 118, 802, 135)
     d2.ellipse(787, 118, 1.2, 1.2)
-    s.rgb *= (1 - d2.array() * 0.16)[..., None]
+    s.rgb *= (1 - d2.array() * 0.24)[..., None]
     fr = s.mask()
     fr.rect(782, 90, 784, 140)
     fr.rect(806, 90, 808, 140)
     fr.rect(782, 89.5, 808, 92)
     s.paint(fr, "#06050b")
 
-    # the stack, by rank: the short bloke on the iron end, the bloke with the plan at the back
-    party, steel, gold = s.mask(), s.mask(), s.mask()
+    # where it's hit: the door's lost, the panels are splitting from the iron outward
+    crack = s.mask()
+    ix, iy = 784.5, 125.5
+    for pts in ([(ix, iy), (789, 122), (792, 123), (797, 116), (799, 117), (804, 110)],
+                [(ix, iy), (790, 127), (794, 126), (800, 131), (805, 130)],
+                [(ix, iy), (788, 130), (790, 134), (789, 139)],
+                [(ix, iy), (787, 118), (790, 114), (789, 106)]):
+        crack.line(pts, 0.95)
+    s.paint(crack, "#20130d")
+
+    # the stack, by rank, each with room to be what they are: the short bloke on the iron end, the bloke
+    # with the plan at the back of it, and the useless ones strung out behind
     bb = 140
-    mage_top = mage(party, 642, bb, 40)
-    rogue(party, 672, bb, 37)
-    paladin(party, gold, 703, bb, 44)
-    tank(party, 738, bb, 48, (748, 110))
-    dwarf(party, 766, bb, 31, (771, 118))
+
+    def party_paint(m):
+        s.paint(m, ARMOUR)
+        lit_rim(s, m, 795, 116, 90, HOT, 1.5, soft=0.35)
+        lit_rim(s, m, 880, 80, 240, "#6c98ff", 1.0, soft=0.35)
+        lit_rim(s, m, 600, 100, 130, "#ff4656", 1.35, soft=0.35)
+
+    mg, ro, pa, ca, ta, tn, dw, dn = (s.mask() for _ in range(8))
+    head, bands, blades, haft, fists, staff, mfist = (s.mask() for _ in range(7))
+    orb = mage(mg, staff, mfist, 627, bb, 40)
+    rogue(ro, blades, 661, bb, 36)
+    paladin(pa, ca, head, bands, haft, fists, 695, bb, 44)
+    tank(ta, tn, 727, bb, 50)
+    dwarf(dw, dn, 767, bb, 32)
     wood, steel = s.mask(), s.mask()
-    ram(wood, steel, 714, 103, 783, 122, 8.5)
+    ram(wood, steel, 732, 115.4, 784, 125.5, 8.5)
     # a hard shadow behind them on the fibro, thrown left by the bar
-    sh = np.roll(party.array(), -int(5 * SS), axis=1)
-    sh = gauss(sh, 0.6 * SS) * wall.array()
-    s.rgb *= (1 - sh * 0.45)[..., None]
-    s.paint(party, ARMOUR)
-    lit_rim(s, party, 795, 116, 90, HOT, 1.5, soft=0.35)
-    lit_rim(s, party, 880, 80, 240, "#6c98ff", 1.0, soft=0.35)
-    lit_rim(s, party, 600, 100, 130, "#ff4656", 1.35, soft=0.35)
+    union = np.zeros_like(a)
+    for m in (mg, ro, pa, ca, ta, tn, dw, dn):
+        union = np.maximum(union, m.array())
+    sh = np.roll(union, -int(3 * SS), axis=1) * wall.array() * (1 - union)
+    s.rgb *= (1 - sh * 0.3)[..., None]
+    for m in (mg, ro):
+        party_paint(m)
+    # the stick: plain timber, so you can see it from the ground up to the claw, and his hand round it
+    s.paint(staff, "#8a6a48", rim=0.7, rim_dx=0.5, rim_dy=-0.3, rim_colour="#ffd0b0")
+    party_paint(mfist)
+    s.paint(blades, "#d8e0ea", rim=0.5, rim_dx=0, rim_dy=-0.5, rim_colour="#ffffff")
+    s.paint(ca, "#2a0a16")
+    lit_rim(s, ca, 600, 100, 130, "#ff4656", 1.0, soft=0.35)
+    party_paint(pa)
+    # the hammer: dark steel like the rest of him, with a thread of gold on the edge, for all the good the
+    # Light'll do; bright haft across his chest, and his fists on it
+    s.paint(haft, "#6f7686", rim=0.5, rim_dx=0, rim_dy=-0.4, rim_colour="#ffffff")
+    s.paint(head, "#14141e", rim=1.0, rim_dx=0.5, rim_dy=-0.6, rim_colour="#e8b84e")
+    lit_rim(s, head, 600, 100, 130, "#ff4656", 0.9, soft=0.35)
+    s.paint(bands, "#343544")
+    party_paint(fists)
+    party_paint(ta)
+    party_paint(dw)
     # the ram goes over the top of them, the only pale thing in the stack, so it's plain what it is
     s.paint(wood, "#7a5a3c", bottom="#4a3322", top_y=60, rim=0.9, rim_dx=0, rim_dy=-0.8, rim_colour="#ffc0a0")
     s.paint(steel, "#59616f", rim=0.9, rim_dx=0, rim_dy=-0.7, rim_colour="#ffffff")
     lit_rim(s, steel, 795, 116, 40, HOT, 2.2, soft=0.3)
-    # the one bit of gold: the Light, on a hammer, for all the good it'll do
-    s.paint(gold, "#b98a2c", rim=0.8, rim_dx=0.6, rim_dy=-0.6, rim_colour="#fff0b8")
-    s.rgb += gauss(gold.array(), 2.5 * SS)[..., None] * s.colour("#ffc65a") * 0.45
-    # and the glow on the mage's stick
-    mx, my = mage_top
-    s.glow(mx, my, 9, "#55d8ff", 0.55)
-    s.glow(mx, my, 2.6, "#e8fbff", 1.4)
+    # and the hands and near arms over the ram, so they've actually got hold of it
+    party_paint(tn)
+    party_paint(dn)
+    # and the light in the claw on the mage's stick: a hard little ball of it, then the glow
+    mx, my = orb
+    s.glow(mx, my, 8, "#55d8ff", 0.4)
+    o = s.mask()
+    o.ellipse(mx, my, 3.1, 3.1)
+    s.paint(o, "#c9f6ff")
 
     # out the window and over the verge
     m = s.mask()
-    runner(m, 558, 139, 35)
+    runner(m, 554, 139, 40)
     s.paint(m, "#05050b")
-    lit_rim(s, m, 610, 110, 70, "#ffb060", 1.0, soft=0.3)
-    lit_rim(s, m, 620, 80, 150, "#ff4656", 0.7, soft=0.3)
+    lit_rim(s, m, 610, 110, 80, "#ffb060", 1.3, soft=0.3)
+    lit_rim(s, m, 620, 80, 150, "#ff4656", 0.9, soft=0.3)
 
     # the wagon, and what it's doing to the night
     (rx, ry), (bx, byy) = wagon(s, 846, 141, 146)
@@ -416,7 +527,7 @@ def paint():
 
     # the gums frame it, and one for the title to sit against
     m = s.mask()
-    gum_tree(m, 1084, 172, 140, seed=8, lean=0.1, spread=0.7)
+    gum_tree(m, 1106, 172, 140, seed=8, lean=0.1, spread=0.7)
     gum_tree(m, 236, 176, 170, seed=12, lean=0.06)
     s.paint(m, "#040308")
     # keep the left of the sky low so the page title has a calm dark bed

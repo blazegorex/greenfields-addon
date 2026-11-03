@@ -185,6 +185,10 @@ function UI:Toast(opts)
     t:Show()
     t.intro:Play()
     GF:After(0.25, function() if t:IsShown() then UI:Shine(t.shineBox, 0.9) end end)
+    -- a crown, a boss or a win gets the gold going off round its icon
+    if opts.burst or opts.icon == "crown" or opts.icon == "trophy" then
+        GF:After(0.2, function() if t:IsShown() then UI:Burst(t.icon, opts.burst or "gold", 2.4) end end)
+    end
     if opts.sound ~= false and GF.db and GF.db.settings.toastSounds ~= false then
         API.PlaySound(type(opts.sound) == "number" and opts.sound or 18019) -- UI_BNET_TOAST
     end

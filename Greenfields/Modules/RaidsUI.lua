@@ -485,7 +485,7 @@ local function chooseStatus(status)
     for _, b in ipairs(P.my.status) do
         b:SetOn(b.status == status)
         -- you're coming: the button catches the light
-        if b.status == status and (status == "yes" or status == "late") then UI:Shine(b, 0.6) end
+        if b.status == status and (status == "yes" or status == "late") then UI:Shine(b, 0.6); UI:Burst(b, "green") end
     end
     P.my.subtitle:SetText(FLAVOR[status])
     P.my.PaintCall(status, false)

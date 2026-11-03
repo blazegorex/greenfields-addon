@@ -3,6 +3,9 @@
     python -P tools/make_scenes.py               # all of them
     python -P tools/make_scenes.py home raids    # just these
 
+Since Nov 2026 the banners that ship are pixel art built by tools/pixel_art.py from these: running this
+paints the poster versions back over them, so run tools/pixel_art.py afterwards to put them back.
+
 Each banner is tools/scenes/<page>.py, with a paint() that returns the finished image. A PNG copy
 goes to tools/art/scenes/ for looking at (it isn't shipped). The list the addon reads is
 Greenfields/Data/Art.lua, written by tools/import_art.py.

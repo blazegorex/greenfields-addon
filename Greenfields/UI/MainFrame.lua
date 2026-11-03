@@ -87,10 +87,10 @@ local function navButton(parent)
     b.badge:SetPoint("RIGHT", -8, 0)
     b.badge:Hide()
     b:SetScript("OnEnter", function(self)
-        if not self.selected then self.hl:Show(); self:Tint("text") end
+        if not self.selected then UI:Ease(self.hl, 1, 0.12); self:Tint("text") end
     end)
     b:SetScript("OnLeave", function(self)
-        self.hl:Hide()
+        UI:Ease(self.hl, 0, 0.2, true)
         if not self.selected then self:Tint("dim") end
     end)
     b:SetScript("OnClick", function(self)
@@ -191,9 +191,12 @@ function UI:RefreshNav()
         if val and val ~= 0 and val ~= "" then
             b.badge:SetText(tostring(val), type(val) == "string" and "yellow" or "green")
             b.badge:Show()
+            -- a word in the badge ("!", "REC") means it wants you; a count is just news
+            UI:Attention(b.badge, type(val) == "string", T.c.wowGold)
             b.label:SetPoint("RIGHT", b.badge, "LEFT", -4, 0)
         else
             b.badge:Hide()
+            UI:Attention(b.badge, false)
             b.label:SetPoint("RIGHT", b, "RIGHT", -10, 0)
         end
     end

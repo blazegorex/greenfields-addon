@@ -32,7 +32,7 @@ GF.Titles = {
       title = "Spirit Healer's Bestie", label = "Most deaths, anywhere",
       blurb = "On a first-name basis with the angel lady.",
       icon = "skull",
-      milestones = { { 25, "Frequent Flyer" }, { 100, "Ghost Run Veteran" }, { 500, "Has A Loyalty Card" } } },
+      milestones = { { 25, "Graveyard Regular" }, { 100, "Ghost Run Veteran" }, { 500, "Has A Loyalty Card" } } },
 
     { key = "deaths_falling", kind = "sum", group = "shame", source = "self",
       title = "Gravity Tester", label = "Deaths to fall damage",

@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from scenekit import SCRAWL, SS, Scene, bez, gum_tree, hoodie, house, lettering, light_windows, power_pole, wires
+from scenekit import SCRAWL, SS, Scene, bez, boards, gum_tree, hoodie, house, lettering, light_windows, power_pole, wires
 
 VX, VY = 510, 104  # where the street disappears to
 KERB = 0.15
@@ -61,6 +61,126 @@ def letterbox(m, x, base, h, kind=0):
         m.rrect(x - w * 0.9, base - h, x + w * 0.9, base - h * 0.52, h * 0.2)
 
 
+def dark_window(s, x, y, w, h, frame, sheen="#6a5a86"):
+    """Nobody home, or nobody admitting it: dark glass with a hard slant of sky on it, frame and sill."""
+    m = s.mask()
+    m.rect(x - 0.9, y - 0.9, x + w + 0.9, y + h + 0.9)
+    s.paint(m, frame)
+    m = s.mask()
+    m.rect(x, y, x + w, y + h)
+    s.paint(m, "#05061a")
+    lean = h * 0.55
+    c = s.mask()
+    c.rect(x, y, x + w, y + h)
+    g = s.mask()
+    g.spoly([(x + w * 0.22 + lean, y), (x + w * 0.42 + lean, y), (x + w * 0.42, y + h), (x + w * 0.22, y + h)])
+    a = g.array() * c.array()
+    s.rgb = s.rgb * (1 - a[..., None] * 0.4) + s.colour(sheen) * (a * 0.4)[..., None]
+    m = s.mask()
+    m.rect(x + w / 2 - 0.4, y, x + w / 2 + 0.4, y + h)
+    s.paint(m, frame)
+    m = s.mask()
+    m.rect(x - 1.8, y + h + 0.5, x + w + 1.8, y + h + 1.7)
+    s.paint(m, frame)
+
+
+def street_house(s, x, base, w, h, tone, kind="boards", lit=(), boarded=(), seed=1):
+    """A front-on fibro or weatherboard place, dark but built: a tin roof with its ribs and capping, a gutter
+    that's let go at one end, cladding, windows, a door, and a paling fence with teeth missing. Stays low in
+    contrast, it's only here so the queue and the signs have a street to be in. Returns the window slots."""
+    tone = np.asarray(tone, np.float32)
+    wall = tone * 0.70 + s.colour("#35325e") * 0.30
+    line = wall * 0.68
+    pale = wall * 1.45 + 0.02
+    rise = h * 0.52
+    over = w * 0.05
+    eave = base - h
+    ridge = eave - rise
+    rx0, rx1 = x + w * 0.22, x + w * 0.78
+
+    m = s.mask()
+    m.rect(x, eave, x + w, base)
+    s.paint(m, wall)
+    # cladding
+    c = s.mask()
+    if kind == "boards":
+        for yy in np.arange(eave + 3, base, max(2.7, h * 0.075)):
+            c.line([(x, yy), (x + w, yy)], 0.7)
+    else:  # fibro sheets and their cover strips
+        for xx in np.arange(x + w / 9, x + w - 1, w / 9):
+            c.line([(xx, eave), (xx, base)], 0.8)
+        c.line([(x, base - h * 0.28), (x + w, base - h * 0.28)], 0.8)
+    s.paint(c, line)
+
+    # chimney, roof, ribs, ridge capping
+    m = s.mask()
+    cx = x + w * 0.70
+    m.rect(cx, ridge - h * 0.22, cx + w * 0.05, ridge + rise * 0.5)
+    m.rect(cx - 0.8, ridge - h * 0.22 - 0.8, cx + w * 0.05 + 0.8, ridge - h * 0.22 + 0.6)
+    s.paint(m, tone * 1.2, rim=0.4, rim_dx=-0.6, rim_dy=-0.6)
+    m = s.mask()
+    m.spoly([(x - over, eave), (rx0, ridge), (rx1, ridge), (x + w + over, eave)])
+    s.paint(m, tone * 0.82, rim=0.5, rim_dx=-0.7, rim_dy=-0.8)
+    c = s.mask()
+    n = int(w / 4.5)
+    for k in range(1, n):
+        q = k / n
+        c.line([(rx0 + (rx1 - rx0) * q, ridge + 0.8), (x - over + (w + 2 * over) * q, eave)], 0.7)
+    s.paint(c, tone * 1.22 + 0.012)
+
+    # the gutter: straight, until it isn't
+    drop = max(1.6, h * 0.05)
+    gh = max(1.4, h * 0.035)
+    g = s.mask()
+    g.rect(x - over - 0.6, eave - 0.4, x + w * 0.74, eave + gh)
+    g.spoly([(x + w * 0.74, eave - 0.4), (x + w + over + 0.6, eave - 0.4 + drop), (x + w + over + 0.6, eave + gh + drop), (x + w * 0.74, eave + gh)])
+    g.rect(x + w * 0.015, eave + gh, x + w * 0.015 + 1.3, base)  # downpipe
+    s.paint(g, pale * 0.9)
+
+    # windows and the door
+    ww, wh = h * 0.56, h * 0.36
+    wy = base - h * 0.68
+    slots = [(x + w * 0.12, wy, ww, wh), (x + w * 0.88 - ww, wy, ww, wh)]
+    for i, (a, b, c_, d) in enumerate(slots):
+        if i in lit:
+            m = s.mask()
+            m.rect(a - 0.9, b - 0.9, a + c_ + 0.9, b + d + 0.9)
+            s.paint(m, pale)
+        else:
+            dark_window(s, a, b, c_, d, pale)
+        if i in boarded:
+            m = s.mask()
+            boards(m, a, b, c_, d, n=3, seed=seed)
+            s.paint(m, pale * 0.95, rim=0.2, rim_dx=0, rim_dy=-0.5)
+    dw = h * 0.27
+    dx = x + w * 0.5 - dw / 2
+    dt = base - h * 0.80
+    m = s.mask()
+    m.rect(dx - 0.9, dt - 0.9, dx + dw + 0.9, base)
+    s.paint(m, pale)
+    m = s.mask()
+    m.rect(dx, dt, dx + dw, base)
+    s.paint(m, "#05061a")
+
+    # the fence, close in front; a hole at the door, the gate went years ago
+    rng = np.random.default_rng(seed + 50)
+    fh = h * 0.27
+    fb = base + 2.2
+    gap = (dx - dw * 0.5, dx + dw * 1.5)
+    f = s.mask()
+    pal = 3.2
+    for a, b in ((x - 4, gap[0]), (gap[1], x + w + 4)):
+        f.rect(a, fb - fh * 0.82, b, fb - fh * 0.74)
+        f.rect(a, fb - fh * 0.30, b, fb - fh * 0.22)
+        for xx in np.arange(a, b - pal * 0.5, pal):
+            if rng.random() < 0.12:
+                continue  # gone for firewood
+            top = fh * rng.uniform(0.94, 1.03)
+            f.spoly([(xx, fb), (xx, fb - top + 0.8), (xx + (pal - 0.9) / 2, fb - top), (xx + pal - 0.9, fb - top + 0.8), (xx + pal - 0.9, fb)])
+    s.paint(f, wall * 0.78, rim=0.35, rim_dx=-0.3, rim_dy=-0.6)
+    return slots
+
+
 def paint():
     s = Scene("dusk", seed=11, horizon=104)
     s.sky(clouds=0.48, stars=0.85, glow_x=0.49, glow_w=0.20)
@@ -86,7 +206,7 @@ def paint():
     s.paint(m, "#4a4166", bottom="#16173a", top_y=108)
 
     # the houses, far to near; each a little bigger, nearer in tone, and sharper at the roofline
-    ds = [20, 30, 45, 67, HOUSE_AT, 150, 225, 340]
+    ds = [20, 30, 45, 67, HOUSE_AT, 150, 210, 290]
     near = s.colour("#0c0e27")
     hazed = s.colour("#5f4c72")
     for d in ds:
@@ -96,14 +216,21 @@ def paint():
         h = d * (0.24 if d == HOUSE_AT else 0.2)
         w = h * 2.6
         x0 = VX + d
+        if d >= 150:
+            # the near ones are built, not cut out, and they're smaller and further down than they were
+            slots = street_house(s, x0, base, w, h, tone, kind={150: "boards", 210: "fibro", 290: "boards"}[d],
+                                 lit={150: (1,)}.get(d, ()), boarded={290: (0,)}.get(d, ()), seed=d)
+            if d == 150:
+                light_windows(s, [slots[1]], strength=0.42 + 0.58 * t)
+            continue
         m = s.mask()
-        house(m, x0, base, w, h, veranda=d >= 67, chimney=d >= 45, antenna=d == 150)
+        house(m, x0, base, w, h, veranda=d >= 67, chimney=d >= 45, antenna=False)
         s.paint(m, tone, rim=0.16 + 0.34 * t, rim_dx=-0.8, rim_dy=-0.8)
         wh, ww = h * 0.30, h * 0.42
         wy = base - h * 0.60
         slots = [(x0 + w * 0.14, wy, ww, wh), (x0 + w * 0.70, wy, ww, wh)]
         # not every room's on: a street, not a Christmas display
-        lit = {20: [1], 30: [0], 45: [1], 67: [0], HOUSE_AT: [], 150: [1], 225: [], 340: []}[d]
+        lit = {20: [1], 30: [0], 45: [1], 67: [0], HOUSE_AT: []}[d]
         light_windows(s, [slots[k] for k in lit], strength=0.42 + 0.58 * t, bars=d >= 67)
 
     # the popular house: everything on, front door included, and nobody's asleep
@@ -128,6 +255,8 @@ def paint():
     # letterboxes on the nature strip, one per house, marching off down the kerb
     m = s.mask()
     for i, d in enumerate(ds[:-1]):
+        if d == 150:
+            continue  # the NO TICK picket stands here
         lx = VX + d * 1.15
         lb = VY + (lx - VX) * KERB - 0.6
         letterbox(m, lx, lb, max(3.5, d * 0.085), kind=(i * 2) % 3)
@@ -152,30 +281,33 @@ def paint():
         hoodie(m, x, VY + d * KERB + 0.5, d * KERB * 0.95, facing=-1, slouch=slouch)
     s.paint(m, "#04051a", rim=0.7, rim_dx=-0.6, rim_dy=-0.6, rim_colour="#ffbe7a")
 
-    # house rules, on a bit of cardboard wired to a star picket, just behind the last of them
+    # house rules, on a bit of cardboard wired to a star picket on the strip, just past the last of them,
+    # and low: Residents' search box runs across y 92 to 116 from x 658
     m = s.mask()
-    m.rect(664.5, 121, 666, 140)
-    m.rect(714, 121, 715.5, 139)
-    s.paint(m, "#2a2740")
+    m.rect(713, 124, 714.8, 135)
+    s.paint(m, "#0a0a20", rim=0.5, rim_dx=-0.5, rim_dy=0, rim_colour="#ffbe7a")
     m = s.mask()
-    m.spoly([(660, 121.4), (719, 120.8), (720, 133), (661, 133.8)])
-    s.paint(m, "#8f7650")
+    m.spoly([(686, 120.6), (742, 120), (743, 133), (687, 133.8)])
+    s.paint(m, "#b89a68", rim=0.3, rim_dx=0, rim_dy=-0.5, rim_colour="#ffe0b0")
     m = s.mask()
-    lettering(m, "NO TICK", 690, 127.4, 9, font=SCRAWL, angle=-1, wobble=0.4, seed=2)
+    lettering(m, "NO TICK", 714.5, 126.8, 9, font=SCRAWL, angle=-1, wobble=0.4, seed=2)
     s.paint(m, "#14101a")
 
     # the heap, on the lawn further along: few bikes, fat lines, each cut out of the one behind it
-    for x, y, r, tilt, f, tone, w in ((848, 122.5, 6.6, 15, 1, "#6d6590", 1.3),
-                                      (884, 123.5, 6.6, -11, -1, "#6d6590", 1.3),
-                                      (826, 129, 7, -5, 1, "#c8c0dc", 1.5),
-                                      (864, 129.5, 7, 6, -1, "#c8c0dc", 1.5)):
+    for x, y, r, tilt, f, tone, w in ((848, 125, 6.6, 15, 1, "#8e86ae", 1.3),
+                                      (884, 126, 6.6, -11, -1, "#8e86ae", 1.3),
+                                      (826, 130.5, 7, -5, 1, "#d6cee8", 1.5),
+                                      (864, 131, 7, 6, -1, "#d6cee8", 1.5)):
         m = s.mask()
         bike(m, x, y, r, tilt=tilt, facing=f, width=w + 1.6)
         s.paint(m, "#0a0a22")
         m = s.mask()
         bike(m, x, y, r, tilt=tilt, facing=f, width=w)
         s.paint(m, tone)
-    # the price tag on the lot
+    # the price tag on the lot, on its own stake
+    m = s.mask()
+    m.rect(932.5, 139, 934.5, 147)
+    s.paint(m, "#0a0a20", rim=0.4, rim_dx=-0.5, rim_dy=0, rim_colour="#ffbe7a")
     m = s.mask()
     m.spoly([(906, 127), (961, 126), (962, 139), (907, 140)])
     s.paint(m, "#d6bd8a")

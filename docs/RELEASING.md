@@ -36,17 +36,6 @@ Addon apps should work too: every release has a `release.json` attached, pointin
 
 ## Shipping a fix
 
-### Release 1, Tuesday
-
-1. In a terminal in `C:\Users\sp3nn\Greenfields`, run `python tools/release.py --bump minor --publish`. That makes it 1.2.0.
-2. Open both `/gf install` links (they're under "First-time install" below) and check they download.
-3. Quit WoW and run Update Greenfields on your PC. Haven't got it? It's the `GreenfieldsUpdater.zip` link below: unblock it, unzip it somewhere permanent and run it from there. Reopen WoW and check `/gf version`.
-4. Tell the guild: "New Greenfields is out. Run Update Greenfields, then quit and reopen WoW, a /reload won't do."
-
-The push uses your saved git login, not the token, which only does the GitHub release. If the push fails after the commit, `release.py` says to rerun with `--rebuild --publish`.
-
-### Every other release
-
 1. Fix the bug, then add a line under `## Unreleased` in `CHANGELOG.md`, for example: `- Fixed SR popup not showing for pugs.`
 2. Release:
    ```
@@ -74,6 +63,8 @@ The push uses your saved git login, not the token, which only does the GitHub re
 `release.py` refuses any version at or below the highest git tag, including one that's only on GitHub. `--rebuild` can meet the highest tag, because that's how a half-finished release gets finished, but it can't go below it.
 
 If anything fails before the release commit, the version bump, the CHANGELOG and Changelog.lua are restored exactly as they were, so you can fix the problem and run the same command again.
+
+The push uses your saved git login, not the token, which only does the GitHub release. If the push fails after the commit, `release.py` says to rerun with `--rebuild --publish`.
 
 ## First-time install for a guildie
 

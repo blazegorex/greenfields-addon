@@ -2,7 +2,7 @@
 
 The guild addon for **Greenfields** on WoW: Forever. Est. Mandurah, WA 6210.
 
-Type `/gf` to open it, or click the green road sign on the minimap.
+Type `/gf` to open it, or click the green shield on the minimap.
 
 Everything is shared between guildies who run the addon, so get the whole street to install it. Stats, professions and buff info only exist for people running Greenfields.
 
@@ -40,7 +40,7 @@ A guild news feed. It posts things like dings (10, 20 ... 60), epics looted, bos
 - **Import / export:** softres.it-style CSV import and export.
 - **+N:** how many weeks in a row someone has reserved the same item without winning it.
 - **Loot time:**
-  - In group loot you get a popup: "You SR'd this, smash NEED" or "X reserved it, pass".
+  - In group loot you get a popup: "You SR'd [item] - smash NEED" or "X reserved [item]. Pass it."
   - The host gets a **Loot Desk**: announce, run SR / MS / OS rolls, see live rolls, award.
 
 ### Loot Log
@@ -72,7 +72,7 @@ Who got what, how (SR / MS / OS / roll) and from which boss, plus a **Fiend Watc
 
 The rest include **Uber Eats Driver**, **Mummy's Boy**, **Absolutely Rotten**, **Blue Manna Crabber** and **Happy Camper**.
 
-Every stat also has milestone badges.
+Most stats also have milestone badges.
 
 ### Residents
 - The guild roster: mains and alts, who's online, rank, titles, attendance, professions, and who runs the addon.

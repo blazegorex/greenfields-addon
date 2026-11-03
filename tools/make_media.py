@@ -262,142 +262,167 @@ def make_signs():
 
 
 # --------------------------------------------------------------------------------------
-# The crest: a heater shield in sign-green enamel, gold rim, and the glass pipe, borne upright
+# The crest: a heater shield in sign-green enamel, gold rim, and the glass pipe, borne the way you'd
+# hold it: long stem coming down from the top corner, bulb low in the shield, a flame under it and the
+# smoke going up the other side. The gesture is what stops it being a magnifying glass or a lollipop,
+# so nothing here is allowed to get in the way of it. It shows at about 88 pixels: a line under about
+# 1.5 layout units is gone, and anything soft goes to mush, so every edge here is a hard one.
 # --------------------------------------------------------------------------------------
-def shield_outline(cx, top, half, bottom, shoulder, inset=0.0):
-    """Heater shield outline in big pixels: flat top, straight shoulders, curving to a point."""
-    x0, x1 = cx - half + inset, cx + half - inset
-    t, b = top + inset, bottom - inset * 1.5
-    s = shoulder
-    left = ak.bezier((x0, s), (x0, s + (b - s) * 0.50), (cx - (half - inset) * 0.42, s + (b - s) * 0.80), (cx, b), n=60)
-    right = left.copy()
-    right[:, 0] = 2 * cx - right[:, 0]
-    return [(x0, t), (x1, t)] + [tuple(p) for p in right] + [tuple(p) for p in left[::-1]]
+def shield_outline(top, half, bottom, shoulder, u, cx=64.0):
+    """Heater shield in big pixels: the corners stand a little proud of a dipped top edge, the way a
+    Warcraft crest does, then straight shoulders curving to a point."""
+    x0, x1 = (cx - half) * u, (cx + half) * u
+    c, t, s, b = cx * u, top * u, shoulder * u, bottom * u
+    dip = 6.0 * u
+    head = ak.bezier((x0, t), ((x0 + c) / 2, t + dip * 1.5), (c, t + dip * 0.2), n=24)
+    head2 = head[::-1].copy()
+    head2[:, 0] = 2 * c - head2[:, 0]
+    side = ak.bezier((x0 + 0.6 * u, t + dip * 0.4), (x0 + 0.6 * u, s + (b - s) * 0.48), (c - half * u * 0.42, s + (b - s) * 0.80), (c, b), n=60)
+    side2 = side.copy()
+    side2[:, 0] = 2 * c - side2[:, 0]
+    return [tuple(p) for p in np.concatenate((head, head2, side2, side[::-1]))]
 
 
-def pipe_masks(N, P, w, wisp_w=2.6):
-    """The charge on the shield, borne upright the way another family would carry a sword: a straight
-    stem up the middle from the point of the shield, a blown bulb, a curl of smoke. As masks: the
-    white glass lines, the see-through inside of it, the burn low in the bulb, the ember, and the
-    smoke. The hollow stem and the ember are what stop it being a magnifying glass. P maps (x, y) in
-    a 128-wide layout to big pixels, w scales a width."""
-    glass, body, soot, ember, wisp = ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N), ak.Canvas(N, N)
-    cx, cy, r = 64, 56, 16.5
-    # the bulb: a ring of glass round a clear middle
-    glass.circle(*P(cx, cy), w(r))
-    glass.circle(*P(cx, cy), w(r - 3.5), fill=0)
-    body.circle(*P(cx, cy), w(r - 3.5))
-    soot.circle(*P(cx - 1.0, cy + 6.0), w(r - 6.5))
-    soot.circle(*P(cx + 2.0, cy + 0.5), w(r - 5.5), fill=0)
-    # the stem, a touch wider where it's blown out of the bulb
-    stem = ak.bezier(P(cx, cy + r - 2.0), P(cx, cy + 30), P(cx, 105), n=40)
-    glass.poly(ak.ribbon(stem, np.linspace(w(9.0), w(7.0), 40)))
-    hollow = ak.bezier(P(cx, cy + r - 3.6), P(cx, cy + 30), P(cx, 106), n=40)
-    glass.poly(ak.ribbon(hollow, np.linspace(w(4.0), w(2.6), 40)), fill=0)
-    body.poly(ak.ribbon(hollow, np.linspace(w(4.0), w(2.6), 40)))
-    ember.circle(*P(cx, cy + 8.0), w(4.2))
-    # the glints, and the little hole in the top
-    glass.circle(*P(cx + 5.2, cy - 5.6), w(2.7))
-    glass.circle(*P(cx - 6.4, cy - 3.2), w(1.2))
-    # the smoke, curling up toward the top of the shield
-    curl = ak.bezier(P(cx, cy - r + 1), P(cx + 11, cy - r - 6), P(cx - 9, cy - r - 8), P(cx + 2, 28), n=50)
-    wisp.poly(ak.ribbon(curl, np.linspace(w(wisp_w), w(wisp_w * 1.5), 50)))
-    return glass.array(), body.array(), soot.array(), ember.array(), wisp.array()
+def inset(mask, by):
+    """The mask pulled in by that many big pixels, with a clean edge."""
+    return np.clip(ak.sdf(mask) - by, 0, 1)
+
+
+def paint_pipe(L, N, u, field, mouth, centre, r, stem, wall, smoke=True, smoke_w=3.0, flame_h=19.0, lighter=0.0):
+    """The charge, onto layer L. All sizes are layout units, u big pixels to the unit. field is what the
+    soft stuff (smoke, shadow) may land on; the glass itself can break the rim."""
+    M, C = np.array(mouth, float) * u, np.array(centre, float) * u
+    R = r * u
+    d = (C - M) / np.linalg.norm(C - M)
+    n = np.array([-d[1], d[0]])
+
+    # the flame sits under the bulb, just clear of it, and it's drawn first so the glass is in front
+    fx, fbase = C[0], C[1] + R + (flame_h - 2.0) * u
+    if lighter:
+        # a cheap lighter stood under it, cut off by the rim: without it the flame's only a lab burner
+        lw, lh = lighter * u, lighter * 1.5 * u
+        top = fbase - 0.4 * u
+        body = ak.Canvas(N, N).rrect(fx - lw / 2, top + lh * 0.30, fx + lw / 2, top + lh * 2, 0.8 * u).array() * field
+        hood = ak.Canvas(N, N).rrect(fx - lw * 0.42, top, fx + lw * 0.42, top + lh * 0.32, 0.5 * u).array()
+        L.over((2, 14, 8), ak.drop_shadow(np.maximum(body, hood), 0.7 * u, 0.9 * u, 0.4 * u, 0.5) * (1 - np.maximum(body, hood)) * field)
+        L.over((178, 42, 30), body)
+        L.over((236, 110, 84), ak.Canvas(N, N).rrect(fx - lw * 0.30, top + lh * 0.40, fx - lw * 0.12, top + lh * 2, 0.3 * u).array() * body)
+        L.over((186, 194, 196), hood)
+        L.over((30, 32, 36), ak.Canvas(N, N).rrect(fx - lw * 0.42, top + lh * 0.25, fx + lw * 0.42, top + lh * 0.32, 0.1 * u).array())
+
+    def teardrop(h, wd, base):
+        left = ak.bezier((fx, base), (fx - wd * 1.25, base - h * 0.04), (fx - wd * 0.95, base - h * 0.56), (fx, base - h), n=30)
+        right = left[::-1].copy()
+        right[:, 0] = 2 * fx - right[:, 0]
+        return np.concatenate((left, right))
+    fl = flame_h * u
+    outer_f = ak.Canvas(N, N).poly(teardrop(fl, fl * 0.40, fbase)).array()
+    mid_f = ak.Canvas(N, N).poly(teardrop(fl * 0.70, fl * 0.27, fbase - fl * 0.03)).array()
+    core_f = ak.Canvas(N, N).poly(teardrop(fl * 0.40, fl * 0.15, fbase - fl * 0.05)).array()
+    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
+    dist = np.hypot(xs - fx, ys - (fbase - fl * 0.5))
+    L.add((255, 130, 50), np.exp(-(dist / (fl * 0.80)) ** 2) * field * 0.26)
+    L.over((238, 96, 24), outer_f)
+    L.over((255, 176, 46), mid_f)
+    L.over((255, 244, 200), core_f)
+
+    # one piece of glass: a thin straight stem, flaring where it's blown into the bulb
+    stem_end = C - d * R * 0.70
+    glass = ak.Canvas(N, N)
+    glass.poly(ak.ribbon(np.linspace(M, stem_end, 40), np.full(40, stem * u)))
+    flare = np.linspace(C - d * R * 1.75, C - d * R * 0.55, 16)
+    glass.poly(ak.ribbon(flare, np.linspace(stem * u, stem * u * 2.1, 16)))
+    glass.circle(C[0], C[1], R)
+    g = glass.array()
+    hollow = inset(g, wall * u)
+
+    L.over((2, 14, 8), ak.drop_shadow(g, 0.9 * u, 1.3 * u, 0.5 * u, 0.55) * (1 - g))
+    # you can see through it, so the field carries on inside, only cooler and paler
+    L.over((196, 232, 222), hollow * 0.22)
+    # burnt on: heaviest at the bottom of the bulb, climbing unevenly, never a level line across
+    bulb = inset(ak.Canvas(N, N).circle(C[0], C[1], R).array(), wall * u)
+    soot = ak.Canvas(N, N)
+    soot.circle(C[0], C[1] + R * 0.72, R * 0.86)
+    soot.circle(C[0] - R * 0.46, C[1] + R * 0.26, R * 0.34)
+    soot.circle(C[0] + R * 0.50, C[1] + R * 0.34, R * 0.26)
+    soot_a = ak.blur(soot.array(), 0.5 * u) * bulb
+    L.over((12, 10, 9), soot_a * 0.94)
+    # the flame showing through the burn
+    L.add((255, 120, 36), np.exp(-(np.hypot(xs - C[0], ys - (C[1] + R)) / (R * 0.62)) ** 2) * bulb * 0.85)
+    # the wall of the glass, hard and bright
+    edge = np.clip(g - hollow, 0, 1)
+    L.over((236, 247, 243), edge)
+
+    # the glints: one long streak on the stem, a fat crescent high on the bulb
+    streak = ak.Canvas(N, N)
+    a = M + (stem_end - M) * 0.16
+    b = M + (stem_end - M) * 0.80
+    streak.poly(ak.ribbon(np.linspace(a, b, 8) + n * stem * u * 0.03, np.full(8, max(0.7, stem * 0.22) * u)))
+    ang = np.linspace(math.radians(186), math.radians(268), 18)
+    arc = np.stack((C[0] + R * 0.62 * np.cos(ang), C[1] + R * 0.62 * np.sin(ang)), axis=1)
+    streak.poly(ak.ribbon(arc, np.sin(np.linspace(0.15, 1, 18) * math.pi) * R * 0.24))
+    L.over((255, 255, 255), streak.array() * 0.95)
+
+    # the hole in the top of the bulb, a dark slot ringed bright, so it's a hole and not a bead
+    hc = (C[0], C[1] - R + wall * u * 0.5)
+    lip = ak.Canvas(N, N).poly(_ellipse(hc[0], hc[1], R * 0.36, R * 0.20)).array()
+    L.over((236, 247, 243), lip)
+    L.over((6, 16, 12), ak.Canvas(N, N).poly(_ellipse(hc[0], hc[1], R * 0.22, R * 0.09)).array())
+
+    if smoke:
+        # out of the hole and away up the empty side of the shield, thinning as it goes
+        s0 = (C[0], C[1] - R - 0.5 * u)
+        s1 = ak.bezier(s0, (C[0] + 17 * u, C[1] - R - 8 * u), (C[0] - 7 * u, C[1] - R - 16 * u), (C[0] + 9 * u, C[1] - R - 25 * u), n=50)
+        s2 = ak.bezier(s1[-1], (C[0] + 19 * u, C[1] - R - 30 * u), (C[0] + 9 * u, C[1] - R - 34 * u), (C[0] + 14 * u, C[1] - R - 42 * u), n=30)
+        path = np.concatenate((s1, s2[1:]))
+        k = len(path)
+        wisp = ak.Canvas(N, N).poly(ak.ribbon(path, np.linspace(smoke_w * u, smoke_w * 0.42 * u, k))).array()
+        top = path[-1][1]
+        fade = np.clip((ys - top) / (s0[1] - top), 0, 1) ** 0.6
+        L.over((238, 244, 240), wisp * field * (0.30 + 0.62 * fade))
+
+
+def _ellipse(cx, cy, rx, ry, n=48):
+    t = np.linspace(0, 2 * math.pi, n, endpoint=False)
+    return np.stack((cx + rx * np.cos(t), cy + ry * np.sin(t)), axis=1)
+
+
+def paint_shield(N, u, top, half, bottom, shoulder, rim_w, seed=5):
+    outer = ak.Canvas(N, N).poly(shield_outline(top, half, bottom, shoulder, u)).array()
+    inner = inset(outer, rim_w * u)
+    key = inset(outer, (rim_w + 1.3) * u)
+    h_rim = ak.bevel(outer * (1 - inner), rim_w * 0.5 * u, rim_w * 0.62 * u)
+    gold_rim = ak.shade(h_rim, ak.GOLD, strength=1.2, base=0.60, gain=1.2, spec=0.65, shininess=34, grain=0.3, seed=seed, wear=0.3, sheen=0.05)
+    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
+    # enamel lit from the top left, falling away to bottle green round the edge
+    glow = np.exp(-(((xs - 46 * u) / (58 * u)) ** 2 + ((ys - 44 * u) / (64 * u)) ** 2))
+    field_rgb = np.stack([np.interp(glow, [0, 1], [c0, c1]) for c0, c1 in ((4, 20), (40, 122), (24, 72))], axis=-1).astype(np.float32)
+    L = ak.Layer(N, N)
+    L.over((3, 3, 4), ak.drop_shadow(outer, 0.5 * u, 1.0 * u, 1.2 * u, 0.75) * (1 - outer))
+    L.over(gold_rim, outer * (1 - inner))
+    L.over((7, 14, 10), inner * (1 - key))
+    L.over(field_rgb, key)
+    return L, outer, key
 
 
 def make_crest():
     px = 128
     N = px * 8
     u = N / 128.0
-
-    def P(x, y):
-        return (x * u, y * u)
-
-    def w(x):
-        return x * u
-    cx = 64 * u
-    top, half, bottom, shoulder = 21 * u, 36 * u, 121 * u, 58 * u
-    outer = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder)).array()
-    inner = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder, inset=4.6 * u)).array()
-    rim = outer * (1 - inner)
-
-    # two gum leaves crossed behind the shield, tips and stems showing either side
-    leaves, ribs = ak.Canvas(N, N), ak.Canvas(N, N)
-    for (p0, c, p1, wd) in (((9, 104), (58, 96), (117, 7), 24), ((119, 104), (70, 96), (11, 7), 24)):
-        mid = ak.bezier(P(*p0), P(*c), P(*p1), n=80)
-        # fat all along, or the bits that show past the shield come out as spikes
-        leaves.poly(ak.ribbon(mid, w(wd) * np.sin(np.linspace(0, 1, 80) * math.pi) ** 0.62))
-        ribs.poly(ak.ribbon(mid[3:-5], w(0.9)))
-    leaves_a = leaves.array()
-    h_leaf = ak.blur(ak.bevel(leaves_a, 3.0 * u, 3.6 * u) - ak.blur(ribs.array(), 0.25 * u) * 1.3 * u, 0.2 * u)
-    gold_leaf = ak.shade(h_leaf, ak.GOLD, strength=1.15, base=0.50, gain=1.15, spec=0.45, shininess=28, grain=0.5, seed=3, wear=0.5, sheen=0.06)
-
-    # the shield itself
-    h_rim = ak.blur(ak.bevel(rim, 1.9 * u, 3.0 * u), 0.2 * u)
-    gold_rim = ak.shade(h_rim, ak.GOLD, strength=1.2, base=0.56, gain=1.25, spec=0.55, shininess=30, grain=0.5, seed=5, wear=0.7, sheen=0.05)
-    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
-    drift = (0.5 - (xs + ys) / (2.0 * N)) * 0.30
-    dome = ak.blur(ak.bevel(inner, 26 * u, 5.0 * u, profile="smooth"), 9 * u)
-    face = ak.shade(dome, lambda v: FACE_GREEN(np.clip(v + drift, 0, 1)), strength=1.0, base=0.47, gain=0.8, spec=0.12, shininess=12)
-
-    glass, body, soot, ember, wisp = pipe_masks(N, P, w)
-    h_glass = ak.blur(ak.bevel(glass, 1.7 * u, 2.2 * u), 0.2 * u)
-    c_glass = ak.shade(h_glass, INK_WHITE, strength=1.0, base=0.56, gain=0.8, spec=0.2)
-    pipe = np.maximum(glass, body)
-
-    L = ak.Layer(N, N)
-    solid = np.maximum(outer, leaves_a)
-    L.over((3, 3, 4), ak.drop_shadow(solid, 0.6 * u, 1.2 * u, 1.5 * u, 0.7) * (1 - solid))
-    L.over(gold_leaf, leaves_a)
-    L.over((4, 3, 2), ak.drop_shadow(outer, 0.9 * u, 1.4 * u, 1.3 * u, 0.72) * (1 - outer) * leaves_a)
-    L.over(gold_rim, rim)
-    L.over(face, inner)
-    L.over((0, 0, 0), np.clip(1 - ak.sdf(inner) / (3.4 * u), 0, 1) ** 2 * inner * 0.55)
-    L.over((0, 0, 0), ak.drop_shadow(pipe, 0.5 * u, 0.8 * u, 0.7 * u, 0.5) * (1 - pipe) * inner)
-    L.over((226, 240, 232), body * 0.20)
-    L.over((9, 20, 15), ak.blur(soot, 1.1 * u) * body * 0.62)
-    L.over((255, 118, 36), ak.blur(ember, 2.4 * u) * body * 0.92)
-    L.add((255, 196, 120), ak.blur(ember, 0.8 * u) * body * 0.42)
-    L.over((236, 241, 238), wisp * inner * 0.82)
-    L.over(c_glass, glass)
-    out = L.image(px, px)
-    save_tga(out, os.path.join("art", "crest"))
+    # the top's kept down off the edge of the texture: the window's corner leaves come in just above it
+    L, outer, field = paint_shield(N, u, 10.0, 53.0, 125.0, 62.0, 6.0)
+    paint_pipe(L, N, u, field, mouth=(23, 22), centre=(70, 68), r=14.0, stem=5.4, wall=1.75, flame_h=16.0, lighter=11.0)
+    save_tga(L.image(px, px), os.path.join("art", "crest"))
 
 
 def make_minimap():
-    """Small version for the minimap: shield and pipe, heavier shapes, nothing fine. Masked to a
-    circle in game, so it stays inside one."""
+    """The small one: same shield, same pipe, heavier lines, no smoke. Masked to a circle in game, so
+    the shield's corners stay inside one."""
     px = 64
     N = px * 16
     u = N / 128.0
-
-    def P(x, y):
-        return (x * u, (y - 8) * u)
-
-    def w(x):
-        return x * u * 1.22
-    cx = 64 * u
-    top, half, bottom, shoulder = 12 * u, 46 * u, 124 * u, 58 * u
-    outer = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder)).array()
-    inner = ak.Canvas(N, N).poly(shield_outline(cx, top, half, bottom, shoulder, inset=7.0 * u)).array()
-    rim = outer * (1 - inner)
-    h_rim = ak.blur(ak.bevel(rim, 3.0 * u, 4.0 * u), 0.3 * u)
-    gold_rim = ak.shade(h_rim, ak.GOLD, strength=1.1, base=0.58, gain=1.15, spec=0.5, shininess=26, seed=5)
-    ys, xs = np.mgrid[0:N, 0:N].astype(np.float32)
-    drift = (0.5 - (xs + ys) / (2.0 * N)) * 0.28
-    dome = ak.blur(ak.bevel(inner, 30 * u, 5.0 * u, profile="smooth"), 10 * u)
-    face = ak.shade(dome, lambda v: FACE_GREEN(np.clip(v + drift, 0, 1)), strength=1.0, base=0.50, gain=0.8, spec=0.1, shininess=12)
-    glass, body, soot, ember, wisp = pipe_masks(N, P, w, wisp_w=3.2)
-    c_glass = ak.shade(ak.blur(ak.bevel(glass, 3.0 * u, 2.2 * u), 0.3 * u), INK_WHITE, strength=1.0, base=0.58, gain=0.7, spec=0.1)
-    L = ak.Layer(N, N)
-    L.over(gold_rim, rim)
-    L.over(face, inner)
-    L.over((226, 240, 232), body * 0.20)
-    L.over((9, 20, 15), ak.blur(soot, 1.5 * u) * body * 0.62)
-    L.over((255, 118, 36), ak.blur(ember, 2.4 * u) * body * 0.95)
-    L.add((255, 196, 120), ak.blur(ember, 1.0 * u) * body * 0.45)
-    L.over((236, 241, 238), wisp * inner * 0.85)
-    L.over(c_glass, glass)
+    L, outer, field = paint_shield(N, u, 13.0, 42.0, 122.0, 60.0, 7.0)
+    paint_pipe(L, N, u, field, mouth=(32, 26), centre=(70, 66), r=17.0, stem=9.5, wall=3.8, smoke=False, flame_h=24.0)
     save_tga(L.image(px, px), "minimap")
 
 
@@ -485,6 +510,19 @@ def line(d, pts, w=STROKE):
         d.ellipse((p[0] - w / 2 + 0.5, p[1] - w / 2 + 0.5, p[0] + w / 2 - 0.5, p[1] + w / 2 - 0.5), fill=255)
 
 
+def curve(*segments, n=14):
+    """Joined bezier segments as one list of points, for shapes that shouldn't have corners."""
+    pts = []
+    for seg in segments:
+        pts += [tuple(p) for p in ak.bezier(*seg, n=n)]
+    return pts
+
+
+def turned(m, angle):
+    """Rotates what's been drawn so far, about the middle. Upright first, then lean it."""
+    m.paste(m.rotate(angle, resample=Image.BICUBIC, center=(64, 64)))
+
+
 def i_roster(d, m):
     # back person
     d.ellipse((70, 14, 106, 50), fill=255)
@@ -532,20 +570,34 @@ def i_trophy(d, m):
 
 
 def i_hammer(d, m):
-    d.polygon([(30, 22), (78, 22), (92, 36), (92, 50), (30, 50)], fill=255)
-    line(d, [(60, 50), (60, 114)], STROKE + 3)
+    # a block of a head on the lean. A claw reads as a pick at this size, and upright it's just a T
+    d.rounded_rectangle((55, 40, 73, 120), radius=8, fill=255)
+    d.rounded_rectangle((36, 20, 100, 54), radius=4, fill=255)
+    d.rectangle((27, 24, 40, 50), fill=255)
+    turned(m, 38)
+
+
+def flame_shape(d, cx, base, h, hole=True):
+    """A flame with one lick to it, curved all round. h tall, stands on (cx, base)."""
+    k = h / 108.0
+
+    def P(x, y):
+        return (cx + x * k, base + (y - 116) * k)
+    d.polygon(curve((P(0, 116), P(-46, 116), P(-46, 74), P(-22, 54)), (P(-22, 54), P(-16, 62), P(-12, 66), P(-8, 66)),
+                    (P(-8, 66), P(-16, 40), P(-6, 22), P(10, 8)), (P(10, 8), P(10, 34), P(46, 52), P(44, 84)),
+                    (P(44, 84), P(42, 106), P(24, 116), P(0, 116))), fill=255)
+    if hole:
+        d.polygon(curve((P(0, 104), P(-20, 104), P(-22, 82), P(0, 62)), (P(0, 62), P(22, 82), P(20, 104), P(0, 104))), fill=0)
 
 
 def i_flame(d, m):
-    d.polygon([(64, 8), (88, 40), (98, 70), (92, 96), (64, 112), (36, 96), (30, 70), (42, 46), (52, 60)], fill=255)
-    d.polygon([(64, 58), (76, 78), (72, 98), (56, 98), (52, 82)], fill=0)
+    flame_shape(d, 64, 120, 112)
 
 
 def i_campfire(d, m):
-    d.polygon([(64, 6), (84, 34), (90, 58), (80, 80), (64, 86), (48, 80), (38, 58), (48, 38), (56, 50)], fill=255)
-    d.polygon([(64, 50), (72, 64), (70, 78), (58, 78), (56, 66)], fill=0)
-    line(d, [(18, 116), (110, 94)], STROKE + 2)
-    line(d, [(18, 94), (110, 116)], STROKE + 2)
+    flame_shape(d, 64, 88, 84)
+    line(d, [(20, 116), (108, 96)], STROKE + 2)
+    line(d, [(20, 96), (108, 116)], STROKE + 2)
 
 
 def i_eye(d, m):
@@ -558,13 +610,15 @@ def i_eye(d, m):
 
 
 def i_gear(d, m):
-    c = 64
-    for i in range(8):
-        a = i * math.pi / 4
-        x, y = c + math.cos(a) * 46, c + math.sin(a) * 46
-        d.regular_polygon((x, y, 13), 4, rotation=math.degrees(a) + 45, fill=255)
-    d.ellipse((24, 24, 104, 104), fill=255)
-    d.ellipse((46, 46, 82, 82), fill=0)
+    # cut square teeth round a true circle, not bumps stuck on it
+    pts = []
+    teeth = 8
+    for i in range(teeth):
+        a = i * 2 * math.pi / teeth
+        for off, r in ((-0.27, 42), (-0.17, 58), (0.17, 58), (0.27, 42)):
+            pts.append((64 + math.cos(a + off) * r, 64 + math.sin(a + off) * r))
+    d.polygon(pts, fill=255)
+    d.ellipse((42, 42, 86, 86), fill=0)
 
 
 def i_close(d, m):
@@ -660,8 +714,12 @@ def i_warning(d, m):
 
 
 def i_shield(d, m):
-    d.polygon([(64, 8), (112, 26), (106, 76), (64, 120), (22, 76), (16, 26)], fill=255)
-    d.polygon([(64, 24), (96, 36), (92, 72), (64, 102)], fill=0)
+    # the crest's shape, half in shadow
+    left = curve(((64, 6), (46, 18), (18, 22)), ((18, 22), (14, 70), (30, 100), (64, 122)))
+    right = [(128 - x, y) for (x, y) in left]
+    d.polygon(left + right[::-1], fill=255)
+    inner = curve(((64, 24), (80, 32), (98, 34)), ((98, 34), (100, 70), (88, 88), (64, 104)))
+    d.polygon(inner + [(64, 104)], fill=0)
 
 
 def i_cross(d, m):
@@ -670,9 +728,12 @@ def i_cross(d, m):
 
 
 def i_sword(d, m):
-    line(d, [(30, 98), (104, 24)], STROKE + 1)
-    line(d, [(22, 74), (54, 106)], STROKE + 1)
-    line(d, [(14, 114), (32, 96)], STROKE + 3)
+    # drawn upright and leaned over: a blade with a point on it, a real guard, grip and pommel
+    d.polygon([(64, -8), (75, 8), (75, 88), (53, 88), (53, 8)], fill=255)
+    d.rounded_rectangle((34, 88, 94, 100), radius=5, fill=255)
+    d.rectangle((58, 100, 70, 118), fill=255)
+    d.ellipse((54, 114, 74, 134), fill=255)
+    turned(m, -45)
 
 
 def i_bow(d, m):
@@ -751,8 +812,10 @@ def i_ring(d, m):
 
 
 def i_bag(d, m):
-    arc(d, (40, 8, 88, 56), 180, 360)
-    d.rounded_rectangle((18, 36, 110, 118), radius=16, fill=255)
+    # a tied sack: flared top, a cut at the neck, a fat belly. Anything squarer is a padlock
+    d.polygon([(40, 6), (88, 6), (78, 30), (50, 30)], fill=255)
+    d.polygon(curve(((50, 40), (10, 66), (8, 118), (42, 120)), ((42, 120), (64, 122), (86, 120)),
+                    ((86, 120), (120, 118), (118, 66), (78, 40))), fill=255)
 
 
 def i_pin(d, m):

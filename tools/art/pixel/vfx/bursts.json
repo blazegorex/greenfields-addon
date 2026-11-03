@@ -1,0 +1,4 @@
+{
+ "gold": {"file": "gold.png", "cell": 64, "cols": 4, "frames": 11, "fps": 14},
+ "green": {"file": "green.png", "cell": 64, "cols": 3, "frames": 9, "fps": 18}
+}

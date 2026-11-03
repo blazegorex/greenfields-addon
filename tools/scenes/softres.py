@@ -1,8 +1,8 @@
 """Soft Res: the servo at 4am, and the big freezer of ICE, limit two per customer. The queue goes halfway
-up the street, half of it is shopping bags, and every bag's got a place in the line because someone's reserved."""
+up the street, half of it is bags of ice, and every bag's got a place in the line because someone's reserved."""
 import numpy as np
 
-from scenekit import STENCIL, SS, Scene, bez, gauss, gum_tree, hoodie, lettering, lit_rim, neon, smooth
+from scenekit import STENCIL, SS, Scene, bez, gauss, gum_tree, lettering, lit_rim, neon, smooth
 
 GROUND = 140
 LIGHT = "#d8eeff"
@@ -86,45 +86,198 @@ def freezer(s, x0, x1, top, base):
     s.paint(t, "#141006")
 
 
-def plastic_bag(m, stripe, x, base, h):
-    """A shopping bag holding its owner's spot, handles up, sat exactly where a person would stand.
-    That's the reservation."""
-    w = h * 0.46
-    body = base - h * 0.68
-    m.spoly([(x - w * 1.08, base), (x - w, body), (x + w, body), (x + w * 1.08, base)])
-    # one handle, a proper loop, so it can't be anything else
-    m.stroke(bez((x - w * 0.5, body + 0.5), (x - w * 0.5, base - h * 1.08), (x + w * 0.5, base - h * 1.08), (x + w * 0.5, body + 0.5), n=14), max(1.0, h * 0.06), max(1.0, h * 0.06))
-    # the band round its belly, and the sag in one side
-    stripe.rect(x - w * 1.1, base - h * 0.34, x + w * 1.1, base - h * 0.2)
-    stripe.stroke(np.array([(x + w * 0.42, body), (x + w * 0.56, base - h * 0.36)]), h * 0.03, h * 0.02)
+def limb(m, pts, widths, cap=True):
+    """A sleeve or a leg through its joints, tapered, one clean outline with a proper corner at the bend."""
+    pts = [np.array(p, float) for p in pts]
+    left, right = [], []
+    for i, p in enumerate(pts):
+        d0 = pts[i] - pts[i - 1] if i else pts[1] - pts[0]
+        d1 = pts[i + 1] - pts[i] if i < len(pts) - 1 else d0
+        d0, d1 = d0 / np.linalg.norm(d0), d1 / np.linalg.norm(d1)
+        t = d0 + d1
+        t /= max(1e-6, np.linalg.norm(t))
+        n = np.array([-t[1], t[0]])
+        k = min(1.45, 1 / max(0.3, float(np.dot(n, np.array([-d0[1], d0[0]])))))
+        left.append(tuple(p + n * widths[i] / 2 * k))
+        right.append(tuple(p - n * widths[i] / 2 * k))
+    m.spoly(left + right[::-1])
+    if cap:
+        m.ellipse(pts[0][0], pts[0][1], widths[0] / 2, widths[0] / 2)
 
 
-def plate_bloke(m, x, base, h):
+def ice_bag(s, x, base, w, h, seed=1, shadow=True):
+    """A bag of servo ice holding its owner's spot, sat exactly where a person would stand. That's the
+    reservation. Clear plastic gone square and slumped under the weight, twisted off at the top, the cubes
+    showing through it. w and h are the whole bag, frill and all; it's cold, so it doesn't glow."""
+    hw = w / 2
+    bh = h * 0.72  # the body; the rest is the neck and the frill
+    if shadow:
+        sh = s.mask()
+        sh.ellipse(x - hw * 0.28, base + 0.3, hw * 1.42, max(1.0, h * 0.075))
+        s.rgb *= (1 - sh.array() * 0.72)[..., None]
+    top = base - bh
+    pts = bez((x - hw * 0.86, base), (x - hw * 1.1, base - bh * 0.3), (x - hw * 1.06, base - bh * 0.8), (x - hw * 0.82, top + bh * 0.07), n=12).tolist()
+    pts += bez((x - hw * 0.82, top + bh * 0.07), (x - hw * 0.55, top - bh * 0.02), (x - hw * 0.22, top - bh * 0.02), (x - hw * 0.13, top - bh * 0.1), n=8).tolist()
+    pts += bez((x + hw * 0.13, top - bh * 0.1), (x + hw * 0.24, top - bh * 0.02), (x + hw * 0.6, top + bh * 0.0), (x + hw * 0.88, top + bh * 0.12), n=8).tolist()
+    pts += bez((x + hw * 0.88, top + bh * 0.12), (x + hw * 1.1, base - bh * 0.7), (x + hw * 1.1, base - bh * 0.26), (x + hw * 0.88, base), n=12).tolist()
+    pts += bez((x + hw * 0.88, base), (x + hw * 0.3, base + 0.5), (x - hw * 0.3, base + 0.5), (x - hw * 0.86, base), n=8).tolist()
+    body = s.mask()
+    body.spoly(pts)
+    ba = body.array()
+    al = (ba * 0.8)[..., None]
+    s.rgb = s.rgb * (1 - al) + s.colour("#4a6272") * al
+    # the cubes, in a settled heap: full to the shoulder, some paler, none of them lined up
+    rng = np.random.default_rng(seed)
+    cube = w * 0.17
+    dark, pale = s.mask(), s.mask()
+    y = base - cube * 0.62
+    row = 0
+    while y > top + bh * 0.26:
+        cx = x - hw * 0.92 + (cube * 0.55 if row % 2 else 0) + rng.uniform(-0.2, 0.2) * cube
+        while cx < x + hw * 0.98:
+            r = cube * 0.5 * rng.uniform(0.86, 1.06)
+            a = rng.uniform(-0.5, 0.5)
+            c, sn = np.cos(a), np.sin(a)
+            yy = y + rng.uniform(-0.14, 0.14) * cube
+            quad = [(cx + u * c - v * sn, yy + u * sn + v * c) for u, v in ((-r, -r), (r, -r), (r, r), (-r, r))]
+            (pale if rng.random() < 0.55 else dark).spoly(quad)
+            cx += cube * 1.2
+        y -= cube * 1.1
+        row += 1
+    for mask, col in ((dark, "#7e97a6"), (pale, "#a9bec9")):
+        a = (mask.array() * ba)[..., None]
+        s.rgb = s.rgb * (1 - a) + s.colour(col) * a
+    # the plastic over them: one hard shine down the near shoulder
+    g = s.mask()
+    g.stroke(bez((x + hw * 0.62, top + bh * 0.2), (x + hw * 0.86, top + bh * 0.42), (x + hw * 0.84, top + bh * 0.72), n=8), max(0.5, w * 0.05), max(0.3, w * 0.02))
+    a = (g.array() * ba * 0.85)[..., None]
+    s.rgb = s.rgb * (1 - a) + s.colour("#dfe9ee") * a
+    # the neck, a twist of tie, and the frill sticking up out of it
+    n = s.mask()
+    ny = top - bh * 0.1
+    ft = base - h
+    n.spoly([(x - hw * 0.14, ny + 0.4), (x + hw * 0.14, ny + 0.4), (x + hw * 0.09, ny - 1.0), (x + hw * 0.42, ft + 0.5), (x + hw * 0.2, ft + 1.3),
+             (x + hw * 0.05, ft), (x - hw * 0.14, ft + 1.2), (x - hw * 0.44, ft + 0.3), (x - hw * 0.09, ny - 1.0)])
+    s.paint(n, "#8aa2b0")
+    k = s.mask()
+    k.rect(x - hw * 0.17, ny - 1.1, x + hw * 0.17, ny + 0.2)
+    s.paint(k, "#2a4a68")
+    # a catch of the servo's light down the side that faces it, and that's the lot
+    lit_rim(s, body, 790, 85, 340, LIGHT, 0.5, soft=0.25)
+
+
+class Punter:
+    """Someone in the line, side on, facing the freezer, in a hoodie and trackies: the top half hanging
+    forward, the head further still, a neck going into the shoulders, one leg doing all the work."""
+
+    def __init__(self, x, base, h, lean=0.075):
+        self.x, self.base, self.h, self.lean = x, base, h, lean
+
+    def P(self, u, v):
+        return (self.x + (u + self.lean * max(0.0, v - 0.45) * 2.0) * self.h, self.base - v * self.h)
+
+    def shape(self, m):
+        P, h = self.P, self.h
+        limb(m, [P(-0.02, 0.47), P(-0.07, 0.265), P(-0.095, 0.05)], [h * 0.105, h * 0.08, h * 0.055], cap=False)
+        m.spoly([P(-0.13, 0.0), P(-0.13, 0.045), P(-0.07, 0.06), P(-0.05, 0.04), P(0.005, 0.016), P(0.005, 0.0)])
+        limb(m, [P(0.03, 0.47), P(0.05, 0.265), P(0.045, 0.05)], [h * 0.11, h * 0.082, h * 0.055], cap=False)
+        m.spoly([P(0.01, 0.0), P(0.01, 0.05), P(0.07, 0.06), P(0.09, 0.04), P(0.15, 0.016), P(0.15, 0.0)])
+        pts = bez(P(-0.04, 0.815), P(-0.1, 0.8), P(-0.13, 0.76), P(-0.13, 0.66), n=10).tolist()
+        pts += bez(P(-0.13, 0.66), P(-0.13, 0.56), P(-0.115, 0.5), P(-0.105, 0.43), n=8).tolist()
+        pts += [P(0.1, 0.43), P(0.122, 0.5), P(0.118, 0.56)]
+        pts += bez(P(0.118, 0.56), P(0.095, 0.62), P(0.1, 0.72), P(0.045, 0.815), n=10).tolist()
+        m.spoly(pts)
+        pts = bez(P(-0.035, 0.805), P(-0.09, 0.85), P(-0.11, 0.93), P(-0.06, 0.975), n=12).tolist()
+        pts += bez(P(-0.06, 0.975), P(0.0, 1.015), P(0.1, 1.0), P(0.15, 0.935), n=10).tolist()
+        pts += bez(P(0.15, 0.935), P(0.135, 0.89), P(0.115, 0.835), P(0.06, 0.795), n=8).tolist()
+        m.spoly(pts)
+
+    def face(self, m):
+        P = self.P
+        pts = bez(P(0.135, 0.925), P(0.085, 0.935), P(0.05, 0.905), P(0.055, 0.865), n=8).tolist()
+        pts += bez(P(0.055, 0.865), P(0.065, 0.835), P(0.09, 0.83), P(0.11, 0.85), n=6).tolist()
+        pts += bez(P(0.11, 0.85), P(0.125, 0.875), P(0.135, 0.9), P(0.135, 0.925), n=6).tolist()
+        m.spoly(pts)
+
+    def arm(self, m, pose):
+        """pouch: hand gone in the front pocket, elbow out the back. hang: the arm just left there.
+        carry: arm dead straight with the weight on it. Returns where the hand ends up."""
+        P, h = self.P, self.h
+        if pose == "pouch":
+            limb(m, [P(-0.03, 0.75), P(-0.175, 0.595), P(0.035, 0.5)], [h * 0.082, h * 0.07, h * 0.05])
+            return P(0.035, 0.5)
+        if pose == "carry":
+            limb(m, [P(-0.02, 0.75), P(0.01, 0.57), P(0.03, 0.395)], [h * 0.082, h * 0.068, h * 0.048])
+            hand = P(0.03, 0.375)
+        else:
+            limb(m, [P(0.0, 0.75), P(0.125, 0.585), P(0.17, 0.43)], [h * 0.082, h * 0.068, h * 0.048])
+            hand = P(0.17, 0.41)
+        m.ellipse(hand[0], hand[1], h * 0.032, h * 0.04)
+        return hand
+
+
+def raider(s, x, base, h):
     """One bloke in full plate, standing in line for ice in the car park like it's a perfectly normal
-    thing to wear at four in the morning. Which, round here, it nearly is."""
+    thing to wear at four in the morning. Which, round here, it nearly is. Square on, feet apart, one hand
+    on his hip like he's been told the wait's another twenty minutes. All one dark shape: the outline's
+    the armour, and the servo's light only catches the side of him that faces it."""
     def P(u, v):
         return (x + u * h, base - v * h)
-    for u0, u1 in ((-0.05, -0.12), (0.05, 0.12)):
-        m.stroke(np.array([P(u0, 0.5), P(u1, 0.03)]), h * 0.13, h * 0.11)
-        m.spoly([P(u1 - 0.07, 0), P(u1 - 0.06, 0.07), P(u1 + 0.07, 0.07), P(u1 + 0.12, 0)])
-    m.spoly([P(-0.17, 0.84), P(0.18, 0.84), P(0.14, 0.45), P(-0.14, 0.45)])
-    m.spoly([P(-0.16, 0.5), P(0.16, 0.5), P(0.2, 0.3), P(-0.2, 0.3)])
-    for u, r in ((-0.2, 0.15), (0.2, 0.135)):
-        cx, cy = P(u, 0.84)
-        m.ellipse(cx, cy, r * h, r * h * 0.82)
-        for ang in (-0.6, 0.0, 0.6):
-            d = np.array([np.sin(ang), -np.cos(ang)])
-            n = np.array([d[1], -d[0]])
-            c = np.array([cx, cy]) + d * r * h * 0.6
-            m.spoly([tuple(c + n * r * h * 0.3), tuple(np.array([cx, cy]) + d * r * h * 1.8), tuple(c - n * r * h * 0.3)])
-    m.ellipse(*P(0.02, 0.94), h * 0.09, h * 0.1)
-    m.stroke(bez(P(-0.04, 0.99), P(-0.14, 1.02), P(-0.13, 1.14), n=8), h * 0.05, h * 0.012)
-    m.stroke(bez(P(0.08, 0.99), P(0.18, 1.02), P(0.17, 1.14), n=8), h * 0.05, h * 0.012)
-    m.stroke(np.array([P(-0.21, 0.78), P(-0.23, 0.5)]), h * 0.09, h * 0.08)
-    m.stroke(np.array([P(0.2, 0.78), P(0.22, 0.5)]), h * 0.09, h * 0.08)
-    # a sword on his back, because you never know
-    m.stroke(np.array([P(-0.34, 0.2), P(0.06, 1.2)]), h * 0.036, h * 0.022)
-    m.stroke(np.array([P(-0.16, 0.86), P(-0.05, 0.8)]), h * 0.06, h * 0.06)
+
+    m = s.mask()
+    # the big sword across his back: only the hilt shows, up over the shoulder
+    m.stroke(np.array([P(0.17, 0.9), P(0.255, 1.12)]), h * 0.036, h * 0.036)
+    m.stroke(np.array([P(0.155, 1.015), P(0.3, 0.965)]), h * 0.042, h * 0.042)
+    m.spoly([P(0.235, 1.125), P(0.28, 1.14), P(0.275, 1.185), P(0.235, 1.17)])
+    # legs, a clear gap between, an armoured wedge at each knee and the toes turned out
+    for sd, hip, knee, ankle, toe in ((-1, -0.065, -0.115, -0.13, -0.26), (1, 0.065, 0.095, 0.11, 0.24)):
+        limb(m, [P(hip, 0.5), P(knee, 0.27), P(ankle, 0.075)], [h * 0.13, h * 0.09, h * 0.075], cap=False)
+        m.spoly([P(knee - 0.065, 0.285), P(knee, 0.335), P(knee + 0.065, 0.285), P(knee + 0.04, 0.215), P(knee - 0.04, 0.215)])
+        m.spoly([P(ankle - 0.06, 0.1), P(ankle + 0.06, 0.1), P(ankle + 0.05, 0.05), P(ankle - 0.05, 0.05)])
+        far = ankle - sd * 0.055
+        m.spoly([P(ankle - 0.05, 0.06), P(ankle + 0.05, 0.06), P(toe if sd > 0 else far, 0.0), P(far if sd > 0 else toe, 0.0)])
+    # plate skirt, waist, big chest
+    m.spoly([P(-0.115, 0.54), P(0.115, 0.54), P(0.185, 0.355), P(0.06, 0.325), P(0.0, 0.385), P(-0.06, 0.325), P(-0.185, 0.355)])
+    m.spoly([P(-0.17, 0.86), P(0.17, 0.86), P(0.2, 0.72), P(0.105, 0.52), P(-0.105, 0.52), P(-0.2, 0.72)])
+    # one arm hanging, jointed, a flared gauntlet and a fist on the end of it
+    limb(m, [P(-0.29, 0.76), P(-0.355, 0.56), P(-0.325, 0.41)], [h * 0.1, h * 0.082, h * 0.07], cap=False)
+    m.spoly([P(-0.365, 0.595), P(-0.415, 0.545), P(-0.34, 0.51)])
+    m.spoly([P(-0.385, 0.44), P(-0.265, 0.44), P(-0.272, 0.375), P(-0.378, 0.375)])
+    m.rrect(P(-0.378, 0)[0], P(0, 0.385)[1], P(-0.272, 0)[0], P(0, 0.285)[1], h * 0.028)
+    # the other on his hip, the elbow out: that gap under the arm is what makes him a person
+    limb(m, [P(0.29, 0.76), P(0.4, 0.59), P(0.185, 0.525)], [h * 0.1, h * 0.08, h * 0.066], cap=False)
+    m.spoly([P(0.385, 0.625), P(0.465, 0.58), P(0.39, 0.54)])
+    m.spoly([P(0.215, 0.57), P(0.14, 0.545), P(0.14, 0.49), P(0.215, 0.49)])
+    # a raised collar, and the helm sat down in it: flat-sided, narrow at the jaw, horns off the temples
+    m.spoly([P(-0.11, 0.86), P(0.11, 0.86), P(0.085, 0.91), P(-0.085, 0.91)])
+    pts = bez(P(-0.092, 0.95), P(-0.09, 1.045), P(0.09, 1.045), P(0.092, 0.95), n=12).tolist()
+    pts += [P(0.082, 0.885), P(0.03, 0.845), P(-0.03, 0.845), P(-0.082, 0.885)]
+    m.spoly(pts)
+    for sx in (-1, 1):
+        m.stroke(bez(P(sx * 0.07, 0.985), P(sx * 0.17, 0.985), P(sx * 0.19, 1.09), P(sx * 0.115, 1.215), n=12), h * 0.06, h * 0.012)
+    # the spikes on the pauldrons go on behind them
+    for sx in (-1, 1):
+        m.spoly([P(sx * 0.33, 0.88), P(sx * 0.51, 0.99), P(sx * 0.42, 0.8)])
+    m.spoly([P(-0.33, 0.92), P(-0.33, 1.13), P(-0.2, 0.93)])
+    # the belt and its buckle
+    s.paint(m, "#060a10", rim=0.55, rim_dx=0.45, rim_dy=-0.35, rim_colour=LIGHT)
+    # the pauldrons, wider than the man, sat over his chest a shade up so you can see where they stop
+    pa = s.mask()
+    for sx in (-1, 1):
+        pts = bez(P(sx * 0.125, 0.8), P(sx * 0.13, 0.975), P(sx * 0.4, 0.985), P(sx * 0.425, 0.765), n=16).tolist()
+        pts += [P(sx * 0.37, 0.715), P(sx * 0.2, 0.725)]
+        pa.spoly(pts)
+    s.paint(pa, "#0d1520", rim=0.6, rim_dx=0.45, rim_dy=-0.35, rim_colour=LIGHT)
+    b = s.mask()
+    b.rect(P(-0.112, 0)[0], P(0, 0.56)[1], P(0.112, 0)[0], P(0, 0.525)[1])
+    s.paint(b, "#1e2c3c")
+    b = s.mask()
+    b.rect(P(-0.026, 0)[0], P(0, 0.572)[1], P(0.026, 0)[0], P(0, 0.513)[1])
+    s.paint(b, "#6f8ca4")
+    # the slit in the helm: he's looking at the freezer
+    v = s.mask()
+    v.spoly([P(-0.025, 0.968), P(0.08, 0.968), P(0.075, 0.948), P(-0.02, 0.948)])
+    s.paint(v, "#5f8fa8")
 
 
 def paint():
@@ -136,8 +289,6 @@ def paint():
     # the suburb, asleep or pretending
     s.ridge(113, 10, 41, "#12283f", roughness=4)
     m = s.mask()
-    for x, w, h in ((548, 42, 13), (600, 34, 11), (648, 48, 14), (706, 34, 11)):
-        m.spoly([(x, 124), (x, 124 - h * 0.6), (x + w * 0.25, 124 - h), (x + w * 0.75, 124 - h), (x + w, 124 - h * 0.6), (x + w, 124)])
     for i, x in enumerate((330, 410, 480)):
         gum_tree(m, x, 124, 30 + (i * 31) % 18, seed=60 + i, leaves=0.9)
     m.rect(0, 121, 1040, 148)
@@ -175,36 +326,42 @@ def paint():
 
     # the queue, back to front so the near ones sit over the far ones
     qx = (622, 601, 575, 548, 530, 511, 494)
-    kinds = ("hoodie", "bag", "plate", "bag", "hoodie", "bag", "hoodie")
+    kinds = ("carry", "bag", "plate", "bag", "pouch", "bag", "hang")
     # shadows first: the line throws them back along itself, away from the light
     sh = s.mask()
-    for x in qx:
-        by = float(queue_y(x))
-        sh.spoly([(x - 8, by + 0.2), (x + 8, by + 0.2), (x - 7, by + 2.2), (x - 24, by + 2.2)])
-    s.rgb *= (1 - gauss(sh.array(), 0.5 * SS) * 0.5)[..., None]
-
-    # the bags sit in their own little pool, so the eye goes to the hole in the line
     for x, k in zip(qx, kinds):
-        if k == "bag":
+        if k != "bag":
             by = float(queue_y(x))
-            pool = np.exp(-(((s.X / SS - x) / 15) ** 2 + ((s.Y / SS - by) / 3) ** 2))
-            s.rgb += pool[..., None] * s.colour("#c4e4f8") * 0.13
+            sh.spoly([(x - 8, by + 0.2), (x + 8, by + 0.2), (x - 7, by + 2.2), (x - 24, by + 2.2)])
+    s.rgb *= (1 - gauss(sh.array(), 0.25 * SS) * 0.5)[..., None]
 
-    bags, bands = s.mask(), s.mask()
-    folk = s.mask()
+    def scale_at(by):
+        return 0.72 + 0.28 * (by - 127.5) / (GROUND - 127.5)
+
     for x, k in reversed(list(zip(qx, kinds))):
         by = float(queue_y(x))
-        scale = 0.72 + 0.28 * (by - 127.5) / (GROUND - 127.5)
-        if k == "hoodie":
-            hoodie(folk, x, by, 56 * scale, facing=1)
+        scale = scale_at(by)
+        if k == "bag":
+            ice_bag(s, x, by, 18 * scale, 23 * scale, seed=int(x))
         elif k == "plate":
-            plate_bloke(folk, x, by, 52 * scale)
+            raider(s, x, by, 56 * scale)
         else:
-            plastic_bag(bags, bands, x, by, 25 * scale)
-    s.paint(folk, "#070b12")
-    lit_rim(s, folk, 790, 85, 340, LIGHT, 1.25, soft=0.3)
-    s.paint(bags, "#b5c8d4", bottom="#6c8496", top_y=70, rim=0.45, rim_dx=0.7, rim_dy=-0.6, rim_colour="#ffffff")
-    s.rgb = s.rgb * (1 - (bands.array() * bags.array())[..., None] * 0.72) + (bands.array() * bags.array())[..., None] * s.colour("#23405e") * 0.72
+            who = Punter(x, by, 56 * scale)
+            m, arm, fc = s.mask(), s.mask(), s.mask()
+            who.shape(m)
+            who.face(fc)
+            hand = who.arm(arm, k)
+            s.paint(m, "#070b12")
+            lit_rim(s, m, 790, 85, 340, LIGHT, 0.42, soft=0.3)
+            s.paint(fc, "#2f4456")
+            s.paint(arm, "#0c131e", rim=0.4, rim_dx=0.4, rim_dy=-0.3, rim_colour=LIGHT)
+            if k == "carry":
+                # one he's actually bought: he's got it by the twist, and it's dragging his shoulder down
+                bh = 15.5 * scale
+                ice_bag(s, hand[0] + 0.4, hand[1] + bh - 0.4, 12.5 * scale, bh, seed=8, shadow=False)
+                g = s.mask()
+                g.ellipse(hand[0], hand[1], 56 * scale * 0.032, 56 * scale * 0.04)
+                s.paint(g, "#0c131e")
 
     # the freezer last, with the bloom on everything
     freezer(s, 724, 814, 64, GROUND)

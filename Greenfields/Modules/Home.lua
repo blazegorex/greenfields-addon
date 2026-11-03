@@ -631,6 +631,8 @@ local function answer(page, status)
         local t = SIGNUP_TOASTS[status]
         UI:Toast({ title = t.title, text = format(t.text, what), icon = T.status[status].icon, style = t.style,
             key = "home:signup:" .. ev.id .. ":" .. status })
+        local btn = page.raid and page.raid.answer and page.raid.answer[status]
+        if btn and (status == "yes" or status == "late") then UI:Burst(btn, "green") end
     else
         UI:Toast({ title = "Didn't stick", icon = "warning", style = "red",
             text = type(err) == "string" and err or "Couldn't save that. Try the Raid Nights page." })

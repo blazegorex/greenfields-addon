@@ -21,7 +21,7 @@ import os
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 W, H = 1040, 148
 OUT_W, OUT_H = 2048, 256
@@ -140,14 +140,27 @@ class Scene:
         self.rgb += (soft * fade)[..., None] * tint
 
     def moon(self, x, y, r, tint="#f4efe0", phase=0.0, glow=0.55, seed=3):
-        """Moon disc with limb shading, faint seas, and a halo. phase>0 shades a crescent side."""
+        """Moon disc with limb shading, hard-edged seas like the rest of the poster, and a halo. phase>0
+        shades a crescent side. The seas want an edge: soft noise here reads as a dirty ping pong ball."""
         cx, cy, R = x * SS, y * SS, r * SS
         d = np.sqrt((self.X - cx) ** 2 + (self.Y - cy) ** 2)
         disc = 1 - smooth(R - 1.2, R + 1.2, d)
         limb = np.sqrt(np.clip(1 - (d / max(1, R)) ** 2, 0, 1))
-        n = fbm(self.h, self.w, seed, cells=30, octaves=4)
-        seas = smooth(0.42, 0.7, n)
-        lit = 0.74 + 0.26 * limb - seas * 0.16
+        # noise scaled to the moon, so a big one and a small one get the same few seas
+        size = max(16, int(R * 2.4))
+        n = cv2.resize(fbm(size, size, seed, cells=3, octaves=4, gain=0.5), (size, size))
+        map_x = np.clip((self.X - cx) / (R * 1.2) * 0.5 + 0.5, 0, 1) * (size - 1)
+        map_y = np.clip((self.Y - cy) / (R * 1.2) * 0.5 + 0.5, 0, 1) * (size - 1)
+        n = cv2.remap(n, map_x.astype(np.float32), map_y.astype(np.float32), cv2.INTER_LINEAR)
+        # kept off the rim, or a sea on the edge bites a lump out of the circle
+        seas = smooth(0.56, 0.60, n) * (1 - smooth(0.70, 0.86, d / max(1, R)))
+        lit = 0.80 + 0.20 * limb - seas * 0.17
+        rng = np.random.default_rng(seed + 7)
+        for _ in range(5 if r >= 12 else 0):
+            a, q = rng.uniform(0, 2 * math.pi), rng.uniform(0.15, 0.78)
+            rc = R * rng.uniform(0.05, 0.10)
+            dc = np.sqrt((self.X - (cx + math.cos(a) * q * R)) ** 2 + (self.Y - (cy + math.sin(a) * q * R)) ** 2)
+            lit = lit - (1 - smooth(rc - 0.8, rc + 0.8, dc)) * 0.09
         if phase > 0:
             sx = np.clip(((self.X - cx) / max(1, R) + phase * 1.2), -1, 1)
             lit *= 0.12 + 0.88 * smooth(-0.15, 0.25, sx)
@@ -434,7 +447,7 @@ def light_windows(s, rects, colour="#ffb45e", strength=1.0, bars=True):
 # --------------------------------------------------------------------------- what the street's left out
 FONTS = r"C:\Windows\Fonts"
 STENCIL = "impact.ttf"      # shop signs, hand-cut stencils
-SCRAWL = "segoeprb.ttf"     # spray can and marker pen
+SCRAWL = "Inkfree.ttf"      # spray can and marker pen, fattened up in lettering()
 
 
 def lettering(m, text, x, y, size, font=STENCIL, angle=0.0, wobble=0.0, seed=1, spacing=0.0):
@@ -455,6 +468,9 @@ def lettering(m, text, x, y, size, font=STENCIL, angle=0.0, wobble=0.0, seed=1, 
             ch = ch.rotate(float(rng.normal(0, wobble) * 7), resample=Image.BICUBIC, center=(cur + adv / 2, pad))
         tile.paste(255, (0, 0), ch)
         cur += adv
+    if font == SCRAWL:
+        # the font's a fine felt tip: this is the fat end of the marker
+        tile = tile.filter(ImageFilter.MaxFilter(2 * max(1, int(round(size * SS * 0.035))) + 1))
     if angle:
         tile = tile.rotate(-angle, resample=Image.BICUBIC, expand=True)
     m.img.paste(255, (int(x * SS - tile.width / 2), int(y * SS - tile.height / 2)), tile)
@@ -753,30 +769,46 @@ def razor_wire(m, x0, x1, y, r=5.0, step=None, width=0.42):
 
 
 def foil_window(s, x, y, w, h, seed=1, strength=1.0):
-    """A window done from the inside with kitchen foil. At about 33 by 22 pixels the only thing that says
-    foil is how it shines, so it's a few soft wavy bands of silver with a little crumple on top, behind
-    a dark frame and a middle bar so it's plainly still a window. Fine crumple goes to noise at this size,
-    blotches to camouflage, and hard facets to a missing-image icon. Under about 20 units wide it can't
-    say foil at all, so it stays a quiet dull silver: the job there is not looking like a graphics bug."""
+    """A window done from the inside with kitchen foil, the way it really goes up: strips off the roll,
+    side by side and overlapped, gone over with gaffer. Flat like everything else on the street: strips
+    in a few tones of silver, one hard diagonal shine, and on a big window a corner that's come away
+    with the room's light behind it, which is what says it's stuck on. Noise and crumple read as a
+    graphics bug at this size (Claude tried it three ways), so there isn't any."""
     rng = np.random.default_rng(seed + 400)
-    x0, y0 = int(x * SS), int(y * SS)
-    pw, ph = max(1, int(w * SS)), max(1, int(h * SS))
-
-    def soft(sigma):
-        n = gauss(rng.random((ph, pw)).astype(np.float32), sigma * SS)
-        return (n - n.mean()) / (n.std() + 1e-6)
-
-    yy, xx = np.mgrid[0:ph, 0:pw].astype(np.float32) / SS
-    phase = (xx * 0.8 + yy * 0.6) / 8.0 * 2 * np.pi + soft(2.4) * 1.5 + rng.uniform(0, 6.28)
-    big = float(np.clip((w - 16) / 8, 0, 1))
-    v = (0.46 + 0.14 * big) + (0.11 + 0.19 * big) * np.sin(phase) + (0.03 + 0.10 * big) * soft(0.8)
-    v = v + np.clip(v - 0.82, 0, 1) * 1.4 * big
-    v = np.clip(v, 0.22, 1.25) * np.linspace(1.05, 0.88, ph, dtype=np.float32)[:, None]
-    col = np.array([0.80, 0.84, 0.90], np.float32)
-    s.rgb[y0:y0 + ph, x0:x0 + pw] = col * (v * strength)[..., None]
+    tones = [0.60, 0.74, 0.52, 0.68]
+    silver = np.array([0.80, 0.84, 0.90], np.float32)
+    n = 3 if h >= 14 else 2
+    # the strips run across, the seams a little off level
+    seams = [y + h * k / n + (rng.uniform(-0.05, 0.05) * h if 0 < k < n else 0) for k in range(n + 1)]
+    start = int(rng.integers(0, 4))
+    for k in range(n):
+        m = s.mask()
+        m.spoly([(x, seams[k]), (x + w, seams[k] + (0.03 * h if k else 0)), (x + w, seams[k + 1]), (x, seams[k + 1])])
+        a = m.array()
+        s.rgb = s.rgb * (1 - a[..., None]) + silver * (a * tones[(start + k) % 4] * strength)[..., None]
+    # the shine, a hard band on the slant, the one thing foil has that a grey window doesn't
+    for off, wd, amt in ((0.30, 0.13, 0.36), (0.50, 0.05, 0.26)):
+        m = s.mask()
+        lean = h * 0.55
+        x0 = x + w * off
+        m.spoly([(x0 + lean, y), (x0 + lean + w * wd, y), (x0 + w * wd, y + h), (x0, y + h)])
+        c = s.mask()
+        c.rect(x, y, x + w, y + h)
+        a = m.array() * c.array()
+        s.rgb = s.rgb * (1 - a[..., None] * amt) + np.array([1.0, 1.0, 1.0], np.float32) * (a * amt * strength)[..., None]
+    if w >= 20:
+        # the corner's let go: light from inside, and the flap folded back over it
+        fold = min(w, h) * 0.34
+        m = s.mask()
+        m.spoly([(x + w - fold, y), (x + w, y), (x + w, y + fold)])
+        s.paint(m, "#ffc777")
+        m = s.mask()
+        m.spoly([(x + w - fold, y), (x + w, y + fold), (x + w - fold * 0.92, y + fold * 0.92)])
+        a = m.array()
+        s.rgb = s.rgb * (1 - a[..., None]) + silver * (a * 0.92 * strength)[..., None]
     m = s.mask()
     m.rect(x, y, x + w, y + h)
-    s.rgb += gauss(m.array(), 2.2 * SS)[..., None] * col * 0.06 * strength
+    s.rgb += gauss(m.array(), 2.2 * SS)[..., None] * silver * 0.05 * strength
     f = s.mask()
     f.rect(x, y, x + w, y + 0.7)
     f.rect(x, y + h - 0.7, x + w, y + h)

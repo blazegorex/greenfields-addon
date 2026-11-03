@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 
-from scenekit import SS, Scene, bez, fbm, foil_window, gauss, glass_pipe, gum_tree, house, light_windows, lit_rim, power_pole, wires, wreck
+from scenekit import SS, Scene, bez, fbm, foil_window, gauss, glass_pipe, gum_tree, house, lighter, light_windows, lit_rim, power_pole, wires, wreck
 
 
 def runners(s, x, y, h):
@@ -42,52 +42,103 @@ def charred(s, m):
     s.rgb = s.rgb * (1 - a) + col * a
 
 
+def limb(m, P, joints, widths):
+    """An arm or a leg: straight bones, tapering, with a round joint at each bend."""
+    for i in range(len(joints) - 1):
+        m.stroke(np.array([P(*joints[i]), P(*joints[i + 1])]), widths[i], widths[i + 1])
+    for j, w in zip(joints, widths):
+        m.ellipse(*P(*j), w / 2, w / 2)
+
+
 def sitter(s, x, base):
-    """Someone in a hoodie on an upturned milk crate, knees up, elbow on his knee, pipe at his face.
+    """Someone in a hoodie on an upturned milk crate, knees up and hunched right over it: one hand up
+    holding the pipe to his mouth, the other out at arm's length with a lighter under the bulb.
     (x, base) is the middle of the crate on the kerb. Same scale as the car."""
     LAMP = (676, 74)
-    # the crate, a bit paler than he is
+
+    def P(u, v):
+        return (x + u, base - v)
+
+    # the crate, a bit paler than he is, with the slots you can see through
     c = s.mask()
-    c.rect(x - 6.5, base - 9, x + 6.5, base)
+    c.rect(*P(-7, 10), *P(7, 0))
     for i in range(3):
-        c.rect(x - 5.2 + i * 3.8, base - 7, x - 3 + i * 3.8, base - 1.4, fill=0)
-    s.paint(c, "#2a3050")
+        c.rect(*P(-5.6 + i * 4.1, 7.8), *P(-2.8 + i * 4.1, 1.6), fill=0)
+    s.paint(c, "#2f3660")
     lit_rim(s, c, *LAMP, 80, "#ffd9a0", 0.8)
-    hip, knee, ankle = (x + 0.5, base - 11), (x + 12, base - 15), (x + 14, base - 1.5)
-    shoulder, mouth = (x + 5.5, base - 26), (x + 13.2, base - 29.5)
+
+    def foot(m, a):
+        m.spoly([P(a - 2.2, 4), P(a + 2.2, 4), P(a + 6.5, 1.8), P(a + 7, 0), P(a - 2.4, 0)])
+
+    # the far side of him first, a shade darker: far leg, far arm with the lighter on the end
     m = s.mask()
-    m.stroke(np.array([hip, knee]), 6.0, 4.4)
-    m.stroke(np.array([knee, ankle]), 4.2, 3.0)
-    m.spoly([(ankle[0] - 2, base - 3), (ankle[0] + 2, base - 3), (ankle[0] + 5.5, base - 1), (ankle[0] + 5.5, base), (ankle[0] - 2, base)])
-    m.stroke(bez((x - 1, base - 9), (x - 4, base - 18), (x - 1, base - 26), shoulder, n=12), 8.0, 8.0)
-    m.spoly([(x - 4, base - 9), (x + 5, base - 9), (x + 9, base - 24), (x + 3, base - 29), (x - 4, base - 22)])
-    # hood, pushed forward over the pipe
-    m.spoly(bez((x + 2.5, base - 25), (x + 1, base - 33), (x + 7, base - 36.5), (x + 11, base - 35), n=12).tolist()
-            + bez((x + 11, base - 35), (x + 14.5, base - 33), (x + 14.5, base - 29), (x + 12, base - 26), n=8).tolist())
-    # elbow on the knee, hand up to the stem
-    elbow = (knee[0] + 0.5, knee[1] - 1)
-    m.stroke(np.array([shoulder, elbow]), 3.8, 3.2)
-    hand = (mouth[0] + 3.5, mouth[1] + 2.2)
-    m.stroke(np.array([elbow, hand]), 3.2, 2.5)
+    limb(m, P, [(1, 13), (16, 19.5), (19, 2.5)], [7.4, 5.4, 3.8])
+    foot(m, 19)
+    limb(m, P, [(3, 33), (16, 26.5), (26, 20)], [5.0, 4.2, 3.0])
+    s.paint(m, "#05060f")
+    lit_rim(s, m, *LAMP, 85, "#ffd9a0", 0.9)
+    # near leg, back bent right over, hood pushed forward
+    m = s.mask()
+    limb(m, P, [(-1, 13), (12, 20.5), (8, 2.5)], [7.8, 5.6, 4.0])
+    foot(m, 8)
+    body = bez(P(-6, 10), P(-10, 20), P(-9, 30), P(-2, 35.5), n=14).tolist()
+    body += bez(P(-2, 35.5), P(6, 37), P(9, 28), P(4, 11), n=12).tolist()
+    m.spoly(body)
+    # with a notch at the nape, so there's a head on those shoulders and not one big lump
+    hood = [(P(2.6, 34))] + bez(P(2.6, 36), P(0.4, 41), P(0.6, 46), P(3, 50.5), n=10).tolist()
+    hood += bez(P(3, 50.5), P(9, 51.5), P(16, 49), P(17.4, 43.5), n=10).tolist()
+    hood += bez(P(17.4, 43.5), P(17.6, 38), P(14.5, 33), P(9, 31.5), n=10).tolist()
+    m.spoly(hood)
     s.paint(m, "#0b0c1c")
     lit_rim(s, m, *LAMP, 85, "#ffd9a0", 1.3)
-    glass_pipe(s, mouth[0], mouth[1], 13, angle=12, bulb=1.95, width=1.1, smoke=0, ember=0.0, lit="#e8f0ff")
-    ax, ay = mouth[0] + 13 * math.cos(math.radians(12)), mouth[1] + 13 * math.sin(math.radians(12))
-    # the ember: all you'd see of him if the council ever fixed the light
-    s.glow(ax, ay, 7, colour="#ff7a2e", strength=0.40)
-    s.glow(ax, ay + 0.3, 2.2, colour="#ffb45e", strength=1.3)
-    e = s.mask()
-    e.ellipse(ax, ay + 0.3, 1.25, 1.25)
-    ea = e.array()
-    s.rgb = s.rgb * (1 - ea[..., None]) + s.colour("#ffd08a") * 1.6 * ea[..., None]
-    lit_rim(s, m, ax, ay, 12, "#ff9a48", 1.4)
-    # and a thin curl going up past the lamp pole
+    # pale soles, the same as the ones on the wire
+    f = s.mask()
+    for a in (8, 19):
+        f.rect(*P(a - 2.4, 1.0), *P(a + 7, 0))
+    s.paint(f, "#a8a3a2")
+    # where the face would be: nothing, just dark, with the stem going in
+    f = s.mask()
+    f.spoly(bez(P(16.2, 46), P(10.5, 46), P(10, 37.5), P(14.4, 34.2), n=12).tolist() + bez(P(14.4, 34.2), P(16.8, 37), P(17.2, 42), P(16.2, 46), n=8).tolist())
+    s.paint(f, "#02030a")
+    # the near arm: elbow down near the knee, forearm back up to the stem
+    m = s.mask()
+    limb(m, P, [(0, 33), (11, 25), (18, 34)], [5.6, 4.4, 3.2])
+    s.paint(m, "#0f1124")
+    lit_rim(s, m, *LAMP, 85, "#ffd9a0", 1.2)
+    # the pipe, stem in the hood, bulb out in front over the flame
+    mx, my = x + 13, base - 38
+    length, ang = 15.5, 8
+    glass_pipe(s, mx, my, length, angle=ang, bulb=2.3, width=1.1, smoke=0, ember=0.0, lit="#e8f0ff")
+    ax, ay = mx + length * math.cos(math.radians(ang)), my + length * math.sin(math.radians(ang))
+    # the fingers go over the stem, or it's floating past him
+    g = s.mask()
+    g.ellipse(*P(18.8, 36.6), 2.2, 2.4)
+    s.paint(g, "#14162c")
+    lit_rim(s, g, *LAMP, 85, "#ffd9a0", 1.0)
+    # the lighter, and the flame licking the bottom of the bulb
+    lx = ax - 0.6
+    ltop = ay + 2.3 + 4.6
+    lighter(s, lx, ltop + 9.5, length=9.5, standing=True)
+    h = s.mask()
+    h.ellipse(lx - 0.6, ltop + 7.4, 2.9, 3.1)
+    h.stroke(np.array([(lx + 1.2, ltop + 7.2), (lx + 1.3, ltop + 2.4)]), 1.5, 1.2)
+    s.paint(h, "#0a0b1a")
+    s.glow(ax, ay + 3.4, 8, colour="#ff7a2e", strength=0.34)
+    fl = s.mask()
+    fl.spoly(bez((lx, ltop + 0.2), (lx - 2.1, ltop - 1.4), (ax, ay + 2.2), n=10).tolist() + bez((ax, ay + 2.2), (lx + 2.1, ltop - 1.4), (lx, ltop + 0.2), n=10).tolist())
+    fa = fl.array()
+    s.rgb = s.rgb * (1 - fa[..., None]) + s.colour("#ffc768") * 1.5 * fa[..., None]
+    # the flame's all the light he's got on his front
+    lit_rim(s, m, ax, ay + 3, 14, "#ff9a48", 1.2)
+    lit_rim(s, h, ax, ay + 3, 14, "#ff9a48", 1.6)
+    lit_rim(s, g, ax, ay + 3, 16, "#ff9a48", 1.2)
+    # and a thin curl going up off the bulb
     w = s.mask()
     t = np.linspace(0, 1, 50)
-    pts = np.stack((ax + np.sin(t * 8.5) * (0.8 + 2.6 * t) + 5 * t, ay - 2 - 30 * t), axis=1)
-    w.stroke(pts, 0.8, 1.7)
-    fade = np.clip((s.Y / SS - (ay - 32)) / 24, 0, 1)
-    s.rgb += (gauss(w.array(), 0.25 * SS) * fade * 0.55)[..., None] * s.colour("#dfe4ea")
+    pts = np.stack((ax + np.sin(t * 8.5) * (0.6 + 2.2 * t), ay - 2.6 - 28 * t), axis=1)
+    w.stroke(pts, 0.8, 1.6)
+    fade = np.clip((s.Y / SS - (ay - 30)) / 22, 0, 1)
+    s.rgb += (gauss(w.array(), 0.2 * SS) * fade * 0.55)[..., None] * s.colour("#dfe4ea")
 
 
 def paint():
@@ -108,13 +159,13 @@ def paint():
     # cottages, the far ones small and dim; nothing lit behind the page title
     m = s.mask()
     house(m, 262, 137, 84, 21, veranda=False)
-    house(m, 540, 138, 112, 26, tank=True)
+    house(m, 518, 138, 104, 26)
     house(m, 792, 139, 106, 27)
     m.rect(0, 134, 1040, 148)
     s.paint(m, "#0d0f26", rim=0.2)
     # the left cottage has done its windows in foil, and the right one's still got someone up with the lamp on
-    foil_window(s, 556, 119.5, 16, 12, seed=3)
-    foil_window(s, 611, 119.5, 16, 12, seed=4)
+    foil_window(s, 534, 119.5, 16, 12, seed=3)
+    foil_window(s, 585, 119.5, 16, 12, seed=4)
     light_windows(s, [(810, 121, 13, 10), (862, 121, 13, 10)], strength=0.95)
     # the power line marching across
     m = s.mask()
@@ -132,7 +183,7 @@ def paint():
     s.glow(676, 74, 7, strength=0.95)
     s.glow(676, 74, 26, strength=0.16)
     m = s.mask()
-    pole = bez((659, 148), (659, 92), (661, 74), (676, 72), n=20)
+    pole = bez((669, 148), (669, 96), (668, 76), (674, 72), n=20)
     m.stroke(pole, 2.1, 1.1)
     m.rrect(670, 70, 684, 73.6, 1)
     m.spoly([(0, 141), (240, 140), (520, 142), (800, 140), (1040, 141), (1040, 148), (0, 148)])
@@ -141,22 +192,25 @@ def paint():
     # the Commodore, parked for good and lit like it's in a showroom: door panels rusted through, roof sagged
     m = s.mask()
     wreck(m, 722, 141.5, 110, facing=1)
-    # proper stack of bricks under the back axle, wide enough to read as bricks and not a stalk
-    m.rect(680, 137.2, 698, 141.5)
-    m.rect(683, 133.6, 695, 137.2)
     for hole in ([(694, 120), (703, 119), (705, 125), (697, 127)],):
         m.spoly(hole, fill=0)
     m.spoly([(692, 104), (714, 104), (710, 107.2), (698, 107.4)], fill=0)
     charred(s, m)
     lit_rim(s, m, 676, 74, 70, "#ffd9a0", 0.6)
+    # the stack under the back axle: actual bricks, two courses, with the joints showing
+    b = s.mask()
+    b.rect(680, 138.4, 688.6, 141.6)
+    b.rect(689.4, 138.4, 698, 141.6)
+    b.rect(684.4, 134.8, 693.8, 137.6)
+    s.paint(b, "#6e3a2a", rim=0.5, rim_dx=-0.5, rim_dy=-0.6, rim_colour="#ffd9a0")
     # a thread of smoke still coming off it, days later
     w = s.mask()
     w.stroke(bez((746, 118), (740, 104), (756, 96), (748, 76), n=30), 1.0, 3.0)
     fade = np.clip((s.Y / SS - 72) / 46, 0, 1)
     s.rgb += (gauss(w.array(), 0.8 * SS) * fade * 0.32)[..., None] * s.colour("#dfd7d0")
     # the only other soul on the street: a bit of the lamp's spill so you can see him, and him
-    s.glow(650, 132, 24, colour="#ffd9a0", strength=0.10)
-    sitter(s, 640, 141.5)
+    s.glow(648, 128, 26, colour="#ffd9a0", strength=0.14)
+    sitter(s, 635, 141.5)
     # big dark gums framing the scene, and giving the title something dark to sit on
     m = s.mask()
     gum_tree(m, 1012, 170, 178, seed=7, lean=-0.1, spread=1.1)

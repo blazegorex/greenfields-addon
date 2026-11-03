@@ -4,7 +4,7 @@ warming his hands. The other one's having a go on the glass, and his mate's seen
 picture in the set."""
 import numpy as np
 
-from scenekit import SS, Scene, bez, gauss, glass_pipe, gum_tree, hoodie, lighter, lit_rim, razor_wire, smooth
+from scenekit import SS, Scene, bez, gauss, glass_pipe, gum_tree, lighter, lit_rim, razor_wire, smooth
 
 CAMP = {
     "sky": [(0.00, "#0a0a0e"), (0.34, "#16161a"), (0.56, "#2a2622"), (0.72, "#55422c"),
@@ -36,17 +36,21 @@ def tongue(m, x, base, w, h, lean=0.0):
 
 
 def fire(s, x, base):
-    """Flames out of the top of a 44, and sparks. The drum itself goes on afterwards, in front."""
+    """Flames up out of the open top of a 44, and sparks. The drum's front goes on afterwards, so the rim
+    cuts across the bottom of them."""
     # the pool of light on the bitumen, and the air around it
     s.rgb += (np.exp(-(((s.X / SS - x) / 118) ** 2)) * np.exp(-((s.Y / SS - 141) / 6.5) ** 2) * 0.62)[..., None] * s.colour("#ff8a3c")
     s.glow(x, base - 8, 72, colour="#ff7a2e", strength=0.30)
-    s.glow(x, base - 8, 26, colour="#ffb45e", strength=0.42)
+    s.glow(x, base - 8, 24, colour="#ffb45e", strength=0.30)
     for (col, scale, gain) in (("#d43f10", 1.0, 1.0), ("#ff8a1e", 0.72, 1.05), ("#ffcf55", 0.46, 1.25), ("#fff4c8", 0.22, 1.6)):
         m = s.mask()
-        tongue(m, x, base + 2, 10 * scale, 30 * scale, lean=2.0 * scale)
-        tongue(m, x - 6 * scale, base + 2, 5.5 * scale, 19 * scale, lean=-3 * scale)
-        tongue(m, x + 6.5 * scale, base + 2, 5 * scale, 22 * scale, lean=2.5 * scale)
-        a = gauss(m.array(), 0.35 * SS)
+        # a crown of uneven tongues as wide as the drum's mouth, not one triangle
+        tongue(m, x - 1.5 * scale, base + 3, 6.2 * scale, 31 * scale, lean=2.5 * scale)
+        tongue(m, x - 6.6 * scale, base + 3, 3.6 * scale, 17 * scale, lean=-2.5 * scale)
+        tongue(m, x + 4.6 * scale, base + 3, 4.6 * scale, 23 * scale, lean=3.5 * scale)
+        tongue(m, x + 8.0 * scale, base + 3, 2.4 * scale, 11 * scale, lean=1.5 * scale)
+        tongue(m, x - 3.6 * scale, base + 3, 3.0 * scale, 22 * scale, lean=-3.5 * scale)
+        a = gauss(m.array(), 0.14 * SS)
         s.rgb = s.rgb * (1 - a[..., None]) + s.colour(col) * gain * a[..., None]
     # sparks: fewer and smaller as they climb
     rng = np.random.default_rng(14)
@@ -63,102 +67,229 @@ def fire(s, x, base):
     s.rgb += gauss(a, 1.3 * SS)[..., None] * s.colour("#ff7a2e") * 2.0
 
 
-def drum(s, x, top, base, w):
-    """The 44 itself: rust-dark, two ribs, a lip, and a few holes knocked in it for the draught."""
+RIM_RY = 2.5  # how far down you can see into the mouth of the drum
+
+
+def rim_arc(x, y, rx, a0, a1, n=24):
+    """Part of the drum's round mouth. 0 degrees is the right edge, 90 the near side."""
+    t = np.radians(np.linspace(a0, a1, n))
+    return np.stack((x + rx * np.cos(t), y + RIM_RY * np.sin(t)), axis=1)
+
+
+def drum_back(s, x, top, w):
+    """The inside of the drum and the far side of its rim. Goes on before the flames."""
     m = s.mask()
-    m.rect(x - w, top, x + w, base)
-    m.rrect(x - w - 0.7, top - 1.2, x + w + 0.7, top + 1.2, 0.5)
+    m.ellipse(x, top, w + 0.7, RIM_RY)
+    s.paint(m, "#7a2c0c")
+    c = s.mask()
+    c.stroke(rim_arc(x, top, w + 0.2, 180, 360), 0.9, 0.9)
+    s.paint(c, "#2c1208")
+
+
+def punched(m, x, y, r, seed):
+    """A hole knocked in with whatever was handy: no two the same, and not round."""
+    rng = np.random.default_rng(seed)
+    n = int(rng.integers(5, 8))
+    ang = np.sort(rng.uniform(0, 2 * np.pi, n))
+    m.spoly([(x + np.cos(t) * r * rng.uniform(0.6, 1.25), y + np.sin(t) * r * rng.uniform(0.55, 1.15)) for t in ang])
+
+
+def drum(s, x, top, base, w):
+    """The front of the 44: rust-dark, two ribs, its near rim across the flames, and a few holes knocked
+    in it for the draught, wherever the crowbar went."""
+    m = s.mask()
+    m.spoly(rim_arc(x, top, w, 180, 0).tolist() + [(x + w, base), (x - w, base)])
     firelit(s, m, "#1a0d08", reach=60, fill=0.10, rim=0.8, colour="#ff8a3c")
     r = s.mask()
-    for y in (top + (base - top) * 0.36, top + (base - top) * 0.68):
-        r.rect(x - w, y, x + w, y + 1.0)
+    for k in (0.36, 0.68):
+        y = top + (base - top) * k
+        r.stroke(rim_arc(x, y, w, 180, 0), 1.0, 1.0)
     s.paint(r, "#080403")
-    lip = s.mask()
-    lip.rect(x - w - 0.7, top - 1.2, x + w + 0.7, top + 0.2)
-    s.paint(lip, "#ffb45e")
-    h = s.mask()
-    for dx, dy in ((-5.5, 8), (4.5, 7), (-1, 14), (6, 15.5), (-6, 19), (1.5, 21.5)):
-        h.ellipse(x + dx, top + dy, 1.5, 1.5)
+    h, hot = s.mask(), s.mask()
+    for i, (dx, dy, rr) in enumerate(((-6.6, 6.2, 1.5), (-2.4, 7.6, 0.6), (4.4, 7.4, 1.0), (-1.2, 15.8, 1.9), (7.2, 15.0, 0.8),
+                                      (-7.6, 16.4, 0.6), (4.4, 24.4, 1.4), (-5.2, 25.4, 0.9))):
+        punched(h, x + dx, top + dy, rr, 40 + i)
+        if rr > 1.2:
+            punched(hot, x + dx + 0.1, top + dy + 0.2, rr * 0.5, 60 + i)
     ha = h.array()
-    s.rgb = s.rgb * (1 - ha[..., None]) + s.colour("#ffd070") * 1.25 * ha[..., None]
-    s.rgb += gauss(ha, 1.5 * SS)[..., None] * s.colour("#ff8a3c") * 0.9
+    s.rgb = s.rgb * (1 - ha[..., None]) + s.colour("#e8701f") * ha[..., None]
+    s.rgb += gauss(ha, 0.9 * SS)[..., None] * s.colour("#ff8a3c") * 0.35
+    hb = hot.array()
+    s.rgb = s.rgb * (1 - hb[..., None]) + s.colour("#ffc35e") * 1.1 * hb[..., None]
+    # the near rim, a rolled steel lip, in front of the fire and lit from above
+    lip = s.mask()
+    lip.stroke(rim_arc(x, top + 0.2, w + 0.3, 180, 0), 1.5, 1.5)
+    s.paint(lip, "#d98a45")
 
 
-def warmer(s, x, base, h, facing, hand):
-    """Someone in a hoodie with their hands out over the drum. Doesn't matter who."""
-    m = s.mask()
-    hoodie(m, x, base, h, facing=facing, slouch=0.1, hands="free")
-    sh = (x + facing * h * 0.1, base - h * 0.77)
-    m.stroke(bez(sh, (sh[0] + facing * h * 0.13, sh[1] + h * 0.08), (hand[0] - facing * h * 0.1, hand[1] + h * 0.04), hand, n=12), h * 0.075, h * 0.055)
-    m.stroke(bez((sh[0] - facing * 1, sh[1] + 2.5), (sh[0] + facing * h * 0.12, sh[1] + h * 0.15), (hand[0] - facing * h * 0.1, hand[1] + h * 0.1), (hand[0], hand[1] + 2.5), n=12), h * 0.075, h * 0.055)
-    firelit(s, m, "#07050a", reach=90, fill=0.05, rim=2.6, colour="#ff9a48")
+NEAR, MIDTONE, FAR = "#07050a", "#0d090b", "#23150f"  # far limbs a shade up, so a limb behind a limb still reads
+
+
+def limb(m, pts, widths, cap=True):
+    """A sleeve or a trouser leg through its joints, tapered, one clean outline with a proper corner at
+    the bend. No round joints: nobody's got a ball for an elbow. cap rounds off the top end, for where a
+    sleeve lies over the body."""
+    pts = [np.array(p, float) for p in pts]
+    left, right = [], []
+    for i, p in enumerate(pts):
+        d0 = pts[i] - pts[i - 1] if i else pts[1] - pts[0]
+        d1 = pts[i + 1] - pts[i] if i < len(pts) - 1 else d0
+        d0, d1 = d0 / np.linalg.norm(d0), d1 / np.linalg.norm(d1)
+        t = d0 + d1
+        t /= max(1e-6, np.linalg.norm(t))
+        n = np.array([-t[1], t[0]])
+        k = min(1.45, 1 / max(0.3, float(np.dot(n, np.array([-d0[1], d0[0]])))))
+        left.append(tuple(p + n * widths[i] / 2 * k))
+        right.append(tuple(p - n * widths[i] / 2 * k))
+    m.spoly(left + right[::-1])
+    if cap:
+        m.ellipse(pts[0][0], pts[0][1], widths[0] / 2, widths[0] / 2)
+
+
+class Crew:
+    """A bloke side on in a baggy hoodie, hood up, and trackies: weight on the front leg, a real head in
+    the hood, and a notch front and back where the neck goes into the shoulders. The arms are the caller's."""
+
+    def __init__(self, x, base, h, facing=1, lean=0.03):
+        self.x, self.base, self.h, self.f, self.lean = x, base, h, facing, lean
+
+    def P(self, u, v):
+        return (self.x + (u + self.lean * max(0.0, v - 0.45) * 2.0) * self.h * self.f, self.base - v * self.h)
+
+    def far_leg(self, m):
+        P, h = self.P, self.h
+        limb(m, [P(-0.015, 0.47), P(-0.065, 0.265), P(-0.115, 0.05)], [h * 0.112, h * 0.086, h * 0.058])
+        m.spoly([P(-0.15, 0.0), P(-0.15, 0.045), P(-0.09, 0.06), P(-0.07, 0.04), P(-0.02, 0.018), P(-0.02, 0.0)])
+
+    def body(self, m):
+        P, h = self.P, self.h
+        # the front leg, knee just off straight
+        limb(m, [P(0.02, 0.47), P(0.055, 0.265), P(0.035, 0.05)], [h * 0.118, h * 0.09, h * 0.06], cap=False)
+        m.spoly([P(0.0, 0.0), P(0.0, 0.05), P(0.06, 0.06), P(0.08, 0.04), P(0.145, 0.018), P(0.145, 0.0)])
+        # the jumper: sloped shoulders, baggy, hem past the hips, the pouch hanging out the front
+        pts = bez(P(-0.04, 0.815), P(-0.1, 0.8), P(-0.135, 0.76), P(-0.135, 0.66), n=10).tolist()
+        pts += bez(P(-0.135, 0.66), P(-0.135, 0.56), P(-0.12, 0.5), P(-0.11, 0.43), n=8).tolist()
+        pts += [P(0.1, 0.43), P(0.128, 0.5), P(0.125, 0.56)]
+        pts += bez(P(0.125, 0.56), P(0.1, 0.62), P(0.11, 0.72), P(0.05, 0.815), n=10).tolist()
+        m.spoly(pts)
+        # the hood: round at the back, a soft peak out the front, and it comes in hard to the neck
+        pts = bez(P(-0.045, 0.805), P(-0.105, 0.85), P(-0.128, 0.93), P(-0.08, 0.985), n=12).tolist()
+        pts += bez(P(-0.08, 0.985), P(-0.02, 1.022), P(0.085, 1.018), P(0.14, 0.952), n=10).tolist()
+        pts += bez(P(0.14, 0.952), P(0.128, 0.91), P(0.105, 0.85), P(0.055, 0.805), n=8).tolist()
+        m.spoly(pts)
+
+    def face(self, m):
+        """The opening of the hood, side on: a sliver of whoever's in there, under the peak."""
+        P = self.P
+        pts = bez(P(0.124, 0.942), P(0.07, 0.95), P(0.035, 0.92), P(0.042, 0.875), n=8).tolist()
+        pts += bez(P(0.042, 0.875), P(0.05, 0.848), P(0.08, 0.84), P(0.098, 0.858), n=6).tolist()
+        pts += bez(P(0.098, 0.858), P(0.115, 0.885), P(0.122, 0.915), P(0.124, 0.942), n=6).tolist()
+        m.spoly(pts)
+
+
+def open_hand(m, wrist, f, k=1.0, tip=0.0):
+    """A hand held up to the fire, palm out, with the fingers spread so it's a hand and not a mitten."""
+    x, y = wrist
+    cx, cy = x + f * 1.2 * k + tip * 0.3, y - 1.8 * k
+    m.ellipse(cx, cy, 1.9 * k, 2.3 * k)
+    for dx, top in ((-0.9, 4.2), (0.2, 4.5), (1.3, 4.1)):
+        m.stroke(np.array([(cx + f * dx * 0.8, cy - 1.2 * k), (cx + f * (dx * 1.25 + 0.4) + tip, cy - top * k)]), 1.0 * k, 0.8 * k)
+    m.stroke(np.array([(cx + f * 1.3 * k, cy + 0.2 * k), (cx + f * 3.2 * k, cy - 0.9 * k)]), 1.0 * k, 0.8 * k)
+
+
+def warmer(s, x, base, h, facing):
+    """Someone in a hoodie with their hands out over the drum, palms to it, the way everyone does.
+    Doesn't matter who."""
+    b = Crew(x, base, h, facing, lean=0.03)
+    f = facing
+    sh = b.P(0.015, 0.755)
+    far, near = s.mask(), s.mask()
+    b.far_leg(far)
+    # the far arm, higher and further out
+    elbow, wrist = (sh[0] + f * h * 0.17, sh[1] + h * 0.055), (sh[0] + f * h * 0.31, sh[1] - h * 0.06)
+    limb(far, [sh, elbow, wrist], [h * 0.082, h * 0.072, h * 0.05])
+    open_hand(far, wrist, f, 0.85)
+    firelit(s, far, FAR, reach=90, fill=0.04, rim=2.2, colour="#ff9a48")
+    body = s.mask()
+    b.body(body)
+    firelit(s, body, MIDTONE, reach=90, fill=0.04, rim=2.4, colour="#ff9a48")
+    fc = s.mask()
+    b.face(fc)
+    s.paint(fc, "#9c4a1a")
+    # the near arm, the elbow dropped, the forearm coming back up
+    sh2 = (sh[0] - f * h * 0.03, sh[1] + h * 0.01)
+    elbow, wrist = (sh2[0] + f * h * 0.14, sh2[1] + h * 0.17), (sh2[0] + f * h * 0.3, sh2[1] + h * 0.075)
+    limb(near, [sh2, elbow, wrist], [h * 0.09, h * 0.076, h * 0.052])
+    open_hand(near, wrist, f, 0.85)
+    firelit(s, near, NEAR, reach=90, fill=0.03, rim=1.6, colour="#ff9a48")
 
 
 def lighter_flame(s, x, base, h):
-    """The little flame off a disposable, base at (x, base), going straight up."""
-    s.glow(x, base - h * 0.5, h * 3.2, colour="#ff9a48", strength=0.34)
-    for col, k, gain in (("#ff8a1e", 1.0, 1.1), ("#ffd766", 0.72, 1.3), ("#fff6d2", 0.42, 1.7)):
+    """The little flame off a disposable, base at (x, base), going straight up. A hard little leaf of fire."""
+    s.glow(x, base - h * 0.5, h * 1.5, colour="#ff9a48", strength=0.22)
+    for col, k, gain in (("#ff8a1e", 1.0, 1.15), ("#ffd766", 0.72, 1.35), ("#fff6d2", 0.40, 1.7)):
         m = s.mask()
-        tongue(m, x, base, h * 0.30 * k, h * k, lean=0.0)
-        a = gauss(m.array(), 0.12 * SS)
+        tongue(m, x, base, h * 0.27 * k, h * k, lean=0.0)
+        a = m.array()
         s.rgb = s.rgb * (1 - a[..., None]) + s.colour(col) * gain * a[..., None]
 
 
-def plume(s, x, y, top, drift, seed=5, strength=0.82):
-    """Smoke off the bulb: starts as a thread, opens into a slow fat cloud, gone by the top."""
-    rng = np.random.default_rng(seed)
+def wisp(s, x, y, top, drift=4.0):
+    """The smoke: one thin hard thread off the bulb that curls as it climbs, getting finer until there's
+    nothing left of it. It's a pipe, not a chimney."""
+    t = np.linspace(0, 1, 120)
+    pts = np.stack((x + drift * t ** 1.3 + np.sin(t * 10.5 + 0.5) * (0.35 + 3.0 * t), y - (y - top) * t), axis=1)
     m = s.mask()
-    for t in np.linspace(0, 1, 90):
-        px = x + drift * t + np.sin(t * 6.2 + 0.4) * (1.0 + 5.5 * t)
-        py = y - (y - top) * t
-        r = 0.55 + 7.0 * t ** 1.5
-        m.ellipse(px, py, r, r * 0.9)
-    for _ in range(9):  # lumps, so it's a cloud rather than a sausage
-        t = rng.uniform(0.45, 1.0)
-        px = x + drift * t + np.sin(t * 6.2 + 0.4) * (1.0 + 5.5 * t) + rng.normal(0, 3.2)
-        r = 2 + 5 * t
-        m.ellipse(px, y - (y - top) * t, r, r * 0.8)
-    a = gauss(m.array(), 0.9 * SS)
-    fade = np.clip((s.Y / SS - top + 4) / ((y - top) * 0.62), 0, 1) ** 0.8
-    warm = np.clip((s.Y / SS - top) / (y - top), 0, 1)[..., None]
-    col = s.colour("#ece8e4") * (1 - warm) + s.colour("#ffd2a0") * warm
-    al = (a * fade * strength)[..., None]
-    s.rgb = s.rgb * (1 - al) + col * al
+    m.stroke(pts, 1.0, 0.34)
+    fade = np.clip((s.Y / SS - top) / ((y - top) * 0.55), 0, 1)
+    al = (m.array() * fade * 0.78)[..., None]
+    s.rgb = s.rgb * (1 - al) + s.colour("#d8d0c6") * al
 
 
 def smoker(s, x, base, h):
-    """The other one, back to the fire, having a go. Pipe at the hood, lighter under the bulb, one
-    hand each. The fire's behind him, so the glass catches it."""
-    mouth = (x + 0.175 * h, base - 0.855 * h)
-    length, angle = 24, 9
+    """The other one, back to the fire, having a go. Pipe at the hood, the stem pinched near his face with
+    the elbow dropped; the far arm out under the bulb, the lighter stood up in the fist. The fire's behind
+    him, so the glass catches it."""
+    b = Crew(x, base, h, 1, lean=0.04)
+    mouth = b.P(0.075, 0.888)
+    length, angle = 22, 5
     a = np.radians(angle)
     bx, by = mouth[0] + np.cos(a) * length, mouth[1] + np.sin(a) * length
-    bulb = 3.9
-    grip = (mouth[0] + np.cos(a) * 9, mouth[1] + np.sin(a) * 9)
-    fl_h = 7.0
-    fl_base = by + bulb + 7.5
-    m = s.mask()
-    hoodie(m, x, base, h, facing=1, slouch=0.1, hands="free")
-    sh = (x + 0.15 * h, base - 0.76 * h)
-    # the arm with the stem: elbow down, forearm up
-    elbow = (sh[0] + 2.5, sh[1] + 11)
-    m.stroke(np.array([sh, elbow]), h * 0.085, h * 0.075)
-    m.stroke(np.array([elbow, (grip[0], grip[1] + 1.4)]), h * 0.09, h * 0.06)
-    # the arm with the lighter: out under the bulb
-    lh = (bx - 0.5, fl_base + 7.4)
-    elbow2 = (sh[0] + 1.5, sh[1] + 17)
-    m.stroke(np.array([(sh[0] - 1, sh[1] + 2.5), elbow2]), h * 0.085, h * 0.075)
-    m.stroke(np.array([elbow2, lh]), h * 0.095, h * 0.065)
-    firelit(s, m, "#07050a", reach=90, fill=0.05, rim=2.6, colour="#ff9a48")
-    glass_pipe(s, mouth[0], mouth[1], length, angle=angle, bulb=bulb, width=2.0, smoke=0, ember=0.55, lit="#ffeeda")
-    lighter(s, bx - 0.2, fl_base + 9.0, length=9, standing=True)
-    lighter_flame(s, bx - 0.2, fl_base + 0.4, fl_h)
-    f = s.mask()  # the fists go over the glass and the plastic
-    f.ellipse(grip[0], grip[1] + 0.3, 2.1, 2.3)
-    f.ellipse(lh[0], lh[1] + 0.3, 2.4, 2.4)
-    s.paint(f, "#120b0a")
-    lit_rim(s, m, bx, fl_base - 2, 22, "#ffb868", 0.9)
-    lit_rim(s, f, bx, fl_base - 2, 18, "#ffc880", 2.2)
+    bulb = 3.2
+    grip = (mouth[0] + np.cos(a) * 8.0, mouth[1] + np.sin(a) * 8.0)
+    fl_h = 4.6
+    fl_base = by + bulb + fl_h - 0.6  # the tip just licking the bottom of the glass
+    lh = (bx - 0.2, fl_base + 4.9)  # the far fist, round the lighter
+    sh = b.P(0.03, 0.755)
+    # far leg and far arm first, a shade lighter, so they sit behind him
+    far = s.mask()
+    b.far_leg(far)
+    sh_far = (sh[0] + h * 0.04, sh[1])
+    elbow_far = (sh_far[0] + h * 0.19, sh_far[1] + h * 0.15)
+    limb(far, [sh_far, elbow_far, (lh[0] - 2.0, lh[1] + 0.8)], [h * 0.082, h * 0.072, h * 0.05])
+    firelit(s, far, FAR, reach=90, fill=0.04, rim=2.0, colour="#ff9a48")
+    body = s.mask()
+    b.body(body)
+    firelit(s, body, MIDTONE, reach=90, fill=0.04, rim=2.4, colour="#ff9a48")
+    fc = s.mask()
+    b.face(fc)
+    s.paint(fc, "#4a2410")
+    # near arm over the chest: elbow hanging, forearm back up to the stem
+    near = s.mask()
+    elbow = (sh[0] + h * 0.1, sh[1] + h * 0.2)
+    limb(near, [(sh[0] - h * 0.02, sh[1] + 0.8), elbow, (grip[0] - 0.3, grip[1] + 2.0)], [h * 0.09, h * 0.076, h * 0.05])
+    firelit(s, near, NEAR, reach=70, fill=0.03, rim=1.0, colour="#ff9a48")
+    glass_pipe(s, mouth[0], mouth[1], length, angle=angle, bulb=bulb, width=1.3, smoke=0, ember=0.22, lit="#ffeeda")
+    lighter(s, bx - 0.2, fl_base + 8.4, length=8.0, standing=True)
+    lighter_flame(s, bx - 0.2, fl_base + 0.3, fl_h)
+    # the fists go over the glass and the plastic: fingers round the stem, thumb on top
+    fist = s.mask()
+    fist.rrect(grip[0] - 1.7, grip[1] - 0.9, grip[0] + 1.7, grip[1] + 2.4, 1.1)
+    fist.stroke(np.array([(grip[0] - 1.4, grip[1] + 0.1), (grip[0] + 1.2, grip[1] - 1.5)]), 1.1, 0.9)
+    fist.rrect(lh[0] - 2.3, lh[1] - 1.9, lh[0] + 2.2, lh[1] + 2.3, 1.1)
+    s.paint(fist, "#120b0a")
+    lit_rim(s, near, bx, fl_base - 2, 22, "#ffb868", 0.35)
+    lit_rim(s, fist, bx, fl_base - 2, 18, "#ffc880", 2.2)
     return bx, by - bulb
 
 
@@ -186,22 +317,27 @@ def flask(s, x, base, r, colour):
 
 
 def crate(s, x0, x1, top, base):
-    """Milk crate, upside down, doing the job of an apothecary's table. Plastic lattice, and the only
-    thing out here anyone's kept clean."""
+    """Milk crate, upside down, doing the job of an apothecary's table. Moulded plastic, solid, with the
+    slots cut through it and a hand-hole up top, and the only thing out here anyone's kept clean."""
     m = s.mask()
-    m.rect(x0, top, x1, base)
-    n = 4
-    cw = (x1 - x0 - 3) / n
-    rows = (base - top - 5) / 2
-    for i in range(n):
-        for j in range(2):
-            cx = x0 + 1.5 + cw * i
-            yy = top + 4 + j * rows
-            m.rrect(cx + 1.1, yy + 0.9, cx + cw - 0.9, yy + rows - 0.9, 0.6, fill=0)
-    firelit(s, m, "#1c2230", reach=110, fill=0.26, rim=1.0, colour="#ffb070")
+    m.rrect(x0, top, x1, base, 1.0)
+    firelit(s, m, "#100f18", reach=125, fill=0.2, rim=0.7, colour="#ff8a48")
+    # the thick top band and the skirt at the bottom, a step lighter, because it's all one moulding
     t = s.mask()
-    t.rect(x0 - 0.6, top - 0.8, x1 + 0.6, top + 2.0)
-    firelit(s, t, "#2a3040", reach=110, fill=0.34, rim=0.6, colour="#ffc080")
+    t.rrect(x0 - 0.5, top - 0.7, x1 + 0.5, top + 4.6, 0.7)
+    t.rect(x0, base - 3.0, x1, base)
+    firelit(s, t, "#191722", reach=125, fill=0.28, rim=0.5, colour="#ff9a58")
+    # the slots: a few tall ones, dark right through, plenty of plastic between them, and the hand-hole up top
+    n = 4
+    pad, gap = 3.2, 3.6
+    sw = (x1 - x0 - 2 * pad - (n - 1) * gap) / n
+    v = s.mask()
+    for i in range(n):
+        sx = x0 + pad + i * (sw + gap)
+        v.rrect(sx, top + 7.2, sx + sw, base - 5.2, 1.1)
+    cx = (x0 + x1) / 2
+    v.rrect(cx - 6, top + 1.2, cx + 6, top + 3.0, 0.8)
+    s.paint(v, "#060508")
 
 
 def shop_backs(s):
@@ -273,7 +409,7 @@ def paint():
 
     # the suburb's gums, poking up over the back of the shops
     m = s.mask()
-    for i, x in enumerate((540, 606, 700, 838, 925, 978)):
+    for i, x in enumerate((540, 606, 700, 770, 925, 978)):
         gum_tree(m, x, 104, 46 + (i * 31) % 24, seed=120 + i, leaves=1.0)
     firelit(s, m, "#15100c", reach=120, fill=0.10, rim=0.3)
 
@@ -285,10 +421,17 @@ def paint():
     a = m.array()
     s.rgb = s.rgb * (1 - a[..., None]) + s.colour("#0f0a07") * a[..., None]
 
+    drum_back(s, FX, FY, 11)
     fire(s, FX, FY)
     drum(s, FX, FY, 141, 11)
-    warmer(s, FX - 28, 141, 50, 1, (FX - 13, 101))
-    tip = smoker(s, FX + 28, 141, 50)
+    # each of them throws a hard shadow on the bitumen, straight away from the drum
+    sh = s.mask()
+    sh.spoly([(FX - 41, 141), (FX - 20, 141), (FX - 62, 145), (FX - 90, 145)])
+    sh.spoly([(FX + 18, 141), (FX + 38, 141), (FX + 92, 145), (FX + 62, 145)])
+    a = sh.array()[..., None]
+    s.rgb = s.rgb * (1 - a * 0.72)
+    warmer(s, FX - 32, 141, 52, 1)
+    tip = smoker(s, FX + 27, 141, 52)
 
     # ---- the point of it: laid out in a row by someone who cares. Red, blue, green, and the other one,
     # budged along to give the bloke's elbows some room; the crate's end runs under the dropdown, the row doesn't
@@ -299,7 +442,7 @@ def paint():
     for x, c in ((732, "#ff3c34"), (743.5, "#3f9bff"), (755, "#3cf07a")):
         flask(s, x, ct - 0.6, 5.2, c)
     # and the spare pipe lying along the crate, bulb on the plastic
-    plume(s, tip[0], tip[1] + 0.5, 42, -6, strength=0.56)
+    wisp(s, tip[0], tip[1] + 0.8, 54)
 
     # the guild's colours, stuck in the dirt: the banner clears the dropdown and the handle runs behind it
     banner(s, 838, 140, 56, 90)

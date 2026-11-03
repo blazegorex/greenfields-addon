@@ -3,7 +3,7 @@ over the lawn, the bloke on the couch won't be answering it, and the dog's the o
 to anybody. It's what you'd expect."""
 import numpy as np
 
-from scenekit import SS, STENCIL, Scene, bez, fbm, foil_window, gauss, glass_pipe, gum_tree, lettering, light_windows, lit_rim, staffy
+from scenekit import SS, STENCIL, Scene, bez, foil_window, glass_pipe, gum_tree, lettering, light_windows
 
 # Home has the orange end of the evening; your place gets the bruise that comes after it.
 BRUISE = {"sky": [(0.00, "#070814"), (0.34, "#12122e"), (0.56, "#2a1f4c"), (0.72, "#552f66"),
@@ -27,74 +27,124 @@ def envelope(s, cx, cy, w, h, angle=0.0, stamp=True, tone="#ece0ca"):
         s.paint(r, "#d52a22")
 
 
-def letterbox(s, x, y, w, h, base):
-    """Tunnel letterbox on a post, side on, its door dropped open at the street end and its mouth full.
-    (x, y) is the top-left of the box; it has a round top."""
-    r = h * 0.5
-    # post, with a little fall-off down its length
-    m = s.mask()
-    px = x + w * 0.52
-    m.spoly([(px - 4, y + h - 1), (px + 4, y + h - 1), (px + 4.6, base + 3), (px - 4.6, base + 3)])
-    s.paint(m, "#1b1730", rim=0.5, rim_dx=0.9, rim_dy=0, rim_colour="#ffa58a")
-    # bracket under the box
-    m = s.mask()
-    m.spoly([(px - 15, y + h - 0.6), (px + 15, y + h - 0.6), (px + 4, y + h + 7), (px - 4, y + h + 7)])
-    s.paint(m, "#14112a", rim=0.25, rim_dx=0.6, rim_dy=0.2, rim_colour="#ffa58a")
-    # the barrel of the box: lit along its right and top from the house and the last of the sky
-    m = s.mask()
-    pts = [(x, y + h)]
-    pts += bez((x, y + r), (x, y + r * 0.2), (x + r * 0.8, y), n=10).tolist()
-    pts += bez((x + w - r * 0.8, y), (x + w, y + r * 0.2), (x + w, y + r), n=10).tolist()
-    pts += [(x + w, y + h)]
-    m.spoly(pts)
-    a = m.array()
-    s.paint(m, "#2a2545", bottom="#141128", top_y=y - 46, rim=0.75, rim_dx=0.9, rim_dy=-0.7, rim_colour="#ffb09a")
-    # soft round-over on the barrel, a band of sheen along the crown
-    ys = np.clip((s.Y / SS - y) / h, 0, 1)
-    sheen = np.exp(-((ys - 0.2) / 0.16) ** 2) * a
-    s.rgb += sheen[..., None] * s.colour("#d9708a") * 0.17
-
-    # the mouth: seen a little from the street end, so there's somewhere for it all to come out of
-    m = s.mask()
-    mouth = [(x + 7, y + h)]
-    mouth += bez((x + 7, y + h), (x - 9, y + h * 0.85), (x - 9, y + h * 0.1), (x + 7, y + 0.5), n=14).tolist()
-    mouth += bez((x + 7, y + 0.5), (x + 11, y + h * 0.3), (x + 11, y + h * 0.7), (x + 7, y + h), n=10).tolist()
-    m.spoly(mouth)
-    s.paint(m, "#05040e")
-
-    # the door, dropped on its hinge and hanging by the one screw
-    m = s.mask()
-    m.spoly([(x - 3, y + h - 1), (x + 10, y + h), (x + 13, y + h + 24), (x, y + h + 22)])
-    s.paint(m, "#2a2545", rim=0.6, rim_dx=-0.7, rim_dy=-0.2, rim_colour="#ffb09a")
+def rotated(cx, cy, pts, angle):
+    """Points turned about (cx, cy), for anything hanging off a single screw."""
+    ca, sa = np.cos(np.radians(angle)), np.sin(np.radians(angle))
+    return [(cx + (px - cx) * ca - (py - cy) * sa, cy + (px - cx) * sa + (py - cy) * ca) for px, py in pts]
 
 
-def on_the_nod(s, cx0, cx1, base):
-    """Whoever it was the bills were for, out cold on the couch: gone over sideways along the seat, head
-    lolled back on the arm, one knee up, and one arm hanging straight off the front with the pipe still in
-    the hand. Solid black, so he reads against the lit window up top and the faded couch below."""
-    head, shoulder, hip = (cx0 + 8.5, base - 15.5), (cx0 + 16, base - 14), (cx0 + 34, base - 13)
-    knee, foot = (cx0 + 43, base - 21), (cx0 + 50.5, base - 14)
-    hand = (cx0 + 14.5, base - 5.5)
+def letterbox(s, cx, y, w, h, base):
+    """Sheet-steel letterbox on a bit of old fence post, front on with its right side showing: a lid, a
+    slot up top with the backlog jammed through it like toast, and the door below hanging by the one
+    screw. (cx, y) is the middle of the front face at the top; base is where the post goes in the dirt."""
+    x0, x1 = cx - w / 2, cx + w / 2
+    dep = w * 0.24  # how much of the side we see
+    rise = 2.6
+    # the post, a touch off plumb, with a pale edge so it isn't a bar of nothing
     m = s.mask()
-    # the body along the seat, gut up
-    m.stroke(bez(shoulder, (shoulder[0] + 6, shoulder[1] - 2.5), (hip[0] - 6, hip[1] - 2.5), hip, n=14), 9.5, 9.0)
-    # the knee up, and the foot over the far arm
-    m.stroke(np.array([hip, knee]), 7.0, 4.8)
-    m.stroke(np.array([knee, foot]), 4.6, 3.2)
-    m.spoly([(foot[0] - 2, foot[1] - 2.2), (foot[0] + 1, foot[1] - 2.4), (foot[0] + 4.5, foot[1] + 0.2), (foot[0] + 4.5, foot[1] + 1.8), (foot[0] - 2, foot[1] + 1.8)])
-    # the neck giving up, and the head hanging off it
-    m.stroke(np.array([shoulder, head]), 4.6, 3.8)
-    m.ellipse(head[0], head[1], 4.6, 4.3)
-    # the arm, dead weight
-    m.stroke(np.array([(shoulder[0] + 1.5, shoulder[1] + 2), hand]), 4.8, 3.2)
-    m.ellipse(hand[0], hand[1] + 0.3, 2.3, 2.3)
-    s.paint(m, "#050410")
-    glass_pipe(s, hand[0] - 0.5, hand[1] + 0.3, 17, angle=180, bulb=2.5, width=1.3, smoke=0, lit="#f0f8ff")
+    m.spoly([(cx - 3.2, y + h - 1), (cx + 3.6, y + h - 1), (cx + 4.4, base), (cx - 2.8, base)])
+    s.paint(m, "#2a2238", rim=0.9, rim_dx=1.0, rim_dy=0, rim_colour="#ffa58a")
+    # side of the box, in shade, then the back of the mail behind the front
+    m = s.mask()
+    m.spoly([(x1, y), (x1 + dep, y - rise), (x1 + dep, y + h - rise), (x1, y + h)])
+    s.paint(m, "#17132b", rim=0.8, rim_dx=0.9, rim_dy=0, rim_colour="#ffb09a")
+    front = s.mask()
+    front.rect(x0, y, x1, y + h)
+    s.paint(front, "#3a3052", rim=0.3, rim_dx=-0.6, rim_dy=0, rim_colour="#ffb09a")
+    # the lid: a shallow steel hood with a bit of overhang
+    m = s.mask()
+    m.spoly([(x0 - 2.2, y + 0.6), (x0 + 1, y - 3.6), (x1 + dep + 0.6, y - 3.6 - rise), (x1 + dep + 2.0, y + 0.4 - rise), (x1 + 2.2, y + 0.6)])
+    s.paint(m, "#120f24", rim=0.85, rim_dx=0, rim_dy=-0.8, rim_colour="#ffb09a")
+    # the slot
+    slot_top, slot_bot = y + 3.2, y + 8.0
+    m = s.mask()
+    m.rect(x0 + 3, slot_top, x1 - 3, slot_bot)
+    s.paint(m, "#04030a")
+
+    # the backlog, wedged through the slot, fanned out, worst of it in front
+    for ex, ey, ew, eh, ang in ((cx + 15, y - 1.5, 22, 13, 17), (cx + 9, y - 7, 24, 14, 8), (cx - 16, y - 1, 20, 12, -24)):
+        envelope(s, ex, ey, ew, eh, ang)
+    envelope(s, cx - 5, y - 9, 46, 28, -8, stamp=False)
+    m = s.mask()
+    lettering(m, "FINAL", cx - 6, y - 15, 8.8, font=STENCIL, angle=-8)
+    lettering(m, "NOTICE", cx - 4.4, y - 4.5, 8.8, font=STENCIL, angle=-8)
+    s.paint(m, "#d52a22")
+
+    # the front again from the slot down, so the mail goes in rather than sitting on top
+    m = s.mask()
+    m.rect(x0, slot_bot, x1, y + h)
+    s.paint(m, "#3a3052", rim=0.3, rim_dx=-0.6, rim_dy=0, rim_colour="#ffb09a")
+    m = s.mask()
+    m.rect(x0, slot_bot - 1.0, x1, slot_bot + 0.2)
+    s.paint(m, "#5a4c72")
+
+    # the hole where the door was, full, and the door hanging off its top left corner
+    hx0, hx1, hy0, hy1 = x0 + 3.5, x1 - 3.5, slot_bot + 2.6, y + h - 2.6
+    m = s.mask()
+    m.rect(hx0, hy0, hx1, hy1)
+    s.paint(m, "#04030a")
+    for ey, shade in ((hy1 - 1.8, "#a89a84"), (hy1 - 4.8, "#ece0ca"), (hy1 - 7.8, "#c9bca4"), (hy1 - 10.8, "#ece0ca")):
+        m = s.mask()
+        m.rect(hx0 + 1.0, ey - 1.2, hx1 - 1.0, ey + 1.2)
+        s.paint(m, shade)
+    door = rotated(hx0 + 1.2, hy0 + 1.2, [(hx0, hy0), (hx1, hy0), (hx1, hy1), (hx0, hy1)], 11)
+    m = s.mask()
+    m.spoly(door)
+    s.paint(m, "#2a2240", rim=0.75, rim_dx=0.4, rim_dy=-0.7, rim_colour="#ffb09a")
+    # the screw, and the lock that was never the problem
+    m = s.mask()
+    m.ellipse(hx0 + 1.2, hy0 + 1.2, 0.8, 0.8)
+    lx, ly = rotated(hx0 + 1.2, hy0 + 1.2, [(hx1 - 3.4, (hy0 + hy1) / 2)], 11)[0]
+    m.ellipse(lx, ly, 1.1, 1.1)
+    s.paint(m, "#c9c2cc")
+
+
+def on_the_nod(s, x0, x1, b):
+    """Whoever the bills were for, out cold along the couch: head tipped back over the arm with his face to
+    the sky, gut up, one knee cocked with the foot on the far arm, the other leg slid off the front, and one
+    arm hanging dead to the boards with the pipe gone out of the fingers. Solid black, so he reads against
+    the lit window and the faded couch."""
+    m = s.mask()
+    # the gut, the highest thing on him
+    top = bez((x0 + 8, b - 19.5), (x0 + 17, b - 24.5), (x0 + 29, b - 25.5), (x0 + 38, b - 18.5), n=16).tolist()
+    m.spoly(top + [(x0 + 37.5, b - 11.2), (x0 + 9, b - 12.2)])
+    # the neck going over the arm, and the head hanging back off it, nose and chin up
+    head = (x0 + 1.5, b - 20.5)
+    m.stroke(np.array([(x0 + 10, b - 18), (head[0] + 2.5, head[1] + 0.8)]), 6.0, 3.6)
+    m.ellipse(head[0], head[1], 4.5, 4.0)
+    m.spoly([(head[0] - 2.4, head[1] - 3.2), (head[0] - 1.2, head[1] - 5.6), (head[0] + 0.2, head[1] - 3.8)])  # nose
+    m.ellipse(head[0] + 3.4, head[1] - 3.0, 1.9, 1.6)  # chin, mouth hanging open between
+    # far leg: knee up, foot on the far arm
+    hip = (x0 + 35, b - 17)
+    knee = (x0 + 45.5, b - 29)
+    ankle = (x0 + 51, b - 18.5)
+    m.stroke(np.array([hip, knee]), 7.0, 4.6)
+    m.ellipse(knee[0], knee[1], 2.4, 2.4)
+    m.stroke(np.array([knee, ankle]), 4.6, 2.9)
+    m.spoly([(ankle[0] - 1.6, ankle[1] - 1.4), (ankle[0] + 1.8, ankle[1] - 1.2), (ankle[0] + 6.6, ankle[1] + 1.6), (ankle[0] + 6.4, ankle[1] + 3.0), (ankle[0] - 1.4, ankle[1] + 2.8)])
+    # near leg: slid off the front of the seat, heel on the boards
+    hip2 = (x0 + 34, b - 13.5)
+    knee2 = (x0 + 44, b - 12)
+    ankle2 = (x0 + 44.6, b - 2.4)
+    m.stroke(np.array([hip2, knee2]), 7.0, 4.8)
+    m.ellipse(knee2[0], knee2[1], 2.4, 2.4)
+    m.stroke(np.array([knee2, ankle2]), 4.6, 2.9)
+    m.spoly([(ankle2[0] - 1.6, ankle2[1] - 1.0), (ankle2[0] + 1.6, ankle2[1] - 1.0), (ankle2[0] + 6.6, ankle2[1] + 1.2), (ankle2[0] + 6.6, ankle2[1] + 2.4), (ankle2[0] - 1.8, ankle2[1] + 2.4)])
+    # the arm, dead weight, shoulder to knuckles
+    sh = (x0 + 13.5, b - 16)
+    el = (x0 + 14.5, b - 8.6)
+    wr = (x0 + 13.5, b - 3.4)
+    m.stroke(np.array([sh, el]), 4.4, 3.5)
+    m.ellipse(el[0], el[1], 1.8, 1.8)
+    m.stroke(np.array([el, wr]), 3.5, 2.5)
+    m.ellipse(wr[0], wr[1] + 0.5, 2.0, 2.0)
+    s.paint(m, "#050410", rim=0.55, rim_dx=0, rim_dy=-0.7, rim_colour="#ffcf8a")
+    glass_pipe(s, wr[0] + 1.2, wr[1] + 1.4, 18, angle=-3, bulb=2.6, width=1.3, smoke=0, lit="#f0f8ff")
 
 
 def cottage(s, x, base, w, h):
-    """Close-up of a fibro cottage: big roof, veranda on posts. One room with the lamp on, one
-    done in foil, and the couch out the front where the good chair used to be."""
+    """Close-up of a fibro cottage: big roof, veranda on posts. One room with the lamp on, one done in foil.
+    The couch and the veranda boards go on later, over the lawn."""
     rise = h * 0.6
     m = s.mask()
     m.rect(x, base - h, x + w, base)
@@ -114,36 +164,132 @@ def cottage(s, x, base, w, h):
 
     # door and foil sit left of centre: the right-hand end of the place is under the page buttons
     door = (x + w * 0.38, base - h * 0.8, w * 0.085, h * 0.8)
-    light_windows(s, [(x + w * 0.08, base - h * 0.72, w * 0.25, h * 0.44)], strength=0.8)
+    light_windows(s, [(x + w * 0.03, base - h * 0.72, w * 0.31, h * 0.44)], strength=0.8)
     foil_window(s, x + w * 0.50, base - h * 0.72, w * 0.21, h * 0.44, seed=6)
     d = s.mask()
     d.rect(door[0] - 1, door[1] - 1, door[0] + door[2] + 1, base)
     s.paint(d, "#0c0b1c", rim=0.22, rim_dx=-0.3, rim_dy=-0.4, rim_colour="#ffcf8a")
 
-    # veranda roof and posts, dark against the lit window
+    # veranda roof and posts, dark against the lit window; the post that would go through the couch has gone
     v = s.mask()
     vy = base - h * 0.94
     v.spoly([(x - w * 0.06, vy + 2.4), (x + w * 1.06, vy + 2.4), (x + w * 0.98, vy - 3), (x + w * 0.02, vy - 3)])
-    for k in range(6):
+    for k in (0, 2, 3, 4, 5):
         px = x - w * 0.045 + k * (w * 1.09) / 5
         v.rect(px, vy, px + 1.3, base)
     s.paint(v, "#0d0c20", rim=0.32, rim_dx=-0.4, rim_dy=-0.8, rim_colour="#ffa58a")
 
-    # the couch, under the lit window, seen better by the light behind it
+
+def veranda_front(s, x, w, b):
+    """The boards, the couch out the front where the good chair used to be, and the man himself."""
+    d = s.mask()
+    d.rect(x - w * 0.06, b - 4.5, x + w * 1.06, b + 1.4)
+    s.paint(d, "#191630", rim=0.5, rim_dx=0, rim_dy=-0.6, rim_colour="#ffb890")
+    x0, x1 = x + w * 0.03, x + w * 0.365
+    # feet, then the back, then the seat, then the arms
     c = s.mask()
-    cx0, cx1, cy = x + w * 0.05, x + w * 0.35, base
-    c.rrect(cx0, cy - 15, cx1, cy - 4, 2.2)
-    c.rect(cx0 + 1, cy - 3, cx0 + 3, cy)
-    c.rect(cx1 - 3, cy - 3, cx1 - 1, cy)
-    s.paint(c, "#3d3454", rim=0.5, rim_dx=0, rim_dy=-0.8, rim_colour="#ffcf8a")
-    c = s.mask()  # the seat, then fat arms either end, so it's a couch and not a box
-    c.rect(cx0 + 3, cy - 8.5, cx1 - 3, cy - 8)
-    s.paint(c, "#1e1a30")
+    c.rect(x0 + 2, b - 3.4, x0 + 4.4, b)
+    c.rect(x1 - 4.4, b - 3.4, x1 - 2, b)
+    s.paint(c, "#0a0914")
     c = s.mask()
-    c.rrect(cx0 - 3, cy - 12, cx0 + 5, cy - 2, 2)
-    c.rrect(cx1 - 5, cy - 12, cx1 + 3, cy - 2, 2)
-    s.paint(c, "#4a3f62", rim=0.5, rim_dx=0, rim_dy=-0.8, rim_colour="#ffcf8a")
-    on_the_nod(s, cx0, cx1, cy)
+    c.rrect(x0 + 1, b - 18.5, x1 - 1, b - 8, 2.6)
+    s.paint(c, "#54466c", rim=0.65, rim_dx=0, rim_dy=-0.8, rim_colour="#ffcf8a")
+    c = s.mask()
+    c.rect(x0 + 2, b - 6.4, x1 - 2, b - 3.2)
+    s.paint(c, "#2a2340")
+    n = 3
+    cw = (x1 - x0 - 12) / n
+    for k in range(n):
+        sag = 0.9 if k == 1 else 0.0  # the middle one's had it
+        c = s.mask()
+        c.rrect(x0 + 6 + k * cw + 0.35, b - 11.6 + sag, x0 + 6 + (k + 1) * cw - 0.35, b - 5.2, 1.3)
+        s.paint(c, "#6d5e82", rim=0.3, rim_dx=0, rim_dy=-0.6, rim_colour="#ffcf8a")
+    c = s.mask()
+    c.rrect(x0 - 3, b - 15.6, x0 + 6, b - 3.2, 3.2)
+    c.rrect(x1 - 6, b - 15.6, x1 + 3, b - 3.2, 3.2)
+    s.paint(c, "#4c3f64", rim=0.65, rim_dx=0, rim_dy=-0.8, rim_colour="#ffcf8a")
+    on_the_nod(s, x0, x1, b)
+
+
+def old_dog(s, x, base, facing=1):
+    """What the sign's on about: a rack of ribs on four knobbly legs, head hung lower than his back, tail
+    tucked, grey in the muzzle. About 22 tall at the shoulder, with (x, base) on the ground under his middle."""
+    f = facing
+
+    def P(u, v):
+        # everything over the elbows is lifted, which stretches the legs: all shank, nothing on them
+        return (x + u * f, base - (v * 1.42 if v < 10 else v + 4.2))
+
+    far = s.mask()
+
+    def leg(m, top, knee, low, paw, w0):
+        m.stroke(np.array([P(*top), P(*knee)]), w0, w0 * 0.42)
+        m.ellipse(*P(*knee), w0 * 0.27, w0 * 0.27)
+        m.stroke(np.array([P(*knee), P(*low)]), w0 * 0.42, w0 * 0.34)
+        m.ellipse(*P(*low), w0 * 0.24, w0 * 0.24)
+        m.stroke(np.array([P(*low), P(*paw)]), w0 * 0.34, w0 * 0.3)
+        px, py = P(*paw)
+        m.spoly([(px - 1.2 * f, py - 1.4), (px + 1.3 * f, py - 1.4), (px + 3.1 * f, py + 0.1), (px + 3.1 * f, py + 0.4), (px - 1.3 * f, py + 0.4)])
+
+    leg(far, (13, 15), (13.5, 10), (14.5, 5), (14.5, 0.4), 4.8)
+    leg(far, (-9, 18), (-3.5, 11.5), (-11, 6), (-8.5, 0.4), 6.2)
+    s.paint(far, "#3f3438")
+
+    # the frame: spine sagging between bony shoulders and a hip you could hang a coat on; chest deep, gut gone
+    top = bez((-19.5, 18), (-17, 20.5), (-15, 22.8), (-12.5, 22.6), n=8).tolist()
+    top += bez((-12.5, 22.6), (-6, 20.2), (3, 20), (10.5, 22.4), n=12).tolist()
+    top += bez((10.5, 22.4), (13, 22.4), (15, 21.6), (19, 19.6), n=8).tolist()
+    low = [(21, 15.4), (15, 13.2)]
+    low += bez((15, 13.2), (11, 9.6), (6, 10.2), (0, 13.2), n=10).tolist()
+    low += bez((0, 13.2), (-5, 15.4), (-8, 16.2), (-12, 15), n=8).tolist()
+    low += [(-18, 15)]
+    body = s.mask()
+    body.spoly([P(*p) for p in top + low])
+    # the head hung forward and down: long skull, long thin snout
+    body.ellipse(*P(22.5, 16.8), 4.1, 3.6)
+    body.spoly([P(23.5, 19.6), P(31.2, 13.8), P(31.4, 11.6), P(29.4, 11.1), P(21.5, 13.4)])
+    # tail clamped down behind him
+    body.stroke(np.array([P(*q) for q in bez((-18.5, 17.5), (-22.5, 13.5), (-22.2, 8), (-18.8, 5), n=10)]), 2.2, 0.9)
+    leg(body, (-13, 19), (-7.5, 12), (-15, 6.2), (-12.5, 0.4), 6.8)
+    leg(body, (10, 15), (9.5, 10.2), (10.3, 5), (10.3, 0.4), 5.0)
+    s.paint(body, "#8a7468", rim=0.85, rim_dx=0.1, rim_dy=-0.8, rim_colour="#ffd8b8")
+
+    # the ribs, which are the joke: dark gaps following the barrel round
+    r = s.mask()
+    for k, rx in enumerate((8.0, 5.3, 2.6, -0.1, -2.8)):
+        low_y = 11.6 + k * 0.72
+        r.stroke(np.array([P(*q) for q in bez((rx + 1.6, 18.6), (rx - 1.0, 17), (rx - 1.2, low_y + 2.5), (rx + 1.0, low_y), n=9)]), 0.85, 0.7)
+    # the hollow behind the hip, and the one in front of the shoulder
+    r.stroke(np.array([P(*q) for q in bez((-9.5, 20.4), (-11, 18.4), (-9, 16.8), n=7)]), 1.0, 0.7)
+    s.paint(r, "#4e3f3a")
+    # grey muzzle, floppy ear, collar
+    m = s.mask()
+    m.spoly([P(27, 15.9), P(31.2, 13.8), P(31.4, 11.6), P(29.4, 11.1), P(26.4, 12.0)])
+    s.paint(m, "#d0c6bc")
+    m = s.mask()
+    m.ellipse(*P(30.8, 12.9), 0.9, 0.9)
+    s.paint(m, "#0a0810")
+    m = s.mask()
+    m.stroke(np.array([P(*q) for q in bez((21.5, 20), (19, 18.8), (18.8, 15), (19.8, 12.6), n=9)]), 3.2, 2.0)
+    s.paint(m, "#3d302f")
+    m = s.mask()
+    m.stroke(np.array([P(18.0, 20.9), P(16.4, 14.2)]), 1.5, 1.5)
+    s.paint(m, "#d52a22")
+    return P(16.6, 15.2)  # where the chain clips on
+
+
+def chain(s, pts):
+    """Links, not a line: alternating flat and edge-on, spaced along the curve."""
+    d = np.linalg.norm(np.diff(pts, axis=0), axis=1)
+    run = np.concatenate(([0], np.cumsum(d)))
+    m = s.mask()
+    for k, t in enumerate(np.arange(0.6, run[-1], 1.75)):
+        px, py = np.interp(t, run, pts[:, 0]), np.interp(t, run, pts[:, 1])
+        if k % 2:
+            m.ellipse(px, py, 0.95, 0.55)
+        else:
+            m.ellipse(px, py, 0.6, 0.6)
+    s.paint(m, "#aaa6b6")
 
 
 def paint():
@@ -189,18 +335,13 @@ def paint():
         t.stroke(bez((x, y + 0.6), (x, y - 1.6), (x + rng.uniform(-2, 2), y - rng.uniform(2, 5.2)), n=6), 0.8, 0.2)
     s.paint(t, "#07081a")
 
-    letterbox(s, 594, 62, 66, 34, 141)
+    veranda_front(s, 690, 168, 134)
 
-    # the backlog, tumbling out of its mouth and all over the verge
-    for cx, cy, w, h, ang in ((589, 74, 26, 15, -28), (586, 84, 26, 15, 16), (576, 132, 18, 10, 12),
-                              (601, 139, 20, 11, -9), (626, 140, 16, 9, 7), (553, 139, 16, 9, -16)):
+    letterbox(s, 598, 86, 44, 30, 138)
+
+    # what's already come out of it, all over the verge
+    for cx, cy, w, h, ang in ((571, 139.5, 18, 10, 12), (626, 141, 18, 10, -7), (647, 139, 15, 8.5, 9), (549, 141, 15, 8.5, -14)):
         envelope(s, cx, cy, w, h, ang)
-    # and the one that matters, the size it feels
-    envelope(s, 563, 96, 54, 34, -9, stamp=False)
-    m = s.mask()
-    lettering(m, "FINAL", 563, 89.5, 10.5, font=STENCIL, angle=-9)
-    lettering(m, "NOTICE", 565, 102, 10.5, font=STENCIL, angle=-9)
-    s.paint(m, "#d52a22")
 
     # the sign on the fence, low enough to clear the page buttons, and the reason for it
     m = s.mask()
@@ -214,14 +355,9 @@ def paint():
     lettering(m, "BEWARE OF", 961, 125.5, 8.6, font=STENCIL)
     lettering(m, "THE DOG", 961, 135.5, 8.6, font=STENCIL)
     s.paint(m, "#1a1420")
-    # brindle rather than black, with the last of the sky along his back, so he stands off the dark yard
-    m = s.mask()
-    staffy(m, 902, 143.5, 25, facing=-1)
-    s.paint(m, "#2e2636", rim=1.0, rim_dx=0.5, rim_dy=-1.0, rim_colour="#ffc4a0")
-    # the chain, collar to sign, which is mostly for show
-    m = s.mask()
-    m.stroke(bez((893, 125.5), (906, 137), (920, 136), (930, 130), n=20), 1.1, 1.1)
-    s.paint(m, "#c4c0ce")
+    # the dog, looking at his own sign, and the chain, collar to sign, which is mostly for show
+    clip = old_dog(s, 892, 144.5)
+    chain(s, bez(clip, (clip[0] + 3, 141), (923, 145), (931, 136), n=40))
 
     # dark gums framing the picture, and giving the title something dark to sit on
     m = s.mask()
