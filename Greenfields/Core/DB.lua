@@ -37,6 +37,9 @@ local DEFAULT_SETTINGS = {
     tooltipSR = true,           -- show SR'ers on item tooltips
     tooltipCrafters = true,     -- show guild crafters on item tooltips
     tooltipTitles = true,       -- show Greenfields titles on player tooltips
+    wantedPosters = true,       -- Most Wanted: the poster when you're done over, the stamp when you collect
+    wantedSightings = true,     -- Most Wanted: a sign when a wanted enemy's about
+    tooltipWanted = true,       -- Most Wanted: the price on an enemy's head in their tooltip
     scale = 1,
 }
 

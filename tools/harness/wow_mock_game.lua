@@ -182,6 +182,17 @@ local function resolve(unit)
         if e then return memberRec(e), e, e.name == MYNAME end
         return nil
     end
+    -- strangers put on a token by Game.SetUnit (enemy players on nameplates, the mouse, the target)
+    local units = state.units
+    if units then
+        local ov = units[u]
+        if ov then return ov, nil, false end
+        local base = match(u, "^(.+)target$")
+        if base and units[base] then
+            if units[base].targets == MYNAME then return ME, groupEntry(MYNAME), true end
+            return nil
+        end
+    end
     if u == "target" then
         if not state.target then return nil end
         local rec = W.byName[state.target]
@@ -409,7 +420,8 @@ G.UnitExists = function(unit)
 end
 G.UnitIsPlayer = function(unit)
     unitCheck(unit, "UnitIsPlayer")
-    return resolve(unit) ~= nil
+    local rec = resolve(unit)
+    return rec ~= nil and not rec.npc
 end
 G.UnitPlayerControlled = G.UnitIsPlayer
 G.UnitIsConnected = function(unit)
@@ -480,9 +492,16 @@ G.UnitIsUnit = function(a, b)
     if sa and sb then return r end
     return MaybeSecret("names", r)
 end
-G.UnitIsFriend = function() return true end
-G.UnitIsEnemy = function() return false end
-G.UnitCanAttack = function() return false end
+local function hostile(a, b)
+    if type(a) ~= "string" or type(b) ~= "string" then return false end
+    local ra, rb = resolve(a), resolve(b)
+    if not ra or not rb then return false end
+    if ra.npc or rb.npc then return (ra.hostile or rb.hostile) and true or false end
+    return (ra.faction or ME.faction) ~= (rb.faction or ME.faction)
+end
+G.UnitIsFriend = function(a, b) return not hostile(a, b) end
+G.UnitIsEnemy = function(a, b) return hostile(a, b) end
+G.UnitCanAttack = function(a, b) return hostile(a, b) end
 G.UnitAffectingCombat = function(unit)
     unitCheck(unit, "UnitAffectingCombat")
     local rec = resolve(unit)
@@ -530,7 +549,10 @@ end
 G.GetPlayerInfoByGUID = function(guid)
     if type(guid) ~= "string" then argErr("GetPlayerInfoByGUID", 1, "string", guid) end
     if isSecret(guid) then return nil end
-    for _, p in ipairs(W.players) do
+    local list = {}
+    for _, p in ipairs(W.players) do list[#list + 1] = p end
+    for _, p in pairs(state.units or {}) do if not p.npc then list[#list + 1] = p end end
+    for _, p in ipairs(list) do
         if p.guid == guid then
             local cd = MOCK.CLASS_DATA[p.class] or MOCK.CLASS_DATA.WARRIOR
             local r = RACES[p.race] or { p.race }
@@ -731,6 +753,8 @@ end
 G.IsInGuild = function() return MaybeSecret("guildname", guild ~= nil) end
 G.GetGuildInfo = function(unit)
     unitCheck(unit, "GetGuildInfo")
+    local stranger = state.units and resolve(unit)
+    if stranger and stranger.guildName then return MaybeSecret("guildname", stranger.guildName), "Member", 1, nil end
     if not guild or not state.guildLoaded or state.guildHeld then return nil end
     local rec, _, self = resolve(unit)
     if not rec then return nil end
@@ -2039,6 +2063,36 @@ function Game.CloseMerchant()
 end
 
 function Game.Die() fire("PLAYER_DEAD") end
+
+--- Puts a stranger on a unit token: Game.SetUnit("nameplate1", { name = "Thrandor", race = "NightElf",
+-- class = "ROGUE", faction = "Alliance", level = 60, sex = 2, guid = "Player-1-0ABC", guildName = "...",
+-- targets = "Spencer" }) (rec.npc = true makes it a mob). nil takes them off it. Fires what the
+-- client would: a nameplate appearing, the mouse landing on them, a new target.
+function Game.SetUnit(token, rec)
+    state.units = state.units or {}
+    token = lower(token)
+    state.units[token] = rec
+    if not rec then
+        if match(token, "^nameplate%d+$") then fire("NAME_PLATE_UNIT_REMOVED", token) end
+        if token == "target" then fire("PLAYER_TARGET_CHANGED") end
+        return
+    end
+    if match(token, "^nameplate%d+$") then fire("NAME_PLATE_UNIT_ADDED", token)
+    elseif token == "mouseover" then fire("UPDATE_MOUSEOVER_UNIT")
+    elseif token == "target" then fire("PLAYER_TARGET_CHANGED") end
+end
+
+-- The death recap: MOCK.deathRecap is the list GetRecapEvents hands back (nil = nothing to show),
+-- newest first like the real one: { {timestamp, sourceGUID, sourceName, spellName, amount, overkill}, ... }
+G.C_DeathRecap = {
+    GetRecapEvents = function() return MOCK.deathRecap end,
+    HasRecapEvents = function() return MOCK.deathRecap ~= nil end,
+}
+
+function Game.ClearUnits()
+    for token in pairs(state.units or {}) do Game.SetUnit(token, nil) end
+    state.units = {}
+end
 function Game.Release() fire("PLAYER_ALIVE") end
 function Game.Resurrect() fire("PLAYER_UNGHOST") fire("PLAYER_ALIVE") end
 

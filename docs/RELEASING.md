@@ -10,6 +10,7 @@ WoW addons can't download or write files, so updates arrive from outside the gam
                                                Greenfields.zip  (same bytes, a name that never changes)
                                                latest.json  (version, url, sha256, notes)
                                                GreenfieldsUpdater.zip / .ps1
+                                               GreenfieldsSetup.msi  (first install, Windows)
                                                         |
  guildie's PC:  "Update Greenfields"  <-----------------+  (or automatically every 6h)
                 finds WoW -> compares versions -> downloads -> verifies SHA-256 ->
@@ -33,6 +34,7 @@ Addon apps should work too: every release has a `release.json` attached, pointin
    - Scope: only this repo. Permissions: Contents = Read and write.
    - Store it as the `GITHUB_TOKEN` environment variable. Never commit it.
 5. Push the source once: `git remote add origin https://github.com/yourname/greenfields-addon.git`, then `git push -u origin main`.
+6. **Install the .NET SDK** once, for the Windows installer (`GreenfieldsSetup.msi`): `winget install Microsoft.DotNet.SDK.8`. Everything else it needs downloads by itself on the first build. See `installer/README.md`.
 
 ## Shipping a fix
 
@@ -46,7 +48,7 @@ Addon apps should work too: every release has a `release.json` attached, pointin
    2. moves the Unreleased notes under the new version;
    3. regenerates the in-game changelog;
    4. runs the syntax check and the full headless harness (any failure stops the release);
-   5. packages the files;
+   5. packages the files, including the Windows installer `GreenfieldsSetup.msi`;
    6. commits, tags and pushes;
    7. creates the GitHub release and uploads `latest.json` last, so updaters never see a half-uploaded release.
 3. Tell the guild: "New Greenfields is out, run Update Greenfields and restart WoW." A /reload may not find brand-new art files. The in-game pill tells everyone else as soon as one updated guildie logs in.
@@ -59,6 +61,8 @@ Addon apps should work too: every release has a `release.json` attached, pointin
 | Re-package the current version | `--rebuild` |
 | Finish a release that stopped half way (e.g. the network dropped during upload) | `--rebuild --publish`: reuses the existing tag and release |
 | Add a release note from the command line | `--note "..."` (repeatable; adds to the Unreleased notes, doesn't replace them) |
+| Release without the Windows installer (no .NET SDK on this PC) | `--no-msi` |
+| Build just the installer | `python tools/build_msi.py` (into `dist/<version>/`) |
 
 `release.py` refuses any version at or below the highest git tag, including one that's only on GitHub. `--rebuild` can meet the highest tag, because that's how a half-finished release gets finished, but it can't go below it.
 
@@ -75,7 +79,14 @@ In game, `/gf install` gives anyone the links and a ready-made Discord post to c
 
 If the repo ever moves, change `REPO` at the top of `Greenfields/Core/Update.lua`. The harness fails if it stops matching `tools/release_config.json`.
 
-**On Windows,** send them `GreenfieldsUpdater.zip`. Then they:
+**On Windows, the easy way,** send them the installer: `https://github.com/blazegorex/greenfields-addon/releases/latest/download/GreenfieldsSetup.msi`. They:
+1. download it and double-click it;
+2. if Windows says "Windows protected your PC", click **More info**, then **Run anyway** (it isn't signed);
+3. click **Next**, check the WoW folder it found (or **Browse...** to it), and click **Install**.
+
+It can also install the updater, with **Update Greenfields** in the Start menu and auto updates. Uninstalling it from Settings > Apps leaves their settings (the `WTF` folder) alone. `/gf install` doesn't mention the installer yet.
+
+**On Windows, without the installer,** send them `GreenfieldsUpdater.zip`. Then they:
 1. right-click the zip > Properties > Unblock (Windows tags internet downloads);
 2. unzip it somewhere permanent;
 3. double-click **Update Greenfields**. It installs the addon.

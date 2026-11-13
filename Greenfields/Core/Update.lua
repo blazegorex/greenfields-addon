@@ -30,9 +30,10 @@ local REMEMBER = 21 * 86400
 -- a /reload won't find brand-new files, and most updates bring some art
 local HOW = "Run Update Greenfields (or update it in your addon app), then restart WoW. Lost it? /gf install has the link."
 
--- The links never change: every release uploads these two names, and GitHub's "latest" follows along.
+-- The links never change: every release uploads these names, and GitHub's "latest" follows along.
 -- The harness fails if this stops matching tools/release_config.json.
 local REPO = "https://github.com/blazegorex/greenfields-addon"
+local SETUP_LINK = REPO .. "/releases/latest/download/GreenfieldsSetup.msi"
 local UPDATER_LINK = REPO .. "/releases/latest/download/GreenfieldsUpdater.zip"
 local ADDON_LINK = REPO .. "/releases/latest/download/Greenfields.zip"
 local ADDONS_FOLDER = "World of Warcraft/_forever_/Interface/AddOns"
@@ -83,7 +84,7 @@ function Update:ShowHowTo()
         blocks = {
             { kind = "para", text = where, size = 14, font = "ui", color = "wowGold" },
             { kind = "para", text = "To update:", color = "dim", gap = 12 },
-            { kind = "step", n = 1, text = "Double-click Update Greenfields (the updater the guild handed out). It finds WoW, grabs the latest and installs it. Lost it? /gf install has the link." },
+            { kind = "step", n = 1, text = "Run Update Greenfields (it's in the Start menu if you used the installer). It finds WoW, grabs the latest and installs it. Lost it? /gf install has the link." },
             { kind = "step", n = 2, text = "Or update Greenfields in your addon app if you got it from one." },
             { kind = "step", n = 3, text = "On a Mac, or doing it by hand: type /gf install for the link, unzip it, and drag the folder with Greenfields.toc directly inside it into " .. ADDONS_FOLDER .. ", replacing the old one." },
             { kind = "step", n = 4, text = "Quit and reopen WoW. A /reload won't find new art." },
@@ -210,8 +211,11 @@ local function installPost()
     return {
         "The street's got an addon. It's free, which makes it the only thing round here that didn't fall off a truck.",
         "",
-        "Windows: " .. UPDATER_LINK,
-        "Unzip it somewhere permanent and double-click Update Greenfields. It finds WoW and does the rest. If Windows gets funny, right-click the zip > Properties > Unblock, then unzip it again. A blue SmartScreen box goes away with More info > Run anyway.",
+        "Windows: " .. SETUP_LINK,
+        "Double-click it, click Next, then Install. It finds WoW by itself. If Windows says it protected your PC, click More info, then Run anyway.",
+        "",
+        "Rather unzip it yourself? " .. UPDATER_LINK,
+        "Unzip it somewhere permanent and double-click Update Greenfields. If Windows gets funny, right-click the zip > Properties > Unblock, then unzip it again.",
         "",
         "Mac, or doing it by hand: " .. ADDON_LINK,
         "Unzip it and drag the folder with Greenfields.toc directly inside it into " .. ADDONS_FOLDER .. ", replacing any old one.",

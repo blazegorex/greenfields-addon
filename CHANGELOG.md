@@ -4,6 +4,15 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.3.0 - 2026-11-13
+
+- Most Wanted: when an Alliance player does one of us over, their mugshot goes up on every pole in Greenfields with a price on their head. There's a mugshot for every Alliance race, class and sex. A point a body, more for doing different locals and for dog acts on lowbies. Drop them and the points are yours; revenge is worth one more and a hand in the kill is worth one.
+- The Most Wanted page has Public Enemy No. 1's case file, your nemesis and the bounty hunters' board, and your resident file shows your points and who's got your number.
+- A poster drops when you're done over ("Wasn't them" takes it down if the addon got it wrong), a stamp slams on when you collect, enemy tooltips show the price on their head, and you get a sign when a wanted face is near you or a guildie spots one in your zone. Switch any of it off in Settings.
+- The Watch has a Wanted tab, and a bounty collected pops a sign for the whole street.
+- New Windows installer, GreenfieldsSetup.msi: it finds WoW by itself, installs Greenfields and the updater, and can turn auto updates on. No zips to unblock. `/gf install` hands it out first.
+- The updater's "in use" message now says to close Explorer windows showing the Greenfields folder too.
+
 ## 1.2.1 - 2026-11-03
 
 - Pixel-art street: every page banner, all 32 Hall of Fame portraits, the crest and the minimap button are redrawn as pixel art. The window, signs and menus stay as they were.

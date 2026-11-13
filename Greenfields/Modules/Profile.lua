@@ -59,6 +59,7 @@ local LINES = {
     buffsUnknown = "Class unknown. Could bring anything. Could bring nothing.",
     buffsGuess = "Going by class alone. Talents and ranks not checked.",
     noAlts = "No alts. One and done.",
+    wantedNone = "No bounties collected and nobody's got their number. Keeps their head down.",
     stranger = "Not on the roster and no profile on file. A mystery neighbour.",
     noKey = "Still working out who you are. Give it a sec.",
 }
@@ -827,10 +828,57 @@ local function fillLoot(card, w, d)
     return finish(card, y)
 end
 
+--- Most Wanted: the bounties they've collected and the enemy who's had them the most.
+local function fillWanted(card, w, d)
+    begin(card)
+    local N = GF.Nemesis
+    if not (N and N.HunterOf and N.NemesisOf and N.Mug) then return emptyLine(card, LINES.wantedNone) end
+    local rows = {}
+    local h = N:HunterOf(d.key)
+    if h and h.points > 0 then
+        rows[#rows + 1] = { icon = "coin", value = h.points, label = "Bounty points collected",
+            tip = T:Wrap("gold", "Bounty hunter"), lines = tipLines(
+                ("%d %s, %d %s"):format(h.claims, U.Plural(h.claims, "bounty", "bounties"), h.assists,
+                    h.assists == 1 and "hand in one" or "hands in others"),
+                h.revenge > 0 and ("Squared up %d %s"):format(h.revenge, U.Plural(h.revenge, "time")) or nil,
+                ("Biggest single bounty: %s"):format(N:PointsText(h.best))) }
+    end
+    local p, n = N:NemesisOf(d.key)
+    if p and n > 0 then
+        local status = p.status == "wanted" and ("Wanted, " .. N:PointsText(p.bounty) .. " on their head.")
+            or (p.lastClaim and "Last sorted out " .. U.Ago(p.lastClaim.t) .. ".") or nil
+        rows[#rows + 1] = { mug = p, value = n .. "x", label = "Nemesis: |cffe8473c" .. p.name .. "|r",
+            tip = T:Wrap("red", p.name), lines = tipLines(N:Describe(p),
+                ("Has done them over %d %s."):format(n, U.Plural(n, "time")), status) }
+    end
+    if #rows == 0 then return emptyLine(card, LINES.wantedNone) end
+    for i, r in ipairs(rows) do
+        local cell = take(card, "wanted", newStatCell)
+        cell:ClearAllPoints()
+        cell:SetPoint("TOPLEFT", 0, -(i - 1) * STAT_H)
+        cell:SetSize(w, STAT_H)
+        if r.mug then
+            local tex, l, rr, t, b = N:Mug(r.mug)
+            cell.art:SetIcon(tex or "skull")
+            if tex then cell.art.icon:SetTexCoord(l, rr, t, b) end
+        else
+            cell.art:SetIcon(r.icon)
+        end
+        cell.value:SetText(tostring(r.value))
+        UI:SetTextColor(cell.value, r.mug and "red" or "wowGold")
+        cell.label:SetText(r.label)
+        cell.label:SetWidth(max(20, w - 32 - 8 - (cell.value:GetStringWidth() or 30)))
+        cell.rule:SetShown(i < #rows)
+        cell.tipTitle, cell.tipLines = r.tip, r.lines
+    end
+    return finish(card, #rows * STAT_H)
+end
+
 local CARDS = {
     { id = "roll", title = "Roll Call", icon = "calendar", fill = fillRoll },
     { id = "titles", title = "Titles", icon = "crown", fill = fillTitles },
     { id = "stats", title = "Stats", icon = "trophy", fill = fillStats },
+    { id = "wanted", title = "Most Wanted", icon = "skull", fill = fillWanted },
     { id = "badges", title = "Badges", icon = "star", fill = fillBadges },
     { id = "profs", title = "Tradie licences", icon = "hammer", fill = fillProfs },
     { id = "buffs", title = "Brings to the raid", icon = "campfire", fill = fillBuffs },
@@ -1325,6 +1373,9 @@ GF:On("GF_STORE_CHANGED", function(name, id)
     elseif name == "profile" and type(id) == "string" and profilePage.data.family[id] then
         queueRefresh()
     end
+end)
+GF:On("GF_WANTED_CHANGED", function()
+    if profilePage and profilePage.key then queueRefresh() end
 end)
 GF:On("GF_ROSTER_UPDATED", function()
     if profilePage and profilePage.key then queueRefresh() end

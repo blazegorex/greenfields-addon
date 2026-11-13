@@ -74,6 +74,14 @@ The rest include **Uber Eats Driver**, **Mummy's Boy**, **Absolutely Rotten**, *
 
 Most stats also have milestone badges.
 
+### Most Wanted
+When an Alliance player kills one of us, Greenfields puts their face on the poles: a wanted poster with a mugshot that matches their race, class and sex, and a price on their head.
+- **Points:** 1 a body, +1 for every different guildie they've done, +1 for every dog act (a kill on someone 10 or more levels under them).
+- **Collecting:** whoever lands the killing blow takes every point since the last time they were sorted out. Revenge on someone who did you is worth 1 more, and anyone else who gets the honourable kill gets 1 for a hand in it. The poster gets stamped and stays up for a week.
+- **The page:** Public Enemy No. 1's case file, every other poster on the wall, your nemesis, and the bounty hunters' board. Your resident file shows your points and your nemesis too.
+- **In the world:** a poster drops when you're done over, a stamp slams down when you collect, enemy tooltips show the price on their head, and you get a sign when a wanted face is near you or a guildie spots one in your zone. Switch any of it off in Settings.
+- **How it knows:** the game doesn't tell addons who killed you, so Greenfields watches the enemy players around you (nameplates, your target, who's got you targeted) and asks the death recap. It only names someone it has good reason to. If it gets it wrong, click **Wasn't them** on the poster, or right-click it on the page. Officers can tear a poster down for everyone.
+
 ### Residents
 - The guild roster: mains and alts, who's online, rank, titles, attendance, professions, and who runs the addon.
 - Click anyone to open their **resident file**: titles, badges, stats, roll call, trades, loot and the buffs they bring.
@@ -93,14 +101,24 @@ Most stats also have milestone badges.
 
 ---
 
+## Installing on Windows
+1. Download [GreenfieldsSetup.msi](https://github.com/blazegorex/greenfields-addon/releases/latest/download/GreenfieldsSetup.msi). That link always gets the newest version.
+2. Double-click it. It isn't signed, so Windows may say "Windows protected your PC": click **More info**, then **Run anyway**.
+3. Click **Next**. It finds your WoW folder by itself; if it can't, click **Browse...** and pick the World of Warcraft folder (the one with `_forever_` inside it).
+4. Leave **Also install the Greenfields Updater** and **Turn on auto updates** ticked if you want new versions to arrive by themselves. Click **Install**.
+
+Close WoW first. If it says something's still got hold of Greenfields, close WoW and any Explorer windows showing the Greenfields folder, then click **Try again**.
+
+To remove it: Settings > Apps > Greenfields > Uninstall. Your settings (in WoW's `WTF` folder) stay put.
+
 ## Updating
-WoW won't let addons update themselves, so use the **Greenfields Updater**. It's in `GreenfieldsUpdater.zip` on the release page; your officers will send it to you.
+WoW won't let addons update themselves, so use the **Greenfields Updater**. The installer above can put it in your Start menu as **Update Greenfields**. Or get `GreenfieldsUpdater.zip` from the release page:
 
 1. Unblock the zip: right-click > Properties > Unblock.
 2. Unzip it somewhere permanent.
 3. Double-click **Update Greenfields**. It finds WoW, downloads the latest release, checks it's genuine, and installs it.
 
-**Turn On Auto Updates** keeps it current in the background: it checks at login and every 6 hours. **Turn Off Auto Updates** stops it.
+**Turn On Auto Updates** keeps it current in the background: it checks at login and every 6 hours. **Turn Off Auto Updates** stops it. Running a newer `GreenfieldsSetup.msi` works too.
 
 **On a Mac, or doing it by hand,** the updater won't help you, so:
 
@@ -117,11 +135,12 @@ In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a
 | Command | What it does |
 |---|---|
 | `/gf` | open / close |
-| `/gf show <page>` | open a page (home, raids, softres, loot, attendance, fame, roster, tradies, buffs, feed, settings) |
+| `/gf show <page>` | open a page (home, raids, softres, loot, attendance, fame, wanted, roster, tradies, buffs, feed, settings) |
 | `/gf profile <name>` | open someone's resident file |
 | `/gf main <name>` | mark this character as an alt of `<name>` (blank = this is a main) |
 | `/gf sync` | force a data sync with guildies |
 | `/gf stats` | print your own stats |
+| `/gf wanted` | open Most Wanted (`/gf wanted test` shows the poster you'd get, `/gf wanted collect` the stamp) |
 | `/gf doctor` | check what this game client supports (run this on launch day) |
 | `/gf update` | is there a newer Greenfields, and how to get it |
 | `/gf install` | the download links and a post to paste in Discord, for getting a mate set up |

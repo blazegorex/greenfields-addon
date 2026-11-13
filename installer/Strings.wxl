@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Every word a player reads in the Greenfields installer. Edit freely, then: python tools/build_msi.py
+  [ProductVersion] is this version, [WOWDIR] the WoW folder, [GF_OLDVER] the Greenfields already there,
+  [GF_BLOCKER] what's holding the folder. &#13;&#10; is a line break. Keep lines short: the boxes don't grow.
+-->
+<WixLocalization Culture="en-US" Codepage="1252" xmlns="http://wixtoolset.org/schemas/v4/wxl">
+  <String Id="Manufacturer" Value="Greenfields, Mandurah WA" />
+  <String Id="SummaryDescription" Value="Greenfields guild addon for WoW: Forever" />
+  <String Id="ArpComments" Value="The Greenfields guild addon for WoW: Forever. Est. Mandurah, WA 6210." />
+  <String Id="ShortcutDescription" Value="Get the newest Greenfields and put it into WoW" />
+  <String Id="DialogTitle" Value="Greenfields" />
+  <String Id="Downgrade" Value="A newer Greenfields is already installed. You're ahead of the street, so there's nothing to do here." />
+
+  <!-- buttons -->
+  <String Id="Back" Value="&amp;Back" />
+  <String Id="Next" Value="&amp;Next" />
+  <String Id="Install" Value="&amp;Install" />
+  <String Id="Cancel" Value="Cancel" />
+  <String Id="Finish" Value="&amp;Finish" />
+  <String Id="Browse" Value="B&amp;rowse..." />
+  <String Id="TryAgain" Value="&amp;Try again" />
+  <String Id="OK" Value="OK" />
+  <String Id="Yes" Value="&amp;Yes" />
+  <String Id="No" Value="&amp;No" />
+  <String Id="Reinstall" Value="&amp;Reinstall" />
+  <String Id="Remove" Value="Re&amp;move" />
+  <String Id="UpFolder" Value="&amp;Up a folder" />
+  <String Id="Retry" Value="&amp;Retry" />
+  <String Id="Ignore" Value="&amp;Ignore" />
+  <String Id="Abort" Value="&amp;Abort" />
+  <String Id="Exit" Value="E&amp;xit" />
+
+  <!-- welcome -->
+  <String Id="WelcomeTitle" Value="Greenfields" />
+  <String Id="WelcomeSub" Value="The guild addon for WoW: Forever. Est. Mandurah, WA 6210." />
+  <String Id="WelcomeBody" Value="G'day. This puts Greenfields into WoW: Forever for you. No unzipping, no digging through folders, no ringing your nephew." />
+  <String Id="WelcomeDo" Value="Close WoW first, then click Next." />
+  <String Id="WelcomeJoke" Value="Takes less time than finding a lighter on this street." />
+  <String Id="VersionLine" Value="Version [ProductVersion]" />
+
+  <!-- setup: where's WoW + options -->
+  <String Id="SetupTitle" Value="Where's WoW?" />
+  <String Id="SetupSub" Value="We had a sticky beak around your PC. Check this is right, then click Install." />
+  <String Id="SetupFolderLabel" Value="Your World of Warcraft folder" />
+  <String Id="SetupNotFound" Value="Couldn't find it" />
+  <String Id="SetupFoundUpgrade" Value="Greenfields [GF_OLDVER] is in there now. This swaps it for [ProductVersion]. Your settings live in the WTF folder and stay put." />
+  <String Id="SetupFoundFresh" Value="Greenfields goes into _forever_\Interface\AddOns. Nothing else in WoW gets touched." />
+  <String Id="SetupNoForever" Value="That's WoW, but there's no WoW: Forever in it yet. Launch Forever once from Battle.net and run this again, or click Browse if Forever lives somewhere else." />
+  <String Id="SetupNone" Value="Couldn't find WoW on this PC. Click Browse and pick your World of Warcraft folder: the one with _forever_ inside it." />
+  <String Id="SetupNotWow" Value="That folder isn't WoW. Click Browse and pick your World of Warcraft folder: the one with _forever_ inside it." />
+  <String Id="SetupUpdater" Value="Also install the Greenfields Updater" />
+  <String Id="SetupUpdaterHint" Value="Puts Update Greenfields in your Start menu, for when a new version drops." />
+  <String Id="SetupAuto" Value="Turn on auto updates" />
+  <String Id="SetupAutoHint" Value="Checks quietly when you log in to Windows and every 6 hours." />
+
+  <!-- browse -->
+  <String Id="BrowseTitle" Value="Pick your WoW folder" />
+  <String Id="BrowseSub" Value="Find the World of Warcraft folder (the one with _forever_ inside it), click it, then OK." />
+  <String Id="NotWowText" Value="That doesn't look like World of Warcraft. Pick the World of Warcraft folder itself: the one with _forever_ inside it." />
+
+  <!-- in use -->
+  <String Id="InUseTitle" Value="Hang on a sec" />
+  <String Id="InUseSub" Value="Something's still got hold of Greenfields." />
+  <String Id="InUseBody" Value="Close WoW and any Explorer windows showing the Greenfields folder, then click Try again." />
+  <String Id="InUseHint" Value="An Explorer window is a folder window, the yellow folder on your taskbar. If one's open on AddOns\Greenfields or anything in it, close it." />
+  <String Id="InUseLink" Value="This Greenfields is linked to another folder (someone's developer copy), so the installer leaves it alone. Remove the link yourself, or go Back and pick another WoW folder." />
+  <String Id="InUseDenied" Value="Windows won't let this installer write into your WoW folder. Ask in Discord and someone will sort you out." />
+
+  <!-- already installed -->
+  <String Id="MaintTitle" Value="Greenfields is already here" />
+  <String Id="MaintSub" Value="Version [ProductVersion] is on this PC. What do you want to do?" />
+  <String Id="MaintReinstall" Value="Put a fresh copy back in. Fixes a broken install." />
+  <String Id="MaintRemove" Value="Take Greenfields out of WoW (and the updater, if you have it). Your settings in the WTF folder stay put." />
+
+  <!-- progress -->
+  <String Id="ProgressInstallTitle" Value="Moving in..." />
+  <String Id="ProgressRepairTitle" Value="Fixing it up..." />
+  <String Id="ProgressRemoveTitle" Value="Packing up..." />
+  <String Id="ProgressSub" Value="Won't be a sec." />
+  <String Id="ProgressInstallBody" Value="Putting Greenfields into WoW: Forever." />
+  <String Id="ProgressRemoveBody" Value="Taking Greenfields out of WoW: Forever. Your settings stay put." />
+
+  <!-- finish -->
+  <String Id="FinishTitle" Value="You're on the street" />
+  <String Id="FinishSub" Value="Greenfields [ProductVersion] is in." />
+  <String Id="FinishBody" Value="Start WoW: Forever and type /gf, or click the green shield on your minimap. On each alt, type /gf main and your main's name." />
+  <String Id="FinishUpdater" Value="New version out? Start menu, then Update Greenfields." />
+  <String Id="FinishAuto" Value="Auto updates are on, so you won't even need to." />
+  <String Id="FinishJoke" Value="Lock your car." />
+  <String Id="RemovedTitle" Value="Greenfields is gone" />
+  <String Id="RemovedSub" Value="Moved out before the rent was due. Classic." />
+  <String Id="RemovedBody" Value="The addon's out of WoW, and the updater too if you had it. Your settings in the WTF folder were left alone, so if you come back it's all where you left it." />
+
+  <!-- cancelled / failed -->
+  <String Id="UserExitTitle" Value="No worries" />
+  <String Id="UserExitSub" Value="Nothing was changed." />
+  <String Id="UserExitBody" Value="Run this again whenever you're ready. Greenfields will still be here. So will the neighbours." />
+  <String Id="FatalTitle" Value="Well, that's cooked" />
+  <String Id="FatalSub" Value="Nothing was changed: Windows put it all back." />
+  <String Id="FatalBody" Value="The box before this said why. Mostly it's WoW, or an Explorer window showing the Greenfields folder: close them and run this again. Still stuck? Ask in Discord and say what the box said." />
+
+  <!-- small boxes -->
+  <String Id="CancelText" Value="Stop setting up Greenfields? Nothing's been changed yet." />
+  <String Id="FilesInUseText" Value="These programs have Greenfields files open. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry." />
+
+  <!-- errors (silent installs, or if something changes after the checks) -->
+  <String Id="ErrNoWow" Value="Couldn't find WoW: Forever on this PC. Run the Greenfields installer again and pick your World of Warcraft folder when it asks." />
+  <String Id="ErrBlocked" Value="[GF_BLOCKER]&#13;&#10;&#13;&#10;Close WoW and any Explorer windows showing the Greenfields folder, then run the Greenfields installer again." />
+  <String Id="Err1303" Value="Windows won't let Greenfields into [2]. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry." />
+  <String Id="Err1304" Value="Couldn't write [2]. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry." />
+  <String Id="Err1306" Value="Something has [2] open. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry." />
+  <String Id="Err1310" Value="Couldn't write [3]. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry.&#13;&#10;(Windows said: [2])" />
+  <String Id="Err1321" Value="Windows won't let Greenfields change [2]. Close WoW and any Explorer windows showing the Greenfields folder, then click Retry." />
+</WixLocalization>

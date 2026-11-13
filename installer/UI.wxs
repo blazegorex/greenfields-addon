@@ -1,0 +1,388 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The Greenfields installer's dialogs ("Greenfields after dark"): night-street art from the addon's
+  pixel banners behind warm white text, one gold title per page. Art is made by tools/make_msi_art.py.
+
+  Flow:  Welcome -> Where's WoW? (Browse) -> [Hang on a sec, if WoW/Explorer has the folder] -> Moving in -> Done
+         Running the same version again: Already here (Reinstall / Remove).
+  Pages are full-dialog bitmaps with transparent text; small boxes (cancel, errors) stay plain Windows.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <Binary Id="GfHeroWelcome" SourceFile="$(var.ArtDir)\hero_welcome.bmp" />
+    <Binary Id="GfHeroFinish" SourceFile="$(var.ArtDir)\hero_finish.bmp" />
+    <Binary Id="GfHeroOops" SourceFile="$(var.ArtDir)\hero_oops.bmp" />
+    <Binary Id="GfPageSetup" SourceFile="$(var.ArtDir)\page_setup.bmp" />
+    <Binary Id="GfPageInUse" SourceFile="$(var.ArtDir)\page_inuse.bmp" />
+    <Binary Id="GfPageProgress" SourceFile="$(var.ArtDir)\page_progress.bmp" />
+    <Binary Id="GfPageMaint" SourceFile="$(var.ArtDir)\page_maint.bmp" />
+    <Binary Id="GfCrestIco" SourceFile="$(var.ArtDir)\crest.ico" />
+
+    <UI Id="GreenfieldsUI">
+      <TextStyle Id="GF_Default" FaceName="Segoe UI" Size="8" />
+      <TextStyle Id="GF_Hero" FaceName="Segoe UI" Size="22" Bold="yes" Red="255" Green="213" Blue="90" />
+      <TextStyle Id="GF_Title" FaceName="Segoe UI" Size="15" Bold="yes" Red="255" Green="213" Blue="90" />
+      <TextStyle Id="GF_Sub" FaceName="Segoe UI" Size="9" Red="190" Green="186" Blue="176" />
+      <!-- Windows Installer draws text black if its colour is close to the plain dialog grey
+           (240,240,240): 244,239,227 was. Keep light text at 236,231,219 or brighter-but-whiter. -->
+      <TextStyle Id="GF_Body" FaceName="Segoe UI" Size="9" Red="236" Green="231" Blue="219" />
+      <TextStyle Id="GF_BodyBold" FaceName="Segoe UI" Size="9" Bold="yes" Red="236" Green="231" Blue="219" />
+      <TextStyle Id="GF_Path" FaceName="Segoe UI" Size="10" Bold="yes" Red="86" Green="220" Blue="134" />
+      <TextStyle Id="GF_Warn" FaceName="Segoe UI" Size="9" Bold="yes" Red="255" Green="204" Blue="26" />
+      <TextStyle Id="GF_Small" FaceName="Segoe UI" Size="8" Red="166" Green="163" Blue="156" />
+      <TextStyle Id="GF_Joke" FaceName="Segoe UI" Size="9" Italic="yes" Red="190" Green="186" Blue="176" />
+      <TextStyle Id="GF_Modal" FaceName="Segoe UI" Size="9" />
+      <Property Id="DefaultUIFont" Value="GF_Default" />
+      <Property Id="ErrorDialog" Value="ErrorDlg" />
+
+      <Error Id="1303" Message="!(loc.Err1303)" />
+      <Error Id="1304" Message="!(loc.Err1304)" />
+      <Error Id="1306" Message="!(loc.Err1306)" />
+      <Error Id="1310" Message="!(loc.Err1310)" />
+      <Error Id="1321" Message="!(loc.Err1321)" />
+
+      <InstallUISequence>
+        <Show Dialog="WelcomeDlg" Before="ProgressDlg" Condition="NOT Installed" />
+        <Show Dialog="MaintenanceDlg" Before="ProgressDlg" Condition="Installed AND NOT RESUME AND NOT Preselected" />
+        <Show Dialog="ProgressDlg" Before="ExecuteAction" />
+        <Show Dialog="FinishDlg" OnExit="success" />
+        <Show Dialog="UserExitDlg" OnExit="cancel" />
+        <Show Dialog="FatalErrorDlg" OnExit="error" />
+      </InstallUISequence>
+      <AdminUISequence>
+        <Show Dialog="ProgressDlg" Before="ExecuteAction" />
+        <Show Dialog="FinishDlg" OnExit="success" />
+        <Show Dialog="UserExitDlg" OnExit="cancel" />
+        <Show Dialog="FatalErrorDlg" OnExit="error" />
+      </AdminUISequence>
+
+      <!-- ============================================================ Welcome -->
+      <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfHeroWelcome" />
+        <Control Id="Title" Type="Text" X="122" Y="20" Width="236" Height="34" Transparent="yes" NoPrefix="yes" Text="{\GF_Hero}!(loc.WelcomeTitle)" />
+        <Control Id="Sub" Type="Text" X="124" Y="54" Width="234" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.WelcomeSub)" />
+        <Control Id="Body" Type="Text" X="124" Y="82" Width="234" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.WelcomeBody)" />
+        <Control Id="Do" Type="Text" X="124" Y="124" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.WelcomeDo)" />
+        <Control Id="Version" Type="Text" X="14" Y="247" Width="150" Height="12" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.VersionLine)" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.Next)">
+          <Publish Event="NewDialog" Value="SetupDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Where's WoW? -->
+      <Dialog Id="SetupDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageSetup" />
+        <Control Id="Title" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.SetupTitle)" />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.SetupSub)" />
+
+        <Control Id="FolderLabel" Type="Text" X="20" Y="70" Width="250" Height="12" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.SetupFolderLabel)" />
+        <Control Id="Folder" Type="Text" X="20" Y="83" Width="262" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_Path}[WOWDIR]"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "found"' ShowCondition='GF_WOWSTATE = "found"' />
+        <Control Id="FolderNotOk" Type="Text" X="20" Y="83" Width="262" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}[WOWDIR]"
+                 HideCondition='GF_WOWSTATE = "found" OR GF_WOWSTATE = "none"' ShowCondition='GF_WOWSTATE &lt;&gt; "found" AND GF_WOWSTATE &lt;&gt; "none"' />
+        <Control Id="FolderNone" Type="Text" X="20" Y="83" Width="262" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Warn}!(loc.SetupNotFound)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "none"' ShowCondition='GF_WOWSTATE = "none"' />
+        <Control Id="Browse" Type="PushButton" X="290" Y="82" Width="60" Height="17" Text="!(loc.Browse)">
+          <Publish Property="_BrowseProperty" Value="WOWDIR" />
+          <Publish Event="NewDialog" Value="BrowseDlg" />
+        </Control>
+
+        <Control Id="StatusUpgrade" Type="Text" X="20" Y="112" Width="330" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.SetupFoundUpgrade)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "found" OR NOT GF_OLDVER' ShowCondition='GF_WOWSTATE = "found" AND GF_OLDVER' />
+        <Control Id="StatusFresh" Type="Text" X="20" Y="112" Width="330" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.SetupFoundFresh)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "found" OR GF_OLDVER' ShowCondition='GF_WOWSTATE = "found" AND NOT GF_OLDVER' />
+        <Control Id="StatusNoForever" Type="Text" X="20" Y="112" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Warn}!(loc.SetupNoForever)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "noforever"' ShowCondition='GF_WOWSTATE = "noforever"' />
+        <Control Id="StatusNone" Type="Text" X="20" Y="112" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.SetupNone)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "none"' ShowCondition='GF_WOWSTATE = "none"' />
+        <Control Id="StatusNotWow" Type="Text" X="20" Y="112" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Warn}!(loc.SetupNotWow)"
+                 HideCondition='GF_WOWSTATE &lt;&gt; "notwow"' ShowCondition='GF_WOWSTATE = "notwow"' />
+
+        <Control Id="UpdaterBox" Type="CheckBox" X="20" Y="166" Width="10" Height="10" Property="INSTALL_UPDATER" CheckBoxValue="1" />
+        <Control Id="UpdaterLabel" Type="Text" X="35" Y="164" Width="315" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.SetupUpdater)" />
+        <Control Id="UpdaterHint" Type="Text" X="35" Y="177" Width="315" Height="12" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.SetupUpdaterHint)" />
+        <Control Id="AutoBox" Type="CheckBox" X="20" Y="200" Width="10" Height="10" Property="AUTOUPDATE" CheckBoxValue="1"
+                 DisableCondition='INSTALL_UPDATER &lt;&gt; "1"' EnableCondition='INSTALL_UPDATER = "1"' />
+        <Control Id="AutoLabel" Type="Text" X="35" Y="198" Width="315" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.SetupAuto)" />
+        <Control Id="AutoHint" Type="Text" X="35" Y="211" Width="315" Height="12" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.SetupAutoHint)" />
+
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.Back)">
+          <Publish Event="NewDialog" Value="WelcomeDlg" />
+        </Control>
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.Install)"
+                 DisableCondition='GF_WOWOK &lt;&gt; "1"' EnableCondition='GF_WOWOK = "1"'>
+          <Publish Property="GF_MODE" Value="install" Order="1" />
+          <Publish Event="SetTargetPath" Value="WOWDIR" Order="2" />
+          <Publish Event="DoAction" Value="GF_CheckWowDir" Order="3" />
+          <Publish Event="DoAction" Value="GF_CheckInUse" Order="4" Condition='GF_WOWOK = "1"' />
+          <Publish Event="NewDialog" Value="InUseDlg" Order="5" Condition='GF_WOWOK = "1" AND GF_BLOCKER' />
+          <Publish Event="Remove" Value="Updater" Order="6" Condition='GF_WOWOK = "1" AND NOT GF_BLOCKER AND INSTALL_UPDATER &lt;&gt; "1"' />
+          <Publish Event="AddLocal" Value="Updater" Order="7" Condition='GF_WOWOK = "1" AND NOT GF_BLOCKER AND INSTALL_UPDATER = "1"' />
+          <Publish Event="EndDialog" Value="Return" Order="8" Condition='GF_WOWOK = "1" AND NOT GF_BLOCKER' />
+          <Publish Event="NewDialog" Value="SetupDlg" Order="9" Condition='GF_WOWOK &lt;&gt; "1"' />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Browse -->
+      <Dialog Id="BrowseDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageSetup" />
+        <Control Id="Title" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.BrowseTitle)" />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.BrowseSub)" />
+        <Control Id="Combo" Type="DirectoryCombo" X="20" Y="68" Width="262" Height="80" Property="_BrowseProperty" Indirect="yes" Fixed="yes" Remote="yes" />
+        <Control Id="Up" Type="PushButton" X="290" Y="67" Width="60" Height="17" Text="!(loc.UpFolder)">
+          <Publish Event="DirectoryListUp" Value="0" />
+        </Control>
+        <Control Id="List" Type="DirectoryList" X="20" Y="90" Width="330" Height="112" Property="_BrowseProperty" Sunken="yes" Indirect="yes" TabSkip="no" />
+        <Control Id="Path" Type="PathEdit" X="20" Y="208" Width="330" Height="16" Property="_BrowseProperty" Sunken="yes" Indirect="yes" />
+        <Control Id="OK" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.OK)">
+          <Publish Event="SetTargetPath" Value="[_BrowseProperty]" Order="1" />
+          <Publish Event="DoAction" Value="GF_CheckWowDir" Order="2" />
+          <Publish Event="SpawnDialog" Value="NotWowDlg" Order="3" Condition='GF_WOWOK &lt;&gt; "1"' />
+          <Publish Event="NewDialog" Value="SetupDlg" Order="4" Condition='GF_WOWOK = "1"' />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="Reset" Value="0" Order="1" />
+          <Publish Event="DoAction" Value="GF_CheckWowDir" Order="2" />
+          <Publish Event="NewDialog" Value="SetupDlg" Order="3" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Hang on a sec (WoW / Explorer has the folder) -->
+      <Dialog Id="InUseDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageInUse" />
+        <Control Id="Title" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.InUseTitle)" />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.InUseSub)" />
+        <Control Id="Body" Type="Text" X="20" Y="72" Width="330" Height="28" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.InUseBody)"
+                 HideCondition='GF_BLOCKKIND = "link" OR GF_BLOCKKIND = "denied"' ShowCondition='GF_BLOCKKIND &lt;&gt; "link" AND GF_BLOCKKIND &lt;&gt; "denied"' />
+        <Control Id="BodyLink" Type="Text" X="20" Y="72" Width="330" Height="40" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.InUseLink)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "link"' ShowCondition='GF_BLOCKKIND = "link"' />
+        <Control Id="BodyDenied" Type="Text" X="20" Y="72" Width="330" Height="40" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.InUseDenied)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "denied"' ShowCondition='GF_BLOCKKIND = "denied"' />
+        <Control Id="Detail" Type="Text" X="20" Y="118" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Warn}[GF_BLOCKER]" />
+        <Control Id="Hint" Type="Text" X="20" Y="164" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.InUseHint)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "held"' ShowCondition='GF_BLOCKKIND = "held"' />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.Back)">
+          <Publish Event="NewDialog" Value="SetupDlg" Condition='GF_MODE = "install"' />
+          <Publish Event="NewDialog" Value="MaintenanceDlg" Condition='GF_MODE &lt;&gt; "install"' />
+        </Control>
+        <Control Id="Retry" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.TryAgain)">
+          <Publish Event="DoAction" Value="GF_CheckInUse" Order="1" />
+          <Publish Event="Remove" Value="Updater" Order="2" Condition='GF_MODE = "install" AND NOT GF_BLOCKER AND INSTALL_UPDATER &lt;&gt; "1"' />
+          <Publish Event="AddLocal" Value="Updater" Order="3" Condition='GF_MODE = "install" AND NOT GF_BLOCKER AND INSTALL_UPDATER = "1"' />
+          <Publish Event="ReinstallMode" Value="amus" Order="4" Condition='GF_MODE = "repair" AND NOT GF_BLOCKER' />
+          <Publish Event="Reinstall" Value="ALL" Order="5" Condition='GF_MODE = "repair" AND NOT GF_BLOCKER' />
+          <Publish Event="Remove" Value="ALL" Order="6" Condition='GF_MODE = "remove" AND NOT GF_BLOCKER' />
+          <Publish Event="EndDialog" Value="Return" Order="7" Condition="NOT GF_BLOCKER" />
+          <Publish Event="NewDialog" Value="InUseAgainDlg" Order="8" Condition="GF_BLOCKER" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Already installed -->
+      <Dialog Id="MaintenanceDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageMaint" />
+        <Control Id="Title" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.MaintTitle)" />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.MaintSub)" />
+        <Control Id="Folder" Type="Text" X="20" Y="70" Width="330" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_Path}[WOWDIR]" />
+        <Control Id="Reinstall" Type="PushButton" X="20" Y="110" Width="70" Height="17" Text="!(loc.Reinstall)">
+          <Publish Property="GF_MODE" Value="repair" Order="1" />
+          <Publish Event="DoAction" Value="GF_CheckInUse" Order="2" />
+          <Publish Event="NewDialog" Value="InUseDlg" Order="3" Condition="GF_BLOCKER" />
+          <Publish Event="ReinstallMode" Value="amus" Order="4" Condition="NOT GF_BLOCKER" />
+          <Publish Event="Reinstall" Value="ALL" Order="5" Condition="NOT GF_BLOCKER" />
+          <Publish Event="EndDialog" Value="Return" Order="6" Condition="NOT GF_BLOCKER" />
+        </Control>
+        <Control Id="ReinstallText" Type="Text" X="100" Y="112" Width="250" Height="26" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.MaintReinstall)" />
+        <Control Id="Remove" Type="PushButton" X="20" Y="148" Width="70" Height="17" Text="!(loc.Remove)">
+          <Publish Property="GF_MODE" Value="remove" Order="1" />
+          <Publish Event="DoAction" Value="GF_CheckInUse" Order="2" />
+          <Publish Event="NewDialog" Value="InUseDlg" Order="3" Condition="GF_BLOCKER" />
+          <Publish Event="Remove" Value="ALL" Order="4" Condition="NOT GF_BLOCKER" />
+          <Publish Event="EndDialog" Value="Return" Order="5" Condition="NOT GF_BLOCKER" />
+        </Control>
+        <Control Id="RemoveText" Type="Text" X="100" Y="150" Width="250" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.MaintRemove)" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Progress -->
+      <Dialog Id="ProgressDlg" Width="370" Height="270" Title="!(loc.DialogTitle)" Modeless="yes">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageProgress" />
+        <Control Id="TitleInstall" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.ProgressInstallTitle)"
+                 HideCondition='GF_MODE &lt;&gt; "install"' ShowCondition='GF_MODE = "install"' />
+        <Control Id="TitleRepair" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.ProgressRepairTitle)"
+                 HideCondition='GF_MODE &lt;&gt; "repair"' ShowCondition='GF_MODE = "repair"' />
+        <Control Id="TitleRemove" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.ProgressRemoveTitle)"
+                 HideCondition='GF_MODE &lt;&gt; "remove"' ShowCondition='GF_MODE = "remove"' />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.ProgressSub)" />
+        <Control Id="BodyInstall" Type="Text" X="20" Y="80" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.ProgressInstallBody)"
+                 HideCondition='GF_MODE = "remove"' ShowCondition='GF_MODE &lt;&gt; "remove"' />
+        <Control Id="BodyRemove" Type="Text" X="20" Y="80" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.ProgressRemoveBody)"
+                 HideCondition='GF_MODE &lt;&gt; "remove"' ShowCondition='GF_MODE = "remove"' />
+        <Control Id="Bar" Type="ProgressBar" X="20" Y="102" Width="330" Height="10" Text="Progress">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ Done / cancelled / failed -->
+      <Dialog Id="FinishDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfHeroFinish" />
+        <Control Id="Title" Type="Text" X="122" Y="20" Width="236" Height="34" Transparent="yes" NoPrefix="yes" Text="{\GF_Hero}!(loc.FinishTitle)"
+                 HideCondition='GF_MODE = "remove"' ShowCondition='GF_MODE &lt;&gt; "remove"' />
+        <Control Id="Sub" Type="Text" X="124" Y="54" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.FinishSub)"
+                 HideCondition='GF_MODE = "remove"' ShowCondition='GF_MODE &lt;&gt; "remove"' />
+        <Control Id="Body" Type="Text" X="124" Y="70" Width="234" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.FinishBody)"
+                 HideCondition='GF_MODE = "remove"' ShowCondition='GF_MODE &lt;&gt; "remove"' />
+        <Control Id="Updater" Type="Text" X="124" Y="110" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.FinishUpdater)"
+                 HideCondition='GF_MODE = "remove" OR NOT (!Updater = 3 OR &amp;Updater = 3)' ShowCondition='GF_MODE &lt;&gt; "remove" AND (!Updater = 3 OR &amp;Updater = 3)' />
+        <Control Id="Auto" Type="Text" X="124" Y="123" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.FinishAuto)"
+                 HideCondition='GF_MODE = "remove" OR NOT (&amp;Updater = 3 AND AUTOUPDATE = "1")' ShowCondition='GF_MODE &lt;&gt; "remove" AND &amp;Updater = 3 AND AUTOUPDATE = "1"' />
+        <Control Id="Joke" Type="Text" X="124" Y="138" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_Joke}!(loc.FinishJoke)"
+                 HideCondition='GF_MODE = "remove"' ShowCondition='GF_MODE &lt;&gt; "remove"' />
+        <Control Id="RTitle" Type="Text" X="122" Y="20" Width="236" Height="34" Transparent="yes" NoPrefix="yes" Text="{\GF_Hero}!(loc.RemovedTitle)"
+                 HideCondition='GF_MODE &lt;&gt; "remove"' ShowCondition='GF_MODE = "remove"' />
+        <Control Id="RSub" Type="Text" X="124" Y="54" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_Joke}!(loc.RemovedSub)"
+                 HideCondition='GF_MODE &lt;&gt; "remove"' ShowCondition='GF_MODE = "remove"' />
+        <Control Id="RBody" Type="Text" X="124" Y="72" Width="234" Height="50" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.RemovedBody)"
+                 HideCondition='GF_MODE &lt;&gt; "remove"' ShowCondition='GF_MODE = "remove"' />
+        <Control Id="Version" Type="Text" X="14" Y="247" Width="150" Height="12" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.VersionLine)" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.Finish)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="UserExitDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfHeroWelcome" />
+        <Control Id="Title" Type="Text" X="122" Y="20" Width="236" Height="34" Transparent="yes" NoPrefix="yes" Text="{\GF_Hero}!(loc.UserExitTitle)" />
+        <Control Id="Sub" Type="Text" X="124" Y="54" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.UserExitSub)" />
+        <Control Id="Body" Type="Text" X="124" Y="72" Width="234" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.UserExitBody)" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.Finish)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FatalErrorDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfHeroOops" />
+        <Control Id="Title" Type="Text" X="122" Y="20" Width="236" Height="34" Transparent="yes" NoPrefix="yes" Text="{\GF_Hero}!(loc.FatalTitle)" />
+        <Control Id="Sub" Type="Text" X="124" Y="54" Width="234" Height="13" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.FatalSub)" />
+        <Control Id="Body" Type="Text" X="124" Y="72" Width="234" Height="62" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.FatalBody)" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.Finish)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <!-- ============================================================ small plain boxes -->
+      <Dialog Id="CancelDlg" Width="260" Height="85" Title="!(loc.DialogTitle)" NoMinimize="yes">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="GfCrestIco" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="200" Height="30" NoPrefix="yes" Text="{\GF_Modal}!(loc.CancelText)" />
+        <Control Id="Yes" Type="PushButton" X="132" Y="57" Width="56" Height="17" Text="!(loc.Yes)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="192" Y="57" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.No)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="NotWowDlg" Width="260" Height="85" Title="!(loc.DialogTitle)" NoMinimize="yes">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="GfCrestIco" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="200" Height="36" NoPrefix="yes" Text="{\GF_Modal}!(loc.NotWowText)" />
+        <Control Id="OK" Type="PushButton" X="192" Y="57" Width="56" Height="17" Default="yes" Cancel="yes" Text="!(loc.OK)">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ErrorDlg" Width="270" Height="105" Title="!(loc.DialogTitle)" ErrorDialog="yes">
+        <Control Id="ErrorIcon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="GfCrestIco" />
+        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="210" Height="60" NoPrefix="yes" TabSkip="no" Text="Information text" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.Yes)">
+          <Publish Event="EndDialog" Value="ErrorYes" />
+        </Control>
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.Cancel)">
+          <Publish Event="EndDialog" Value="ErrorAbort" />
+        </Control>
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.Cancel)">
+          <Publish Event="EndDialog" Value="ErrorCancel" />
+        </Control>
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.Ignore)">
+          <Publish Event="EndDialog" Value="ErrorIgnore" />
+        </Control>
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.No)">
+          <Publish Event="EndDialog" Value="ErrorNo" />
+        </Control>
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.OK)">
+          <Publish Event="EndDialog" Value="ErrorOk" />
+        </Control>
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="!(loc.Retry)">
+          <Publish Event="EndDialog" Value="ErrorRetry" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FilesInUse" Width="370" Height="270" Title="!(loc.DialogTitle)" KeepModeless="yes">
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" FixedSize="yes" IconSize="32" Text="GfCrestIco" />
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="300" Height="40" NoPrefix="yes" Text="{\GF_Modal}!(loc.FilesInUseText)" />
+        <Control Id="List" Type="ListBox" X="20" Y="62" Width="330" Height="160" Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
+        <Control Id="Retry" Type="PushButton" X="180" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.Retry)">
+          <Publish Event="EndDialog" Value="Retry" />
+        </Control>
+        <Control Id="Ignore" Type="PushButton" X="236" Y="243" Width="56" Height="17" Text="!(loc.Ignore)">
+          <Publish Event="EndDialog" Value="Ignore" />
+        </Control>
+        <Control Id="Exit" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Exit)">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+    </UI>
+
+    <UIRef Id="GreenfieldsUIAgain" />
+  </Fragment>
+
+  <!-- A second copy of the "Hang on" page: Try again lands here while still blocked, so the
+       text is drawn fresh (a page can't reload itself). Back and forth between the two. -->
+  <Fragment>
+    <UI Id="GreenfieldsUIAgain">
+      <Dialog Id="InUseAgainDlg" Width="370" Height="270" Title="!(loc.DialogTitle)">
+        <Control Id="Art" Type="Bitmap" X="0" Y="0" Width="370" Height="270" TabSkip="no" Text="GfPageInUse" />
+        <Control Id="Title" Type="Text" X="16" Y="10" Width="330" Height="24" Transparent="yes" NoPrefix="yes" Text="{\GF_Title}!(loc.InUseTitle)" />
+        <Control Id="Sub" Type="Text" X="17" Y="34" Width="330" Height="14" Transparent="yes" NoPrefix="yes" Text="{\GF_Sub}!(loc.InUseSub)" />
+        <Control Id="Body" Type="Text" X="20" Y="72" Width="330" Height="28" Transparent="yes" NoPrefix="yes" Text="{\GF_BodyBold}!(loc.InUseBody)"
+                 HideCondition='GF_BLOCKKIND = "link" OR GF_BLOCKKIND = "denied"' ShowCondition='GF_BLOCKKIND &lt;&gt; "link" AND GF_BLOCKKIND &lt;&gt; "denied"' />
+        <Control Id="BodyLink" Type="Text" X="20" Y="72" Width="330" Height="40" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.InUseLink)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "link"' ShowCondition='GF_BLOCKKIND = "link"' />
+        <Control Id="BodyDenied" Type="Text" X="20" Y="72" Width="330" Height="40" Transparent="yes" NoPrefix="yes" Text="{\GF_Body}!(loc.InUseDenied)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "denied"' ShowCondition='GF_BLOCKKIND = "denied"' />
+        <Control Id="Detail" Type="Text" X="20" Y="118" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Warn}[GF_BLOCKER]" />
+        <Control Id="Hint" Type="Text" X="20" Y="164" Width="330" Height="38" Transparent="yes" NoPrefix="yes" Text="{\GF_Small}!(loc.InUseHint)"
+                 HideCondition='GF_BLOCKKIND &lt;&gt; "held"' ShowCondition='GF_BLOCKKIND = "held"' />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="!(loc.Back)">
+          <Publish Event="NewDialog" Value="SetupDlg" Condition='GF_MODE = "install"' />
+          <Publish Event="NewDialog" Value="MaintenanceDlg" Condition='GF_MODE &lt;&gt; "install"' />
+        </Control>
+        <Control Id="Retry" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="!(loc.TryAgain)">
+          <Publish Event="DoAction" Value="GF_CheckInUse" Order="1" />
+          <Publish Event="Remove" Value="Updater" Order="2" Condition='GF_MODE = "install" AND NOT GF_BLOCKER AND INSTALL_UPDATER &lt;&gt; "1"' />
+          <Publish Event="AddLocal" Value="Updater" Order="3" Condition='GF_MODE = "install" AND NOT GF_BLOCKER AND INSTALL_UPDATER = "1"' />
+          <Publish Event="ReinstallMode" Value="amus" Order="4" Condition='GF_MODE = "repair" AND NOT GF_BLOCKER' />
+          <Publish Event="Reinstall" Value="ALL" Order="5" Condition='GF_MODE = "repair" AND NOT GF_BLOCKER' />
+          <Publish Event="Remove" Value="ALL" Order="6" Condition='GF_MODE = "remove" AND NOT GF_BLOCKER' />
+          <Publish Event="EndDialog" Value="Return" Order="7" Condition="NOT GF_BLOCKER" />
+          <Publish Event="NewDialog" Value="InUseDlg" Order="8" Condition="GF_BLOCKER" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="!(loc.Cancel)">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+    </UI>
+  </Fragment>
+</Wix>

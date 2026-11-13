@@ -24,6 +24,9 @@ the release commit puts CHANGELOG.md, the TOC and Data/Changelog.lua back as the
                                   releases/latest/download/Greenfields.zip is always the newest
        GreenfieldsUpdater.zip     the guild's updater, pre-pointed at this repo's releases
        GreenfieldsUpdater.ps1     updater script (lets old updaters refresh themselves)
+       GreenfieldsSetup.msi       the Windows installer: finds WoW, installs the addon (and the
+                                  updater if wanted). Built by tools/build_msi.py, which needs the
+                                  .NET SDK; --no-msi releases without it
        latest.json                manifest the updater reads (version, url, sha256, notes)
        release.json               BigWigs-packager metadata so WowUp can track the repo
   6. --publish: commits (everything but build output) + tags + pushes the source, creates the
@@ -60,6 +63,7 @@ API = "https://api.github.com"
 UPLOADS = "https://uploads.github.com/"
 ZIP_TIME = (2026, 1, 1, 0, 0, 0)   # fixed timestamps: same source -> byte-identical zips
 STABLE_ZIP = "Greenfields.zip"     # the link /gf install hands out (Core/Update.lua)
+MSI_NAME = "GreenfieldsSetup.msi"  # the Windows installer (tools/build_msi.py); same name every release
 COMMIT_TRAILER = "Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"
 
 VERSION_RE = re.compile(r"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$")
@@ -379,7 +383,7 @@ def build_updater_zip(zip_path, manifest_url):
         z.writestr(zip_info("GreenfieldsUpdater/updater.json"), cfg, compresslevel=9)
 
 
-def package(version, notes, repo, base_url):
+def package(version, notes, repo, base_url, msi=False):
     out = os.path.join(ROOT, "dist", version)
     os.makedirs(out, exist_ok=True)
     addon_zip = os.path.join(out, "Greenfields-%s.zip" % version)
@@ -428,6 +432,17 @@ def package(version, notes, repo, base_url):
                                  "metadata": [{"flavor": "forever", "interface": interface},
                                               {"flavor": "mainline", "interface": interface}]}]}, f, indent=2)
     print("  %s: %d files" % (os.path.basename(addon_zip), count))
+
+    msi_path = os.path.join(out, MSI_NAME)
+    if msi:
+        sys.path.insert(0, os.path.join(ROOT, "tools"))
+        import build_msi   # the installer holds exactly what addon_zip holds
+        try:
+            build_msi.build(version, out, addon_zip, upd_zip)
+        except build_msi.BuildError as e:
+            die("couldn't build the Windows installer: %s\n(release without it: add --no-msi)" % e)
+    elif os.path.exists(msi_path):
+        os.remove(msi_path)   # never upload an installer left over from an older build of this version
     return out, manifest
 
 
@@ -612,11 +627,18 @@ def publish(version, out, notes, repo, st, progress):
     print("  pushed %s and %s" % (st["branch"], tag))
 
     resume = "\nThe tag is pushed; run  python tools/release.py --rebuild --publish  to finish the release."
+    has_msi = os.path.exists(os.path.join(out, MSI_NAME))
     try:
         body = "\n".join("- " + n for n in notes) or "- " + DEFAULT_NOTE
-        body += ("\n\n**Guildies:** run *Update Greenfields* (or turn on auto updates), then restart WoW."
-                 "\n**First time?** Download `GreenfieldsUpdater.zip`, unzip it, double-click *Update Greenfields*."
-                 "\n**On a Mac, or doing it by hand?** Download `Greenfields.zip`, unzip it and drag the folder with "
+        body += "\n\n**Guildies:** run *Update Greenfields* (or turn on auto updates), then restart WoW."
+        if has_msi:
+            body += ("\n**First time on Windows?** Download `%s` and double-click it. It finds WoW and does the rest. "
+                     "If Windows says it protected your PC, click *More info*, then *Run anyway* (it isn't signed)."
+                     "\n**Rather not run an installer?** Download `GreenfieldsUpdater.zip`, unzip it, double-click "
+                     "*Update Greenfields*." % MSI_NAME)
+        else:
+            body += "\n**First time?** Download `GreenfieldsUpdater.zip`, unzip it, double-click *Update Greenfields*."
+        body += ("\n**On a Mac, or doing it by hand?** Download `Greenfields.zip`, unzip it and drag the folder with "
                  "`Greenfields.toc` directly inside it into `World of Warcraft/_forever_/Interface/AddOns`, replacing any old one.")
         rel = st["release"] or find_release(repo, tag, token)
         if not rel:
@@ -629,14 +651,15 @@ def publish(version, out, notes, repo, st, progress):
             die("GitHub gave an unexpected upload address: %s" % upload)
         existing = {a.get("name"): a.get("id") for a in rel.get("assets") or [] if isinstance(a, dict)}
         names = ["Greenfields-%s.zip" % version, STABLE_ZIP, "GreenfieldsUpdater.zip", "GreenfieldsUpdater.ps1",
-                 "release.json", "latest.json"]  # latest.json last: updaters only see a complete release
+                 "release.json"] + ([MSI_NAME] if has_msi else []) + \
+                ["latest.json"]  # latest.json last: updaters only see a complete release
         if "latest.json" in existing:  # a live manifest must never point at files being replaced
             gh_api("DELETE", "%s/repos/%s/releases/assets/%s" % (API, repo, existing.pop("latest.json")), token)
         for name in names:
             if existing.get(name):
                 gh_api("DELETE", "%s/repos/%s/releases/assets/%s" % (API, repo, existing[name]), token)
-            ctype = {"zip": "application/zip", "json": "application/json"}.get(name.rsplit(".", 1)[-1],
-                                                                              "application/octet-stream")
+            ctype = {"zip": "application/zip", "json": "application/json", "msi": "application/x-msi"}.get(
+                name.rsplit(".", 1)[-1], "application/octet-stream")
             gh_api("POST", upload + "?name=" + urllib.parse.quote(name), token,
                    data=read_bytes(os.path.join(out, name)), content_type=ctype)
             print("  uploaded " + name)
@@ -661,6 +684,8 @@ def main():
     ap.add_argument("--note", action="append", default=[],
                     help="extra release note (repeatable); added to the CHANGELOG Unreleased notes")
     ap.add_argument("--skip-checks", action="store_true")
+    ap.add_argument("--no-msi", action="store_true",
+                    help="don't build the Windows installer (GreenfieldsSetup.msi); it needs the .NET SDK")
     ap.add_argument("--publish", action="store_true")
     ap.add_argument("--base-url", help="host the files somewhere other than GitHub (the URL they'll be served from)")
     args = ap.parse_args()
@@ -721,7 +746,7 @@ def main():
 
         if not args.skip_checks:
             run_checks()
-        out, manifest = package(version, notes, repo, args.base_url)
+        out, manifest = package(version, notes, repo, args.base_url, msi=not args.no_msi)
         print("Packaged in %s (addon sha256 %s)" % (out, manifest["sha256"][:16]))
         if args.publish:
             publish(version, out, notes, repo, state, progress)

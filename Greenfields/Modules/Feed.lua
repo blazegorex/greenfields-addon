@@ -68,6 +68,8 @@ local KINDS = {
     sr = { label = "Soft res", icon = "dice", color = "blue" },
     raid = { label = "Raid", icon = "calendar", color = "blue" },
     prof = { label = "Tradie", icon = "hammer", color = "blue", toast = true, headline = "Fully licensed" },
+    wanted = { label = "Wanted", icon = "skull", color = "red", warn = true, headline = "Most wanted" },
+    bounty = { label = "Bounty", icon = "coin", color = "gold", toast = true, headline = "Bounty collected" },
     misc = { label = "Street talk", icon = "bubble", color = "dim" },
 }
 Feed.KINDS = KINDS
@@ -795,6 +797,8 @@ local FILTERS = {
       empty = "No crowns have changed hands. The throne's gathering dust." },
     { key = "levels", text = "Levels", kinds = { level = true, prof = true },
       empty = "Nobody's dinged lately. Too busy fishing off the jetty." },
+    { key = "wanted", text = "Wanted", kinds = { wanted = true, bounty = true },
+      empty = "Nobody's been done over. Either the Alliance are scared or they're asleep." },
     { key = "locals", text = "Locals", kinds = { join = true, leave = true, death = true, misc = true },
       empty = "No comings or goings. The curtains haven't twitched all week." },
 }

@@ -1,0 +1,9 @@
+<Project>
+  <!-- Keep every build product out of the source tree: release.py runs `git add -A`, and dist/ is
+       gitignored. tools/build_msi.py copies the finished MSI into dist/<version>/. -->
+  <PropertyGroup>
+    <GfBuildRoot>$([System.IO.Path]::GetFullPath('$(MSBuildThisFileDirectory)..\dist\_msi_build\'))</GfBuildRoot>
+    <BaseIntermediateOutputPath>$(GfBuildRoot)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(GfBuildRoot)bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+</Project>

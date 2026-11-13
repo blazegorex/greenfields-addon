@@ -483,7 +483,7 @@ function Install-Into([string]$ad, $archive, [string]$latest, [string]$stamp) {
         catch {
             $why = Get-Why $_
             try { Remove-Tree $stage } catch { }
-            throw ("Greenfields in {0} is in use, so it can't be replaced right now ({1}). Close WoW (and anything else that has Greenfields files open), then run Update Greenfields again. Nothing was changed." -f $flavor, $why)
+            throw ("Greenfields in {0} is in use, so it can't be replaced right now ({1}). Close WoW and any Explorer windows showing the Greenfields folder, then run Update Greenfields again. Nothing was changed." -f $flavor, $why)
         }
     }
     try { [IO.Directory]::Move($stage, $dest) }

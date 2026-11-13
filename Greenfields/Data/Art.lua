@@ -23,6 +23,7 @@ GF.Art = {
         settings = "Interface\\AddOns\\Greenfields\\Media\\art\\hero_settings",
         softres = "Interface\\AddOns\\Greenfields\\Media\\art\\hero_softres",
         tradies = "Interface\\AddOns\\Greenfields\\Media\\art\\hero_tradies",
+        wanted = "Interface\\AddOns\\Greenfields\\Media\\art\\hero_wanted",
     },
     crest = "Interface\\AddOns\\Greenfields\\Media\\art\\crest",
     titles = {

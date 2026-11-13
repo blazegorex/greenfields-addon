@@ -1,0 +1,175 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Greenfields installer: what goes where, and when the custom actions run.
+  The dialogs are in UI.wxs, every word players read is in Strings.wxl.
+
+  Per-user on purpose: no admin prompt. Blizzard gives every user full control of the
+  World of Warcraft folder, and the updater (and its auto update task) are per-user too.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <Package Name="Greenfields"
+           Manufacturer="!(loc.Manufacturer)"
+           Version="$(var.Version)"
+           UpgradeCode="B64CAE9D-2705-408F-8E94-36886AE4BBF9"
+           Scope="perUser"
+           Compressed="yes"
+           InstallerVersion="500">
+    <SummaryInformation Description="!(loc.SummaryDescription)" Keywords="Greenfields, WoW, addon, installer" />
+
+    <!-- A newer installer replaces an older one; running the same version again offers Reinstall/Remove.
+         Rebuilds of one version replace each other too (AllowSameVersionUpgrades). -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="!(loc.Downgrade)" />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <!-- Add/Remove Programs -->
+    <Icon Id="crest.ico" SourceFile="$(var.ArtDir)\crest.ico" />
+    <Property Id="ARPPRODUCTICON" Value="crest.ico" />
+    <Property Id="ARPHELPLINK" Value="$(var.HelpUrl)" />
+    <Property Id="ARPURLINFOABOUT" Value="$(var.HelpUrl)" />
+    <Property Id="ARPCOMMENTS" Value="!(loc.ArpComments)" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <!-- Every file is always copied (a wiped-and-refilled Greenfields folder, never a half-old one),
+         and Windows never offers to close WoW for us: CheckInUse asks the player to. -->
+    <Property Id="REINSTALLMODE" Value="amus" />
+    <Property Id="MSIRESTARTMANAGERCONTROL" Value="Disable" />
+
+    <!-- Choices on the setup page (and for a silent install: INSTALL_UPDATER=0, AUTOUPDATE=0) -->
+    <Property Id="INSTALL_UPDATER" Value="1" Secure="yes" />
+    <Property Id="AUTOUPDATE" Value="1" Secure="yes" />
+    <Property Id="GF_MODE" Value="install" />
+    <!-- Test hook: only look at WOWDIR, never search the PC (used by the installer tests) -->
+    <Property Id="GF_NOSEARCH" Secure="yes" />
+    <Property Id="WOWDIR" Secure="yes" />
+    <Property Id="GF_ADDONDIR" Secure="yes" />
+    <Property Id="GF_WOWOK" Secure="yes" />
+
+    <!-- Remembered from the last install: where WoW is, and what was ticked -->
+    <Property Id="GF_SAVEDWOWDIR">
+      <RegistrySearch Id="SavedWowDir" Root="HKCU" Key="Software\Greenfields\Installer" Name="WowDir" Type="raw" />
+    </Property>
+    <Property Id="GF_HADUPDATER">
+      <RegistrySearch Id="HadUpdater" Root="HKCU" Key="Software\Greenfields\Installer" Name="Updater" Type="raw" />
+    </Property>
+    <Property Id="GF_HADAUTO">
+      <RegistrySearch Id="HadAuto" Root="HKCU" Key="Software\Greenfields\Installer" Name="AutoUpdate" Type="raw" />
+    </Property>
+    <SetProperty Id="INSTALL_UPDATER" Value="{}" After="AppSearch" Sequence="first"
+                 Condition="GF_SAVEDWOWDIR AND NOT GF_HADUPDATER AND NOT Installed" />
+    <SetProperty Id="AUTOUPDATE" Value="{}" After="AppSearch" Sequence="first"
+                 Condition='GF_SAVEDWOWDIR AND (NOT GF_HADUPDATER OR GF_HADAUTO &lt;&gt; "1") AND NOT Installed' />
+
+    <UIRef Id="GreenfieldsUI" />
+
+    <Feature Id="Addon" Title="Greenfields" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="AddonFiles" />
+      <ComponentRef Id="AddonState" />
+    </Feature>
+    <Feature Id="Updater" Title="Greenfields Updater" Level="1">
+      <Level Value="0" Condition='INSTALL_UPDATER = "0"' />
+      <ComponentRef Id="UpdaterFiles" />
+      <ComponentRef Id="UpdaterShortcut" />
+    </Feature>
+
+    <!-- ===================================================================== custom actions -->
+    <Binary Id="GfCA" SourceFile="$(var.GreenfieldsCA.TargetDir)$(var.GreenfieldsCA.TargetName).CA.dll" />
+    <CustomAction Id="GF_FindWow" BinaryRef="GfCA" DllEntry="FindWow" Execute="immediate" Return="check" />
+    <CustomAction Id="GF_CheckWowDir" BinaryRef="GfCA" DllEntry="CheckWowDir" Execute="immediate" Return="check" />
+    <CustomAction Id="GF_CheckInUse" BinaryRef="GfCA" DllEntry="CheckInUse" Execute="immediate" Return="check" />
+    <CustomAction Id="GF_NoWow" Error="!(loc.ErrNoWow)" />
+    <CustomAction Id="GF_Blocked" Error="!(loc.ErrBlocked)" />
+    <CustomAction Id="GF_EnableAutoUpdates" BinaryRef="GfCA" DllEntry="EnableAutoUpdates"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <SetProperty Id="GF_EnableAutoUpdates" Before="GF_EnableAutoUpdates" Sequence="execute"
+                 Value="SCRIPT=[UPDATERAPPDIR]GreenfieldsUpdater.ps1;WOWDIR=[WOWDIR]" />
+    <CustomAction Id="GF_RemoveAutoUpdates" BinaryRef="GfCA" DllEntry="RemoveAutoUpdates"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <CustomAction Id="GF_RemoveUpdaterData" BinaryRef="GfCA" DllEntry="RemoveUpdaterData"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+
+    <InstallUISequence>
+      <Custom Action="GF_FindWow" After="AppSearch" />
+    </InstallUISequence>
+    <InstallExecuteSequence>
+      <!-- before CostInitialize, so the Greenfields folder (and RemoveFolderEx) point at the right WoW -->
+      <Custom Action="GF_FindWow" After="AppSearch" />
+      <Custom Action="GF_NoWow" After="GF_FindWow" Condition='NOT Installed AND GF_WOWOK &lt;&gt; "1"' />
+      <Custom Action="GF_CheckInUse" Before="InstallValidate" />
+      <Custom Action="GF_Blocked" After="GF_CheckInUse" Condition="GF_BLOCKER" />
+      <!-- a real uninstall of the updater (not the old copy going during an upgrade) -->
+      <Custom Action="GF_RemoveAutoUpdates" Before="RemoveFiles"
+              Condition="(&amp;Updater = 2) AND (!Updater = 3) AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="GF_RemoveUpdaterData" After="RemoveFiles"
+              Condition="(&amp;Updater = 2) AND (!Updater = 3) AND NOT UPGRADINGPRODUCTCODE" />
+      <Custom Action="GF_EnableAutoUpdates" After="InstallFiles"
+              Condition='(&amp;Updater = 3) AND AUTOUPDATE = "1"' />
+    </InstallExecuteSequence>
+  </Package>
+
+  <!-- ======================================================================= where things go -->
+  <Fragment>
+    <!-- GF_FindWow / the Browse page set WOWDIR to the World of Warcraft folder. Under
+         ProgramFilesFolder only because that's Blizzard's default (and stable component ids need a
+         standard root); the install always goes wherever WOWDIR points. -->
+    <StandardDirectory Id="ProgramFilesFolder">
+      <Directory Id="WOWDIR" Name="World of Warcraft">
+        <Directory Id="FOREVERDIR" Name="_forever_">
+          <Directory Id="INTERFACEDIR" Name="Interface">
+            <Directory Id="ADDONSDIR" Name="AddOns">
+              <Directory Id="ADDONDIR" Name="Greenfields" />
+            </Directory>
+          </Directory>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- The updater lives where its auto update task already expects it -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="UPDATERDIR" Name="GreenfieldsUpdater">
+        <Directory Id="UPDATERAPPDIR" Name="app" />
+      </Directory>
+    </StandardDirectory>
+  </Fragment>
+
+  <Fragment>
+    <!-- The addon, laid out exactly as in Greenfields.zip -->
+    <ComponentGroup Id="AddonFiles" Directory="ADDONDIR">
+      <Files Include="$(var.AddonSrc)\**" />
+    </ComponentGroup>
+
+    <!-- Remembers the WoW folder for repair/uninstall/upgrades, and empties the Greenfields folder
+         before the new copy goes in (and on uninstall), so no stale file from an older version is
+         left behind. Only ever the Greenfields folder: never WTF, never another addon. -->
+    <Component Id="AddonState" Directory="ADDONDIR" Guid="2FE3E2F1-72B0-4CF5-9E2D-9D45E9388BA4">
+      <RegistryValue Root="HKCU" Key="Software\Greenfields\Installer" Name="WowDir" Type="string" Value="[WOWDIR]" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Greenfields\Installer" Name="Version" Type="string" Value="$(var.Version)" />
+      <util:RemoveFolderEx Id="WipeAddonDir" On="both" Property="GF_ADDONDIR" />
+    </Component>
+  </Fragment>
+
+  <Fragment>
+    <Component Id="UpdaterFiles" Directory="UPDATERAPPDIR" Guid="35025FCF-880A-4E10-8018-294E07403009">
+      <RegistryValue Root="HKCU" Key="Software\Greenfields\Installer" Name="Updater" Type="string" Value="1" KeyPath="yes" />
+      <RegistryValue Root="HKCU" Key="Software\Greenfields\Installer" Name="AutoUpdate" Type="string" Value="[AUTOUPDATE]" />
+      <File Id="UpdaterPs1" Source="$(var.UpdaterSrc)\GreenfieldsUpdater.ps1" />
+      <File Id="UpdaterJson" Source="$(var.UpdaterSrc)\updater.json" />
+      <File Id="UpdaterReadme" Source="$(var.UpdaterSrc)\README.txt" />
+      <File Id="UpdateCmd" Source="$(var.UpdaterSrc)\Update Greenfields.cmd" />
+      <File Id="TurnOnCmd" Source="$(var.UpdaterSrc)\Turn On Auto Updates.cmd" />
+      <File Id="TurnOffCmd" Source="$(var.UpdaterSrc)\Turn Off Auto Updates.cmd" />
+      <RemoveFolder Id="RemoveUpdaterAppDir" Directory="UPDATERAPPDIR" On="uninstall" />
+      <RemoveFolder Id="RemoveUpdaterDir" Directory="UPDATERDIR" On="uninstall" />
+    </Component>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Component Id="UpdaterShortcut" Guid="85F72CAC-FF6B-4240-8DB9-B9D5A8ADFF55">
+        <Shortcut Id="UpdateGreenfieldsShortcut" Name="Update Greenfields" Description="!(loc.ShortcutDescription)"
+                  Target="[UPDATERAPPDIR]Update Greenfields.cmd" WorkingDirectory="UPDATERAPPDIR" Icon="crest.ico" />
+        <RegistryValue Root="HKCU" Key="Software\Greenfields\Installer" Name="Shortcut" Type="string" Value="1" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+  </Fragment>
+</Wix>

@@ -154,7 +154,7 @@ Read the file; every function is documented there. The most used:
 
 ### 2.4 SavedVariables (Core/DB.lua)
 
-- **`GF.db.settings`:** account-wide toggles. Existing keys: `toasts`, `toastSounds`, `feedToasts`, `welcome`, `minimap`, `shareWealth`, `wipeRoastsLocal`, `wipeRoastsRaid`, `srAutoAnnounce`, `srPopups`, `campPings`, `tooltipSR`, `tooltipCrafters`, `tooltipTitles`, `scale`, `debug`.
+- **`GF.db.settings`:** account-wide toggles. Existing keys: `toasts`, `toastSounds`, `feedToasts`, `welcome`, `minimap`, `shareWealth`, `wipeRoastsLocal`, `wipeRoastsRaid`, `srAutoAnnounce`, `srPopups`, `campPings`, `tooltipSR`, `tooltipCrafters`, `tooltipTitles`, `wantedPosters`, `wantedSightings`, `tooltipWanted`, `scale`, `debug`.
   - Read them with `GF.db.settings.X ~= false` for default-on toggles.
   - If you need a new toggle, keep it inside your own table: `GF.db.settings.myModule = GF.db.settings.myModule or {}`.
 - **`GF.gdb`:** per-guild partition. Holds `store` (replicated), `feed`, and `local`. Use `GF.DB:Local("ModuleName")` for a per-guild, non-replicated scratch table.
@@ -185,6 +185,7 @@ Read the file; every function is documented there. The most used:
 | Buffs | `CP`, `CA`, `BQ` |
 | Raids | `RQ` |
 | Attendance | `AQ` |
+| Most Wanted | `WS` (a wanted enemy sighted) |
 
   Use only your own ops. Ask in your report if you need another.
 
@@ -220,6 +221,7 @@ GF.Store:Mine(name)  GF.Store:PutMine(name, data)  GF.Store:CanWrite(name, id, d
 | Stats | `stats`/`st` |
 | Professions | `recipes`/`rc`, `crafts`/`cr` |
 | Buffs | `camp`/`cm` |
+| Most Wanted | `wanted`/`wn` (a doc per death or claim) |
 | Feed | none (ephemeral) |
 
 ### 2.7 GF.Roster (Core/Roster.lua)
@@ -394,10 +396,17 @@ Every function must return safe defaults (an empty table, nil or 0) when there i
 
 ### GF.Feed (Modules/Feed.lua)
 - `GF.Feed:Post(kind, text, opts)` broadcasts to the guild and records the post locally.
-  - `kind` is one of: `level`, `loot`, `kill`, `wipe`, `title`, `badge`, `join`, `leave`, `death`, `camp`, `sr`, `raid`, `prof`, `misc`.
+  - `kind` is one of: `level`, `loot`, `kill`, `wipe`, `title`, `badge`, `join`, `leave`, `death`, `camp`, `sr`, `raid`, `prof`, `wanted`, `bounty`, `misc`.
   - `opts`: `{icon, toast = bool, localOnly = bool, key = dedupeKey}`.
   - The text is plain and may contain item links and colour codes.
 - `GF.Feed:Recent(n)` → array, newest first: `{kind, text, t, from, icon}`.
+
+### GF.Nemesis (Modules/Nemesis*.lua)
+- `GF.Nemesis:Board()` → `{ wanted = {entries}, dealt = {entries}, byName = {}, hunters = {rows}, hunterOf = {} }`. An entry is one enemy: `{name, race, raceName, class, sex, level, guild, status = "wanted"|"dealt"|"cold", bounty, open, spread, dogs, priors, victims, history, lastClaim, seen}`.
+- `GF.Nemesis:Get(name)` → entry or nil. `GF.Nemesis:NemesisOf(key)` → the entry that's killed that guildie (and their alts) the most, and how many times.
+- `GF.Nemesis:HunterOf(key)` → `{key, points, claims, assists, revenge, best}` or nil (alts roll up to their main).
+- `GF.Nemesis:Mug(entry)` → texture, left, right, top, bottom: the mugshot. `:Describe(entry)` → "Night Elf Rogue, level 34". `:PointsText(n)`.
+- Fires `GF_WANTED_CHANGED` when the board moves, `GF_WANTED_DEATH(entry, docId, why)` for your own death, `GF_WANTED_CLAIMED(entry, points, revenge)` when you collect, `GF_WANTED_SEEN(entry)` on a sighting.
 
 ### GF.UI (Modules/Residents.lua)
 - `GF.UI:OpenProfile(key)` opens the profile view for a player.

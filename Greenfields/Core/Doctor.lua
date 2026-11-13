@@ -262,6 +262,9 @@ local DOCTOR = {
         for _, p in ipairs(API.Professions()) do profs[#profs + 1] = ("%s(%s) %d/%d"):format(p.name, tostring(p.skillLine), p.rank or 0, p.max or 0) end
         add("Professions: %s", #profs > 0 and table.concat(profs, ", ") or "none read")
     end },
+    { "Most Wanted", function(add)
+        if GF.Nemesis and GF.Nemesis.DoctorLines then GF.Nemesis:DoctorLines(add) else add("Most Wanted: not loaded") end
+    end },
     { "Instance", function(add)
         local inst = API.InstanceInfo()
         add("Instance: %s (%s), in raid %s, chat lockdown %s, in combat %s",

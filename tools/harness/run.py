@@ -2559,6 +2559,321 @@ def scenario_forever(res):
     return sim
 
 
+def scenario_wanted(res, render_dir):
+    """Most Wanted (Modules/Nemesis*.lua): an enemy player kills guildies, the poster goes up on every
+    client, the bounty climbs, a guildie collects it, a hand in it counts, revenge counts double, and
+    nobody gets put on a poster for walking past a mob that killed you."""
+    sc = res.scenario("wanted")
+    t0 = time.time()
+
+    def check(name, ok, got=None):
+        sc["checks"].append({"name": name, "ok": bool(ok), "got": got})
+        if not ok:
+            sc["status"] = "fail"
+            sc["notes"].append(name)
+            res.harness_failures.append("wanted: %s (got %r)" % (name, got))
+
+    sim = Sim(3, "wanted")
+    spencer, bazza, shazza = sim.clients[:3]
+    for c in sim.clients:
+        c.set_scenario("wanted")
+        sim.login(c)
+    sim.advance(60)
+    scene_dir = None
+    if render_dir:
+        scene_dir = os.path.join(render_dir, "scenes")
+        os.makedirs(scene_dir, exist_ok=True)
+
+    mine = spencer.eval_json("UnitFactionGroup('player')")
+    enemy = "Horde" if mine == "Alliance" else "Alliance"
+
+    def stranger(name, **kw):
+        rec = {"name": name, "race": "NightElf", "class": "ROGUE", "faction": enemy, "level": 60, "sex": 2,
+               "guid": "Player-1-0A11%04X" % (sum(map(ord, name)) % 65536), "guildName": "Darnassus Neighbourhood Watch"}
+        rec.update(kw)
+        return rec
+
+    def put(c, token, rec):
+        c.Game.SetUnit(token, c.rt.execute("return " + to_lua(rec)) if rec is not None else None)
+
+    def board(c, expr):
+        return c.eval_json("(function() local N = Greenfields.Nemesis local b = N:Board() return %s end)()" % expr)
+
+    def guid(c):
+        return c.MOCK.world.byName[c.name].guid
+
+    def honour(c, name):
+        c.Game.DeliverChat("CHAT_MSG_COMBAT_HONOR_GAIN", "%s dies, honorable kill Rank: Private (Estimated Honor Points: 12)" % name, "")
+
+    thrandor = stranger("Thrandor", targets=spencer.name)
+
+    # --- the points rule, on its own ---------------------------------------------------
+    pts = spencer.eval_json("(function() local a, b, c = Greenfields.Nemesis.PointsFor({ {v='Kev', l=60, vl=45}, "
+                            "{v='Kev', l=60, vl=60}, {v='Trish'} }) return {a, b, c} end)()")
+    check("points: 1 a body, +1 a different guildie, +1 a dog act", pts == [5, 2, 1], pts)
+    skull = spencer.eval_json("(function() local a, b, c = Greenfields.Nemesis.PointsFor({ {v='Kev', l=-1, vl=20} }) return {a, c} end)()")
+    check("points: a ?? level is a dog act", skull == [2, 1], skull)
+
+    # --- Spencer gets done over by someone with him targeted ------------------------------
+    put(spencer, "nameplate1", thrandor)
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(5)
+    doc = spencer.eval_json("(function() for id, d in pairs(Greenfields.Store:All('wanted')) do if d.e == 'Thrandor' then "
+                            "return {v = d.v, r = d.r, c = d.c, s = d.s, g = d.g, k = d.k} end end end)()")
+    check("death: the killer goes on the board, described", doc == {"v": spencer.name, "r": "nightelf", "c": "ROGUE", "s": 2,
+          "g": "Darnassus Neighbourhood Watch", "k": "d"}, doc)
+    check("death: why it was them", spencer.eval_json("Greenfields.Nemesis.diag.why") == "had you targeted",
+          spencer.eval_json("Greenfields.Nemesis.diag.why"))
+    check("death: the poster drops", spencer.eval_json("(function() for _, f in ipairs({UIParent:GetChildren()}) do "
+          "if f.poster and f:IsShown() then return true end end return false end)()") is True)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-death.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-death.png"), crop_frame="(screen)")
+    spencer.Game.Release()
+    sim.advance(1)
+    spencer.Game.Resurrect()
+    put(spencer, "nameplate1", None)
+    sim.advance(10)
+    check("death: synced to the street", board(bazza, "N:Get('Thrandor') and N:Get('Thrandor').bounty") == 1,
+          board(bazza, "N:Get('Thrandor') and N:Get('Thrandor').bounty"))
+    check("death: Spencer's nemesis", spencer.eval_json("(function() local p, n = Greenfields.Nemesis:NemesisOf('%s') "
+          "return p and p.name .. ':' .. n end)()" % spencer.name) == "Thrandor:1")
+
+    # --- Shazza: nobody targeted, but he's the only one about and still standing there --------
+    shazza.Game.Die()
+    sim.advance(0.2)
+    put(shazza, "nameplate2", stranger("Thrandor"))
+    sim.advance(5)
+    check("death: the only enemy about counts", board(shazza, "N:Get('Thrandor') and N:Get('Thrandor').bounty") == 3,
+          board(shazza, "N:Get('Thrandor') and N:Get('Thrandor').bounty"))
+    shazza.Game.Release()
+    shazza.Game.Resurrect()
+    put(shazza, "nameplate2", None)
+
+    # --- Bazza dies to a mob while an innocent walks past: nobody goes on a poster ----------
+    put(bazza, "target", {"name": "Kobold Tunneler", "npc": True, "hostile": True, "guid": "Creature-0-1-0-1-475-0001"})
+    put(bazza, "nameplate3", stranger("Innocent", race="Human", **{"class": "PRIEST"}))
+    sim.advance(1)
+    bazza.Game.Die()
+    sim.advance(5)
+    check("death: a mob kill puts nobody on a poster", board(bazza, "N:Get('Innocent') == nil") is True)
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    put(bazza, "target", None)
+    put(bazza, "nameplate3", None)
+    sim.advance(10)
+
+    # --- a sighting: Bazza sees him, the street hears ------------------------------------
+    put(bazza, "nameplate1", stranger("Thrandor"))
+    sim.advance(5)
+    seen = board(spencer, "N:Get('Thrandor') and N:Get('Thrandor').seen and N:Get('Thrandor').seen.by")
+    check("sighting: the street knows where he was", seen == bazza.name, seen)
+
+    # --- Bazza collects; Spencer had a hand in it ------------------------------------------
+    bazza.fire("PARTY_KILL", guid(bazza), thrandor["guid"])
+    honour(bazza, "Thrandor")
+    honour(spencer, "Thrandor")
+    sim.advance(10)
+    put(bazza, "nameplate1", None)
+    hunters = board(shazza, "(function() local out = {} for _, h in ipairs(b.hunters) do out[#out + 1] = h.key .. '=' .. h.points end return out end)()")
+    check("collect: the killing blow takes the lot, a hand in it gets one", hunters == [bazza.name + "=3", spencer.name + "=1"], hunters)
+    check("collect: the poster's stamped", board(shazza, "N:Get('Thrandor').status") == "dealt")
+    check("collect: the street's told", spencer.eval_json("(function() for _, e in ipairs(Greenfields.Feed:Recent(20)) do "
+          "if e.kind == 'bounty' then return true end end return false end)()") is True)
+
+    # --- revenge: he does Spencer again, Spencer drops him -----------------------------------
+    put(spencer, "nameplate1", thrandor)
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(5)
+    spencer.Game.Release()
+    spencer.Game.Resurrect()
+    sim.advance(2)
+    spencer.fire("PARTY_KILL", guid(spencer), thrandor["guid"])
+    sim.advance(1)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-collect.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-collect.png"), crop_frame="(screen)")
+    sim.advance(10)
+    put(spencer, "nameplate1", None)
+    rev = board(bazza, "(function() local h = b.hunterOf['%s'] return h and {h.points, h.revenge} end)()" % spencer.name)
+    check("revenge: worth one more", rev == [3, 1], rev)
+
+    # --- a killing blow the client won't name: the honour line does ---------------------------
+    put(bazza, "nameplate1", stranger("Thrandor", targets=bazza.name))
+    sim.advance(1)
+    bazza.Game.Die()
+    sim.advance(5)
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    put(bazza, "nameplate1", None)
+    sim.advance(10)
+    put(shazza, "target", stranger("Thrandor"))
+    sim.advance(1)
+    shazza.fire("PARTY_KILL", guid(shazza), None)
+    honour(shazza, "Thrandor")
+    put(shazza, "target", None)
+    sim.advance(10)
+    sh = board(spencer, "(function() local h = b.hunterOf['%s'] return h and h.claims end)()" % shazza.name)
+    check("hidden target: the honour line names him", sh == 1, sh)
+
+    # --- the death recap names a killer nobody saw -------------------------------------------
+    ghost = stranger("Shadowstep", race="Orc" if enemy == "Horde" else "Human", **{"class": "ROGUE"})
+    bazza.MOCK["deathRecap"] = bazza.rt.execute("return " + to_lua([
+        {"timestamp": 2, "sourceGUID": ghost["guid"], "sourceName": "Shadowstep", "amount": 900, "overkill": 120},
+        {"timestamp": 1, "sourceGUID": ghost["guid"], "sourceName": "Shadowstep", "amount": 400, "overkill": -1}]))
+    # on a token nothing reads, so only GetPlayerInfoByGUID can find him
+    bazza.Game.SetUnit("arena1", bazza.rt.execute("return " + to_lua(ghost)))
+    bazza.Game.Die()
+    sim.advance(5)
+    bazza.Game.SetUnit("arena1", None)
+    bazza.MOCK["deathRecap"] = None
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    rec = board(bazza, "N:Get('Shadowstep') and N:Get('Shadowstep').class")
+    check("death recap: names the killer nobody saw", rec == "ROGUE" and bazza.eval_json("Greenfields.Nemesis.diag.recap") == "named the killer",
+          [rec, bazza.eval_json("Greenfields.Nemesis.diag.recap")])
+    sim.advance(5)
+
+    # --- "Wasn't them" --------------------------------------------------------------------
+    put(spencer, "nameplate1", stranger("Wrongun", race="Gnome", **{"class": "MAGE", "targets": spencer.name}))
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(5)
+    spencer.Game.Release()
+    spencer.Game.Resurrect()
+    put(spencer, "nameplate1", None)
+    rid = spencer.eval_json("(function() for id, d in pairs(Greenfields.Store:All('wanted')) do if d.e == 'Wrongun' then return id end end end)()")
+    spencer.lua("Greenfields.Nemesis:Retract(...)", rid)
+    sim.advance(10)
+    check("wasn't them: the poster comes down everywhere", board(bazza, "N:Get('Wrongun') == nil") is True)
+
+    # --- a few more faces, so the wall has posters on it ---------------------------------------
+    crew = [("Brightblade", "Human", "PALADIN", 3), ("Grumblebeard", "Dwarf", "HUNTER", 2), ("Fizzlecrank", "Gnome", "WARLOCK", 3),
+            ("Aeryndil", "Skyborne", "DRUID", 2), ("Moonshadow", "NightElf", "PRIEST", 1)]
+    for i, (name, race, cls, times) in enumerate(crew):
+        for k in range(times):
+            victim = sim.clients[(i + k) % 3]
+            put(victim, "nameplate4", stranger(name, race=race, sex=3 if i % 2 else 2, targets=victim.name, **{"class": cls}))
+            sim.advance(1)
+            victim.Game.Die()
+            sim.advance(5)
+            victim.Game.Release()
+            victim.Game.Resurrect()
+            put(victim, "nameplate4", None)
+            sim.advance(1)
+    sim.advance(10)
+    wall = board(spencer, "#b.wanted")
+    check("wall: every face is up", wall == len(crew) + 1, wall)     # and Shadowstep, from the recap
+
+    # --- quick revenge: dropped a second after the death, before its report's even written ------
+    put(spencer, "nameplate5", stranger("Quickdraw", targets=spencer.name))
+    put(bazza, "nameplate5", stranger("Quickdraw"))
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(1)
+    bazza.fire("PARTY_KILL", guid(bazza), stranger("Quickdraw")["guid"])
+    sim.advance(15)
+    spencer.Game.Release()
+    spencer.Game.Resurrect()
+    put(spencer, "nameplate5", None)
+    put(bazza, "nameplate5", None)
+    quick = board(shazza, "N:Get('Quickdraw') and N:Get('Quickdraw').status")
+    check("quick revenge: the kill waits for the report, then collects", quick == "dealt", quick)
+
+    # --- two wanted faces dropped in the same second: both get collected ----------------------
+    for name in ("Twin", "Other"):
+        put(shazza, "nameplate6", stranger(name, targets=shazza.name))
+        sim.advance(1)
+        shazza.Game.Die()
+        sim.advance(5)
+        shazza.Game.Release()
+        shazza.Game.Resurrect()
+        put(shazza, "nameplate6", None)
+        sim.advance(1)
+    sim.advance(10)
+    for name in ("Twin", "Other"):
+        put(spencer, "nameplate7" if name == "Twin" else "nameplate8", stranger(name))
+    sim.advance(1)
+    spencer.fire("PARTY_KILL", guid(spencer), stranger("Twin")["guid"])
+    spencer.fire("PARTY_KILL", guid(spencer), stranger("Other")["guid"])
+    sim.advance(10)
+    put(spencer, "nameplate7", None)
+    put(spencer, "nameplate8", None)
+    both = board(bazza, "{N:Get('Twin') and N:Get('Twin').status, N:Get('Other') and N:Get('Other').status}")
+    check("same second: two collections, two claims", both == ["dealt", "dealt"], both)
+
+    # --- the recap says a mob did it: whoever had you targeted isn't on the hook --------------
+    bazza.MOCK["deathRecap"] = bazza.rt.execute("return " + to_lua([
+        {"timestamp": 2, "sourceGUID": "Creature-0-1-0-1-475-0002", "sourceName": "Kobold Miner", "amount": 300, "overkill": 40}]))
+    put(bazza, "nameplate9", stranger("Bystander", targets=bazza.name))
+    sim.advance(1)
+    bazza.Game.Die()
+    sim.advance(5)
+    bazza.MOCK["deathRecap"] = None
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    put(bazza, "nameplate9", None)
+    check("recap says a mob: no poster", board(bazza, "N:Get('Bystander') == nil") is True,
+          bazza.eval_json("Greenfields.Nemesis.diag.why"))
+
+    # --- released straight away: whoever's at the graveyard isn't the killer --------------------
+    shazza.Game.Die()
+    sim.advance(0.2)
+    shazza.Game.Release()
+    sim.advance(0.3)
+    put(shazza, "nameplate10", stranger("Graveyard"))
+    sim.advance(5)
+    shazza.Game.Resurrect()
+    put(shazza, "nameplate10", None)
+    check("released quick: the graveyard's not a line-up", board(shazza, "N:Get('Graveyard') == nil") is True)
+
+    # --- the honour line before the killing blow: one kill, not a kill and a hand in it ----------
+    put(bazza, "nameplate11", stranger("Slowpoke", targets=bazza.name))
+    sim.advance(1)
+    bazza.Game.Die()
+    sim.advance(5)
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    put(bazza, "nameplate11", None)
+    sim.advance(10)
+    put(shazza, "nameplate11", stranger("Slowpoke"))
+    sim.advance(1)
+    before = board(spencer, "(function() local h = b.hunterOf['%s'] return h and {h.points, h.assists} or {0, 0} end)()" % shazza.name)
+    honour(shazza, "Slowpoke")
+    sim.advance(2)
+    shazza.fire("PARTY_KILL", guid(shazza), stranger("Slowpoke")["guid"])
+    sim.advance(10)
+    put(shazza, "nameplate11", None)
+    after = board(spencer, "(function() local h = b.hunterOf['%s'] return h and {h.points, h.assists} or {0, 0} end)()" % shazza.name)
+    check("honour first: the bounty, no extra point for a hand in it", after == [before[0] + 1, before[1]], [before, after])
+
+    # --- the page --------------------------------------------------------------------------
+    sim.advance(15)     # the last poster's gone off the screen
+    for c in (spencer, bazza):
+        c.lua("Greenfields.UI:OpenMain('wanted')")
+    sim.advance(1)
+    check("page: shows the poster wall", spencer.eval_json("Greenfields.UI:CurrentPage()") == "wanted")
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-page.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-page.png"))
+        spencer.lua("local p = Greenfields.Nemesis.page p.scroll:SetVerticalScroll(390) p.scroll:UpdateBar()")
+        sim.advance(0.5)
+        sp = os.path.join(scene_dir, "wanted-wall.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-wall.png"))
+    spencer.lua("Greenfields.UI:OpenMain('profile', ...)", spencer.name)
+    sim.advance(1)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-profile.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-profile.png"))
+    for c in sim.clients:
+        rep = collect_client_report(c)
+        check("no Lua errors on " + c.name, not rep["errors"] and not rep["addonErrors"], rep["errors"] + rep["addonErrors"])
+    sc["time"] = round(time.time() - t0, 1)
+    return sim
+
+
 def scenario_rules(res):
     """Launch-week rules on their own clients: stats that can't be redone later (world map emotes, double
     deaths, one week for everyone), crowns that don't flood the guild, parties that aren't failed, the
@@ -3619,6 +3934,8 @@ def scenario_upgrades(res):
     post = modal_text(spencer) if modal_up(spencer) else ""
     check("install: the addon link matches the repo release.py publishes to", base + "Greenfields.zip" in post, post)
     check("install: so does the updater's", base + "GreenfieldsUpdater.zip" in post, post)
+    check("install: the installer comes first", base + "GreenfieldsSetup.msi" in post
+          and post.find("GreenfieldsSetup.msi") < post.find("GreenfieldsUpdater.zip"), post)
     check("install: it tells a Mac what to do", "_forever_/Interface/AddOns" in post, post)
     check("install: nothing WoW would read as a code", "|" not in post, post)
     check("install: nothing goes out", sent(spencer) == before, sent(spencer) - before)
@@ -3653,7 +3970,7 @@ def scenario_upgrades(res):
     check("roasts: every death line has a {name}, or /gf roast never shows it", not unnamed, unnamed)
     signs = spencer.eval_json("(function() local out = {} for kind, m in pairs(Greenfields.Feed.KINDS) do if m.toast then out[#out + 1] = kind end end "
                               "table.sort(out) return out end)()")
-    check("toasts: the setting's list of what pops a sign is still the true one", signs == ["badge", "join", "kill", "level", "prof"], signs)
+    check("toasts: the setting's list of what pops a sign is still the true one", signs == ["badge", "bounty", "join", "kill", "level", "prof"], signs)
 
     # --- the books: dings -------------------------------------------------------------
     def dings(c):
@@ -4460,8 +4777,8 @@ def main(argv):
         ADDON_DIR = os.path.abspath(args.addon)
     wanted = [s.strip() for s in args.scenario.split(",") if s.strip()]
     if "all" in wanted:
-        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades"]
-    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades"}
+        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted"]
+    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted"}
     bad = [s for s in wanted if s not in valid]
     if bad:
         ap.error("unknown scenario(s): %s" % ", ".join(bad))
@@ -4524,6 +4841,9 @@ def main(argv):
         if "upgrades" in wanted:
             log("== upgrades (/gf install, the books, Your Mob, no repeat jokes)")
             scenario_upgrades(res)
+        if "wanted" in wanted:
+            log("== wanted (Most Wanted: posters, bounties, collecting)")
+            sims.append(scenario_wanted(res, args.render))
     except Exception:
         tb = traceback.format_exc()
         res.harness_failures.append(tb)
