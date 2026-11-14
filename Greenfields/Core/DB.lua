@@ -37,9 +37,12 @@ local DEFAULT_SETTINGS = {
     tooltipSR = true,           -- show SR'ers on item tooltips
     tooltipCrafters = true,     -- show guild crafters on item tooltips
     tooltipTitles = true,       -- show Greenfields titles on player tooltips
+    wantedAsk = true,           -- Most Wanted: ask before putting your killer up (if you started it, it's a fair fight)
     wantedPosters = true,       -- Most Wanted: the poster when you're done over, the stamp when you collect
     wantedSightings = true,     -- Most Wanted: a sign when a wanted enemy's about
     tooltipWanted = true,       -- Most Wanted: the price on an enemy's head in their tooltip
+    sixtyBanners = true,        -- level 60: fireworks across the top when a guildie makes it
+    sixtyMusic = true,          -- level 60: the fanfare (off: the game's own ding)
     scale = 1,
 }
 

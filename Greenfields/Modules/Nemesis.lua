@@ -9,6 +9,15 @@
      asks the death recap when the client has one. It only names someone it has good reason to, and
      the victim can take a poster down ("Wasn't them").
 
+     It asks before anything goes up (the setting wantedAsk, on by default): the poster drops as a
+     question, "Put them up?", because if you started it, it was a fair fight. Unanswered, the report
+     waits a day on the Most Wanted page. Snooze (N:Snooze) quiets it for a while: your deaths and
+     sightings are left alone, though a kill on someone wanted still collects. In battlegrounds and
+     arenas it sits out entirely: no posters, no collecting, no sightings.
+
+     Jumped by a pack: everyone clearly in on it (had you targeted, was your target, or shows up hitting
+     you in the death recap) gets a poster and a point for the body, not just whoever landed the blow.
+
      Points: 1 a body, +1 for every different guildie they've done, +1 for each dog act (10 or more
      levels under them). A killing blow collects every point since the last one; revenge is worth 1
      more, and a hand in the kill (the honour) is worth 1.
@@ -17,6 +26,7 @@
        death  "<victim>:<time>"     { k = "d", v = victim, e = enemy, r = race key, rn = race name,
                                       c = class file, s = sex (2 male, 3 female), l = level,
                                       vl = victim's level, g = guild, z = zone, t = time }
+              "<victim>:<time>:<enemy>"   the same, a = 1, for each of the killer's mates
        claim  "<hunter>:c:<time>"   { k = "c", by = hunter, e = enemy, kb = 1 for the killing blow
                                       (nil for a hand in it), z = zone, t = time }
      Only the victim writes a death and only the hunter a claim; an officer can tear a poster down.
@@ -30,7 +40,10 @@
        N:Mug(entry) -> texture, left, right, top, bottom
        N:Describe(entry) -> "Night Elf Rogue, level 34"     N:PointsText(n) -> "5 points"
        N:LastSeen(entry) -> { t, z, by } or nil             N:Retract(id), N:TearDown(name)
-     Fires GF_WANTED_CHANGED when the board moves. ]]
+       N:Reports() -> the reports waiting on you            N:File(id, leaveOff), N:Drop(id)
+       N:Preview(report[, who]) -> the poster as it'd be     N:Snooze(sec), N:Snoozed() -> seconds left
+     Fires GF_WANTED_CHANGED when the board moves, GF_WANTED_ASK(report) when a death wants an
+     answer, GF_WANTED_REPORTS when the waiting list changes, GF_WANTED_SNOOZE. ]]
 
 local _, GF = ...
 local API, U = GF.API, GF.Util
@@ -53,6 +66,7 @@ local SIGHT_GAP = 300       -- per enemy: one sighting alert, and one broadcast,
 local CLAIM_GAP = 8         -- a killing blow and its honour line this close together are one kill
 local DOG_LEVELS = 10       -- picking on someone this many levels under you is a dog act
 local REVENGE, ASSIST = 1, 1
+local CREW_MAX = 4          -- a pack bigger than the killer and four mates is a raid, not a gank
 
 local function G(name) return rawget(_G, name) end
 
@@ -66,6 +80,33 @@ local function call(fname, ...)
 end
 
 local function settings() return GF.db and GF.db.settings or {} end
+
+--- In a battleground or an arena, Most Wanted sits it out.
+local function inBattle()
+    local t = API.InstanceInfo().type
+    return t == "pvp" or t == "arena"
+end
+N.InBattle = inBattle
+
+--- Snoozed until a server time, account-wide, so it lasts through a reload or a switch to an alt.
+function N:Snooze(sec)
+    if type(GF.db) ~= "table" then return end
+    sec = tonumber(sec)
+    GF.db.wantedSnooze = (sec and sec > 0) and (API.ServerTime() + floor(sec)) or nil
+    GF:Fire("GF_WANTED_SNOOZE")
+end
+
+--- Seconds of snooze left, or nil.
+function N:Snoozed()
+    local u = type(GF.db) == "table" and tonumber(GF.db.wantedSnooze)
+    if not u then return nil end
+    local left = u - API.ServerTime()
+    if left <= 0 then
+        GF.db.wantedSnooze = nil
+        return nil
+    end
+    return left
+end
 
 local function plainField(v, n)
     return v == nil or (type(v) == "string" and Readable(v) and #v <= n and not v:find("|", 1, true))
@@ -195,7 +236,7 @@ local function buildBoard()
             -- copies: synced docs are never written to
             if d.k == "d" and type(d.v) == "string" then
                 p.deaths[#p.deaths + 1] = { id = id, t = d.t, v = d.v, l = d.l, vl = d.vl, r = d.r, rn = d.rn,
-                    c = d.c, s = d.s, g = d.g, z = d.z }
+                    c = d.c, s = d.s, g = d.g, z = d.z, a = d.a }
             elseif d.k == "c" and type(d.by) == "string" then
                 p.claims[#p.claims + 1] = { id = id, t = d.t, by = d.by, kb = d.kb, z = d.z }
             end
@@ -294,6 +335,10 @@ local function buildBoard()
         end
         p.open = open
         p.bounty, p.spread, p.dogs = pointsFor(open)
+        p.pack = 0          -- the open bodies they had a hand in rather than the killing blow
+        for _, d in ipairs(open) do
+            if d.a then p.pack = p.pack + 1 end
+        end
         p.lastClaim = p.history[#p.history]
         local spot = seenLocal[p.name]
         if type(spot) == "table" and type(spot.t) == "number" and (not p.lastDeath or spot.t > p.lastDeath) then
@@ -386,6 +431,7 @@ local function validDoc(id, d)
         return type(d.v) == "string" and plainField(d.r, 24) and plainField(d.rn, 32) and plainField(d.c, 16)
             and plainField(d.g, 48) and (d.s == nil or d.s == 2 or d.s == 3)
             and (d.l == nil or type(d.l) == "number") and (d.vl == nil or type(d.vl) == "number")
+            and (d.a == nil or d.a == 1)
     end
     if d.k == "c" then return type(d.by) == "string" and (d.kb == nil or d.kb == 1) end
     return false
@@ -449,8 +495,26 @@ local function fill(line, vars)
     return (line:gsub("{(%w+)}", function(k) return vars[k] ~= nil and tostring(vars[k]) or "" end))
 end
 
---- My death, put down to `s` (a sighting). ctx = the death: { t (server time it happened), lvl, zone }.
-local function record(s, why, ctx)
+local GANG_LINES = {
+    "{enemy} and {mates} ganged up on {victim}. Every one of them's on the poles now.",
+    "Took {n} of them to do {victim}: {enemy} and {mates}. Dog act. Faces are going up.",
+    "{victim} got jumped by a pack: {enemy}, {mates}. The street's been told about all of them.",
+}
+
+local filing = false   -- record() was called by N:File: the question's already on screen
+
+--- The death doc for one of them. a = true for the killer's mates.
+local function deathDoc(me, s, ctx, t, a)
+    return {
+        k = "d", v = me, e = s.name, r = fit(s.race, 24), rn = fit(s.raceName, 32), c = fit(s.class, 16),
+        s = (s.sex == 2 or s.sex == 3) and s.sex or nil, l = s.level, vl = ctx.lvl,
+        g = fit(s.guild, 48), z = fit(ctx.zone, 64), t = t, a = a and 1 or nil,
+    }
+end
+
+--- My death, put down to `s` (a sighting) and anyone in `crew` (sightings) who was in on it.
+-- ctx = the death: { t (server time it happened), lvl, zone }.
+local function record(s, why, ctx, crew)
     local me = API.MyKey()
     if not me or type(s.name) ~= "string" then return end
     local before = N:Get(s.name)
@@ -459,28 +523,47 @@ local function record(s, why, ctx)
     local t = ctx.t or API.ServerTime()
     local id = me .. ":" .. t
     if GF.Store:Get(DATA, id) then id = id .. ":2" end
-    local d = {
-        k = "d", v = me, e = s.name, r = fit(s.race, 24), rn = fit(s.raceName, 32), c = fit(s.class, 16),
-        s = (s.sex == 2 or s.sex == 3) and s.sex or nil, l = s.level, vl = ctx.lvl,
-        g = fit(s.guild, 48), z = fit(ctx.zone, 64), t = t,
-    }
+    local d = deathDoc(me, s, ctx, t)
     if not validDoc(id, d) or not GF.Store:Put(DATA, id, d) then
         diag.why = "couldn't write the report"
         return
     end
-    diag.named = diag.named + 1
-    diag.why = why
-    local p = N:Get(s.name) or { name = s.name, bounty = 1, priors = 1 }
-    local vars = { enemy = enemyText(p), victim = nameOf(me), what = N:Describe(p), points = N:PointsText(p.bounty) }
-    local fresh = wasOpen == 0
-    -- the first price and every jump past a round number make the Watch; the rest just move the poster
-    local milestone = fresh or (wasOpen < 5 and p.bounty >= 5) or (wasOpen < 10 and p.bounty >= 10)
-        or (wasOpen < 20 and p.bounty >= 20)
-    if milestone then
-        feed("wanted", fill(U.Pick(fresh and DEATH_LINES or CLIMB_LINES), vars),
-            { key = "wanted:" .. s.name .. ":" .. t, icon = "skull", toast = not fresh })
+    local ids = { id }
+    -- every mate gets their own poster and a point for the body
+    local mates = {}
+    for _, m in ipairs(crew or {}) do
+        local mid = me .. ":" .. t .. ":" .. m.name
+        local md = deathDoc(me, m, ctx, t, true)
+        if validDoc(mid, md) and GF.Store:Put(DATA, mid, md) then
+            ids[#ids + 1] = mid
+            mates[#mates + 1] = m.name
+        end
     end
-    GF:Fire("GF_WANTED_DEATH", p, id, why)
+    diag.named = diag.named + #ids
+    diag.why = why .. (#mates > 0 and (", and " .. #mates .. " " .. U.Plural(#mates, "mate")) or "")
+    local p = N:Get(s.name) or { name = s.name, bounty = 1, priors = 1 }
+    local crewEntries, mateText = {}, {}
+    for _, n in ipairs(mates) do
+        local e = N:Get(n)
+        if e then crewEntries[#crewEntries + 1] = e end
+        mateText[#mateText + 1] = "|cffe8473c" .. n .. "|r"
+    end
+    local vars = { enemy = enemyText(p), victim = nameOf(me), what = N:Describe(p), points = N:PointsText(p.bounty),
+        mates = concat(mateText, ", "), n = #mates + 1 }
+    if #mates > 0 then
+        -- a pack always makes the Watch
+        feed("wanted", fill(U.Pick(GANG_LINES), vars), { key = "wanted:" .. me .. ":" .. t, icon = "skull", toast = true })
+    else
+        local fresh = wasOpen == 0
+        -- the first price and every jump past a round number make the Watch; the rest just move the poster
+        local milestone = fresh or (wasOpen < 5 and p.bounty >= 5) or (wasOpen < 10 and p.bounty >= 10)
+            or (wasOpen < 20 and p.bounty >= 20)
+        if milestone then
+            feed("wanted", fill(U.Pick(fresh and DEATH_LINES or CLIMB_LINES), vars),
+                { key = "wanted:" .. s.name .. ":" .. t, icon = "skull", toast = not fresh })
+        end
+    end
+    GF:Fire("GF_WANTED_DEATH", p, ids, why, crewEntries, filing)
 end
 
 --- Writes my claim on `name`, made at server time t, if there was a price on them by then.
@@ -517,7 +600,7 @@ end
 -- one: a guildie's death is written a few seconds after it happens, and revenge can be quicker.
 local lastKB, waiting = {}, {}
 local function claim(name, kb)
-    if type(name) ~= "string" then return end
+    if type(name) ~= "string" or inBattle() then return end
     local now = API.Time()
     if kb then
         if lastKB[name] and now - lastKB[name] < CLAIM_GAP then return end
@@ -541,6 +624,96 @@ local function retryWaiting()
     end
     waiting = keep
 end
+
+-------------------------------------------------------------------------------
+-- Asking first: a report waits for "Put them up" or "Fair fight"
+-------------------------------------------------------------------------------
+local REPORT_DAYS, REPORT_MAX = 1, 10
+
+local function snap(s)
+    return { name = s.name, race = s.race, raceName = s.raceName, class = s.class, sex = s.sex, level = s.level, guild = s.guild }
+end
+
+--- This character's waiting reports (old ones dropped), or nil before the saved data's in.
+local function reports()
+    local c = GF.cdb
+    if type(c) ~= "table" then return nil end
+    c.nemesis = type(c.nemesis) == "table" and c.nemesis or {}
+    local now, keep = API.ServerTime(), {}
+    for _, r in ipairs(type(c.nemesis.reports) == "table" and c.nemesis.reports or {}) do
+        if type(r) == "table" and type(r.id) == "string" and type(r.t) == "number" and type(r.killer) == "table"
+            and type(r.killer.name) == "string" and now - r.t < REPORT_DAYS * 86400 then
+            keep[#keep + 1] = r
+        end
+    end
+    c.nemesis.reports = keep
+    return keep
+end
+
+function N:Reports() return reports() or {} end
+
+--- The poster as it would look once it's up: the board's entry for `who` (the killer by default)
+-- with this death added to it.
+function N:Preview(r, who)
+    who = who or r.killer
+    local p = self:Get(who.name)
+    local e = snap(who)
+    local open = {}
+    if p and p.status == "wanted" then
+        for _, d in ipairs(p.open) do open[#open + 1] = d end
+    end
+    open[#open + 1] = { v = API.MyKey() or "?", l = who.level, vl = r.lvl, t = r.t, a = who ~= r.killer and 1 or nil }
+    e.bounty, e.spread, e.dogs = pointsFor(open)
+    e.open, e.status, e.priors = open, "wanted", (p and p.priors or 0) + 1
+    e.pack = (p and p.status == "wanted" and p.pack or 0) + (who ~= r.killer and 1 or 0)
+    e.victims, e.history = p and p.victims or {}, p and p.history or {}
+    e.seen = { t = r.t, z = r.zone }
+    return e
+end
+
+--- Holds the death as a question instead of putting anyone up.
+function N:Ask(killer, why, ctx, crew)
+    local list = reports()
+    if not list then return record(killer, why, ctx, crew) end
+    local t = ctx.t or API.ServerTime()
+    local r = { id = (API.MyKey() or "?") .. ":" .. t, t = t, why = why, lvl = ctx.lvl, zone = ctx.zone,
+        killer = snap(killer), crew = {} }
+    for _, m in ipairs(crew or {}) do r.crew[#r.crew + 1] = snap(m) end
+    list[#list + 1] = r
+    while #list > REPORT_MAX do table.remove(list, 1) end
+    diag.why = why .. ", waiting on you"
+    GF:Fire("GF_WANTED_REPORTS")
+    GF:Fire("GF_WANTED_ASK", r)
+end
+
+local function takeReport(id)
+    local list = reports()
+    for i, r in ipairs(list or {}) do
+        if r.id == id then
+            table.remove(list, i)
+            GF:Fire("GF_WANTED_REPORTS")
+            return r
+        end
+    end
+    return nil
+end
+
+--- "Put them up". leaveOff = { [name] = true } for mates you say weren't in it.
+function N:File(id, leaveOff)
+    local r = takeReport(id)
+    if not r then return false end
+    local crew = {}
+    for _, m in ipairs(r.crew or {}) do
+        if type(m) == "table" and type(m.name) == "string" and not (leaveOff and leaveOff[m.name]) then crew[#crew + 1] = m end
+    end
+    filing = true
+    GF:Safe("wanted:file", record, r.killer, r.why or "you said so", { t = r.t, lvl = r.lvl, zone = r.zone }, crew)
+    filing = false
+    return true
+end
+
+--- "Fair fight": nothing goes up.
+function N:Drop(id) return takeReport(id) ~= nil end
 
 --- Takes my own report back off the board ("Wasn't them").
 function N:Retract(id)
@@ -749,6 +922,18 @@ local function recapKiller()
             local ts = CleanNumber(e.timestamp) or 0
             if over and over > 0 and not blow then blow = entry end
             if ts > latestTs then latest, latestTs = entry, ts end
+            -- any enemy player it shows hitting you was in on it
+            if entry.guid and entry.guid:match("^Player%-") then
+                local hit = entryFor(entry.guid, entry.name and API.Key(entry.name))
+                hit.guid = entry.guid
+                if entry.name and not hit.name then hit.name = API.Key(entry.name) end
+                hit.t = hit.t or API.Time()
+                fromGUID(hit)
+                if hit.name then
+                    byName[hit.name] = hit
+                    if not friendly(hit) then hit.hitAt = API.Time() end
+                end
+            end
         end
     end
     local kb = blow or latest
@@ -791,6 +976,29 @@ local function targetIsMob()
     return Readable(can) and can and true or false
 end
 
+--- Everyone else who was clearly on you when you dropped: had you targeted, was your target, or
+-- the recap shows them hitting you. Standing about afterwards isn't enough. Best evidence first.
+local function crewOf(killer, p)
+    local crew = {}
+    for _, s in pairs(seen) do
+        if s ~= killer and s.name and s.name ~= killer.name then
+            local hit = s.hitAt and s.hitAt >= p.at
+            local aimed = s.atMe and s.atMe >= p.at - AIMED
+            local mine = s.mine and s.mine >= p.at - 15
+            if hit or aimed or mine then
+                s.crewScore = (hit and 200 or 0) + (aimed and 100 or 0) + (mine and 60 or 0) + (s.atMe or 0) / 1e6
+                crew[#crew + 1] = s
+            end
+        end
+    end
+    tsort(crew, function(a, b)
+        if a.crewScore ~= b.crewScore then return a.crewScore > b.crewScore end
+        return a.name < b.name
+    end)
+    for i = #crew, CREW_MAX + 1, -1 do crew[i] = nil end
+    return crew
+end
+
 local function decide()
     local p = pending
     pending = nil
@@ -816,7 +1024,11 @@ local function decide()
                 end
                 score = score + max(0, WITNESS - (p.at - math.min(s.t, p.at)))
                 s.engaged = engaged
-                if score > bestScore then best, bestScore = s, score end
+                -- a dead heat (two of them on you at once) goes the same way every time
+                if score > bestScore or (score == bestScore and best and (s.atMe or 0) > (best.atMe or 0))
+                    or (score == bestScore and best and (s.atMe or 0) == (best.atMe or 0) and s.name < best.name) then
+                    best, bestScore = s, score
+                end
             end
         end
         if best and best.engaged then
@@ -830,11 +1042,18 @@ local function decide()
             diag.why = about == 0 and "no enemy players about" or "nobody clearly on you"
         end
     end
-    if killer then record(killer, why, p) end
+    if not killer then return end
+    local crew = crewOf(killer, p)
+    if settings().wantedAsk == false then return record(killer, why, p, crew) end
+    N:Ask(killer, why, p, crew)
 end
 
 local function onDead()
     if pending then return end
+    if N:Snoozed() then
+        diag.why = "snoozed"
+        return
+    end
     -- the open world only: dungeons and raids have no enemy players, and a battleground would bury the wall
     local inst = API.InstanceInfo().type
     if inst == "party" or inst == "raid" or inst == "pvp" or inst == "arena" then return end
@@ -976,7 +1195,7 @@ end
 
 sighted = function(s)
     local p = N:Get(s.name)
-    if not p or p.status ~= "wanted" or API.UnitIsDead("player") then return end
+    if not p or p.status ~= "wanted" or API.UnitIsDead("player") or inBattle() or N:Snoozed() then return end
     local now = API.Time()
     if sightAt[s.name] and now - sightAt[s.name] < SIGHT_GAP then return end
     sightAt[s.name] = now
@@ -1001,7 +1220,7 @@ GF.Comm:Register("WS", function(msg, sender)
     heardAt[msg.e] = now
     -- only worth a sign if you're close enough to do something about it
     local here = API.ZoneName()
-    if msg.z and here and msg.z == here then
+    if msg.z and here and msg.z == here and not inBattle() and not N:Snoozed() then
         alert(p, ("Spotted in %s by %s. %s on their head."):format(msg.z, nameOf(sender), N:PointsText(p.bounty)))
     end
 end)

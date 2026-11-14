@@ -72,15 +72,27 @@ Who got what, how (SR / MS / OS / roll) and from which boss, plus a **Fiend Watc
 
 The rest include **Uber Eats Driver**, **Mummy's Boy**, **Absolutely Rotten**, **Blue Manna Crabber** and **Happy Camper**.
 
-Most stats also have milestone badges.
+Most stats also have milestone badges, and the **Sixty Club** tab lists everyone who's hit 60, in order.
 
 ### Most Wanted
 When an Alliance player kills one of us, Greenfields puts their face on the poles: a wanted poster with a mugshot that matches their race, class and sex, and a price on their head.
 - **Points:** 1 a body, +1 for every different guildie they've done, +1 for every dog act (a kill on someone 10 or more levels under them).
+- **Packs:** jumped by a few of them? Everyone who was on you gets a poster and a point for the body: anyone who had you targeted, was your target, or shows up hitting you in the death recap. Someone just walking past doesn't.
+- **It asks first:** when you're done over, the poster drops as a question. **Put them up**, or **Fair fight** if you started it. In a pack, click a face to leave them off. Ignore it and it waits at the top of the Most Wanted page. Untick "Ask before putting them up" in Settings to have them go straight up.
+- **Snooze:** the Snooze button on the Most Wanted page (or on the question) gives you a break: your deaths ask nothing and wanted faces don't pop a sign. A kill on someone wanted still collects.
+- **Battlegrounds and arenas:** Most Wanted sits them out. No posters, no collecting, no sightings.
 - **Collecting:** whoever lands the killing blow takes every point since the last time they were sorted out. Revenge on someone who did you is worth 1 more, and anyone else who gets the honourable kill gets 1 for a hand in it. The poster gets stamped and stays up for a week.
 - **The page:** Public Enemy No. 1's case file, every other poster on the wall, your nemesis, and the bounty hunters' board. Your resident file shows your points and your nemesis too.
 - **In the world:** a poster drops when you're done over, a stamp slams down when you collect, enemy tooltips show the price on their head, and you get a sign when a wanted face is near you or a guildie spots one in your zone. Switch any of it off in Settings.
 - **How it knows:** the game doesn't tell addons who killed you, so Greenfields watches the enemy players around you (nameplates, your target, who's got you targeted) and asks the death recap. It only names someone it has good reason to. If it gets it wrong, click **Wasn't them** on the poster, or right-click it on the page. Officers can tear a poster down for everyone.
+
+### Level 60
+Hitting 60 gets a ceremony. The screen goes dark, fireworks go up over the estuary, a fanfare plays and your 60 medal comes down.
+- **Your climb:** time played, days on the road, quests handed in, deaths, jumps, a chart of every level from the day Greenfields started watching, where you came in on the street ("2nd in Greenfields to 60"), and your Most Wanted nemesis if you've got one.
+- **Buttons:** **Tell the guild** puts a line in guild chat, **Frame it** takes a screenshot without the buttons, **Done** closes it (so does Esc). It never interrupts a fight: it waits until you're out of one, and a fight starting takes it down. `/gf sixty` plays it again any time.
+- **Already 60?** If Greenfields saw you ding, you get the ceremony you missed, once, the next time you log in. If you were 60 before you installed it, you're still in the Sixty Club, without a date.
+- **The street:** when a guildie hits 60, everyone online gets a banner across the top with fireworks, the first bars of the fanfare and a **Grats** button for guild chat.
+- **Settings:** "The fanfare" (off: the game's own ding) and "Fireworks for a guildie's 60" (off: a normal sign).
 
 ### Residents
 - The guild roster: mains and alts, who's online, rank, titles, attendance, professions, and who runs the addon.
@@ -140,7 +152,9 @@ In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a
 | `/gf main <name>` | mark this character as an alt of `<name>` (blank = this is a main) |
 | `/gf sync` | force a data sync with guildies |
 | `/gf stats` | print your own stats |
-| `/gf wanted` | open Most Wanted (`/gf wanted test` shows the poster you'd get, `/gf wanted collect` the stamp) |
+| `/gf wanted` | open Most Wanted (`/gf wanted test` shows the poster you'd get, `/gf wanted pack` the one for a gank, `/gf wanted collect` the stamp) |
+| `/gf wanted snooze [minutes]` | a break from Most Wanted, 60 minutes if you don't say; `/gf wanted wake` ends it |
+| `/gf sixty` | play your level 60 ceremony again (`/gf sixty test` shows anyone a preview, `/gf sixty street` a guildie's banner) |
 | `/gf doctor` | check what this game client supports (run this on launch day) |
 | `/gf update` | is there a newer Greenfields, and how to get it |
 | `/gf install` | the download links and a post to paste in Discord, for getting a mate set up |

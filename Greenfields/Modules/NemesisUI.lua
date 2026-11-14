@@ -8,7 +8,10 @@
 
        /gf wanted            open the page
        /gf wanted test       the poster you'd get for being done over (nothing's recorded)
-       /gf wanted collect    the stamp you'd get for collecting (nothing's recorded) ]]
+       /gf wanted collect    the stamp you'd get for collecting (nothing's recorded)
+       /gf wanted pack       the poster you'd get for being jumped by a pack (nothing's recorded)
+       /gf wanted snooze [m] no posters or sightings for m minutes (60 if you don't say)
+       /gf wanted wake       back on ]]
 
 local _, GF = ...
 local API, U, UI, T = GF.API, GF.Util, GF.UI, GF.Theme
@@ -25,6 +28,7 @@ local HERO_W = 220
 local SIDE_W = 244
 local SKURRI = "Fonts\\SKURRI.TTF"
 local SOUND_DEATH, SOUND_STAMP = 847, 888   -- quest failed; level up
+local MATE = 44             -- a pack member's mugshot on the "done over" popup
 
 local function art() return GF.WantedArt or {} end
 local function settings() return GF.db and GF.db.settings or {} end
@@ -81,7 +85,11 @@ local function rapLine(p)
     end
     local s = n == 1 and "Done over 1 of us." or ("Done over %d of us"):format(n)
     if n > 1 then s = s .. (p.spread > 1 and (", %d different."):format(p.spread) or ".") end
-    if (p.dogs or 0) > 0 then s = s .. (p.dogs == 1 and " A dog act." or (" %d dog acts."):format(p.dogs)) end
+    if (p.dogs or 0) > 0 then
+        s = s .. (p.dogs == 1 and " A dog act." or (" %d dog acts."):format(p.dogs))
+    elseif (p.pack or 0) > 0 then
+        s = s .. " Runs in a pack."
+    end
     return s
 end
 
@@ -265,6 +273,9 @@ local function posterTip(f)
             parts[#parts + 1] = nameOf(v) .. (seenV[v] > 1 and (" x" .. seenV[v]) or "")
         end
         GameTooltip:AddLine("Done over: " .. table.concat(parts, ", "), 0.75, 0.82, 0.78, true)
+        if (p.pack or 0) > 0 then
+            GameTooltip:AddLine(("%d of those with a pack, as one of the mates."):format(p.pack), 0.75, 0.82, 0.78, true)
+        end
     end
     GameTooltip:AddLine(" ")
     GameTooltip:AddLine("1 point a body. +1 for every different guildie, +1 for a dog act (10 or more levels under). Drop them and it's yours.", 0.6, 0.62, 0.6, true)
@@ -386,6 +397,10 @@ local function fillCase(c, p, top)
     end
     lines[#lines + 1] = "|cffc19c65Done over:|r " .. (#parts > 0 and table.concat(parts, ", ") or "nobody yet")
     lines[#lines + 1] = ("|cffc19c65Priors:|r %d, all time."):format(p.priors or 0)
+    if wanted and (p.pack or 0) > 0 then
+        lines[#lines + 1] = ("|cffc19c65Runs in a pack:|r %d of those bodies %s a gang job, as one of the mates."):format(
+            p.pack, p.pack == 1 and "was" or "were")
+    end
     local s = N:LastSeen(p)
     if s and s.t then
         local by = s.by and (" (" .. nameOf(s.by) .. ")") or ""
@@ -485,6 +500,80 @@ local function fillNemesisCard(c)
     c.text:SetText(("Has done you %s. %s"):format(n == 1 and "once" or (n .. " times"), status))
 end
 
+local WHY, ask   -- the question, below: the waiting list reopens it
+local REPORT_ROWS, REPORT_H = 5, 42
+
+--- Deaths you haven't answered yet: put them up, or call it a fair fight.
+local function buildReports(content)
+    local c = UI:Card(content, { title = "Waiting on you", icon = "bell", subtitle = "Done over and not answered yet" })
+    c.rows = {}
+    for i = 1, REPORT_ROWS do
+        local r = CreateFrame("Button", nil, c.body)
+        r:SetHeight(REPORT_H - 4)
+        r:SetPoint("TOPLEFT", 0, -(i - 1) * REPORT_H)
+        r:SetPoint("TOPRIGHT", 0, -(i - 1) * REPORT_H)
+        r.edge = r:CreateTexture(nil, "ARTWORK", nil, 1)
+        r.edge:SetSize(36, 36)
+        r.edge:SetPoint("LEFT", 0, 0)
+        r.edge:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.6)
+        r.mug = r:CreateTexture(nil, "ARTWORK", nil, 2)
+        r.mug:SetPoint("TOPLEFT", r.edge, "TOPLEFT", 1, -1)
+        r.mug:SetPoint("BOTTOMRIGHT", r.edge, "BOTTOMRIGHT", -1, 1)
+        r.no = UI:Button(r, "Fair fight", { style = "secondary", height = 22, onClick = function()
+            if r.rep then N:Drop(r.rep.id) end
+        end })
+        r.no:SetPoint("RIGHT", 0, 0)
+        r.yes = UI:Button(r, "Put them up", { style = "primary", height = 22, onClick = function()
+            if r.rep then N:File(r.rep.id) end
+        end })
+        r.yes:SetPoint("RIGHT", r.no, "LEFT", -6, 0)
+        -- top corners only: a RIGHT point on the buttons would centre both lines on them
+        r.text = UI:Text(r, 12, "text")
+        r.text:SetPoint("TOPLEFT", r.edge, "TOPRIGHT", 10, -2)
+        r.text:SetPoint("TOPRIGHT", r, "TOPRIGHT", -200, -2)
+        r.sub = UI:Text(r, 11, "dim")
+        r.sub:SetPoint("TOPLEFT", r.text, "BOTTOMLEFT", 0, -4)
+        r.sub:SetPoint("TOPRIGHT", r.text, "BOTTOMRIGHT", 0, -4)
+        r:SetScript("OnClick", function() if r.rep then ask(r.rep) end end)
+        UI.AttachTip(r, "Click to see the poster and pick who goes up.")
+        c.rows[i] = r
+    end
+    return c
+end
+
+local function fillReports(c)
+    local list = N:Reports()
+    local n = 0
+    for i = #list, 1, -1 do             -- newest first
+        if n >= REPORT_ROWS then break end
+        n = n + 1
+        local rep, r = list[i], c.rows[n]
+        r.rep = rep
+        setMug(r.mug, rep.killer)
+        r.text:SetText(("|cffe8473c%s|r %s"):format(rep.killer.name, WHY[rep.why or ""] or "did you over"))
+        local bits = { N:Describe(rep.killer) }
+        local mates = rep.crew and #rep.crew or 0
+        if mates > 0 then bits[#bits + 1] = ("and %d %s"):format(mates, U.Plural(mates, "mate")) end
+        bits[#bits + 1] = U.Ago(rep.t) .. (rep.zone and (" in " .. rep.zone) or "")
+        r.sub:SetText(table.concat(bits, "  -  "))
+        r:Show()
+    end
+    for i = n + 1, REPORT_ROWS do c.rows[i]:Hide() end
+    return n
+end
+
+--- The header's Snooze: how long, or wake up.
+local function snoozeMenu(btn)
+    local left = N:Snoozed()
+    UI:OpenMenu(btn, {
+        { title = true, text = left and ("Snoozed, %s left"):format(U.Duration(left)) or "No posters, no sightings for" },
+        { text = "30 minutes", icon = "clock", func = function() N:Snooze(1800) end },
+        { text = "An hour", icon = "clock", func = function() N:Snooze(3600) end },
+        { text = "Two hours", icon = "clock", func = function() N:Snooze(7200) end },
+        { text = "Wake up", icon = "bell", disabled = not left, func = function() N:Snooze(0) end },
+    }, { point = "TOPRIGHT", relPoint = "BOTTOMRIGHT", width = 200 })
+end
+
 local HUNTER_ROWS = 6
 
 local function buildHunters(content)
@@ -543,12 +632,16 @@ local function build(pg)
     N.page = pg   -- for the harness
     local header = UI:PageHeader(pg, "Most Wanted", "If you see these people, do not call the police.")
     pg.header = header
+    pg.snoozeBtn = header:AddAction(UI:Button(pg, "Snooze", { style = "ghost", icon = "clock",
+        tooltip = "A break from Most Wanted: your deaths don't ask and wanted faces don't pop a sign. A kill on someone wanted still collects.",
+        onClick = function(self) snoozeMenu(self) end }))
     local scroll, content = UI:Scroll(pg, { outside = true })
     scroll:SetPoint("TOPLEFT", header, "BOTTOMLEFT", 0, -14)
     scroll:SetPoint("BOTTOMRIGHT")
     pg.scroll, pg.content = scroll, content
     pg.hero = makePoster(content)
     wirePoster(pg.hero)
+    pg.reports = buildReports(content)
     pg.case = buildCase(content)
     pg.nem = buildNemesisCard(content)
     pg.hunters = buildHunters(content)
@@ -607,6 +700,19 @@ function N:RenderPage()
     local b = N:Board()
     local sel = selected()
     local any = sel ~= nil or #b.hunters > 0
+    local left = N:Snoozed()
+    page.snoozeBtn:SetText(left and ("Snoozed, " .. U.Duration(left)) or "Snooze")
+    -- anything waiting on an answer goes first
+    local top = 0
+    local waitingN = fillReports(page.reports)
+    page.reports:SetShown(waitingN > 0)
+    if waitingN > 0 then
+        local h = 38 + waitingN * REPORT_H + 4
+        page.reports:SetSize(w, h)
+        page.reports:ClearAllPoints()
+        page.reports:SetPoint("TOPLEFT", content, "TOPLEFT", 0, 0)
+        top = h + GUTTER
+    end
     page.empty:SetShown(not any)
     page.hero:SetShown(sel ~= nil)
     page.case:SetShown(sel ~= nil)
@@ -618,14 +724,14 @@ function N:RenderPage()
         page.wallLabel:Hide()
         page.dealtLabel:Hide()
         page.empty:ClearAllPoints()
-        page.empty:SetPoint("TOP", content, "TOP", 0, -60)
-        page.scroll:SetContentHeight(300)
+        page.empty:SetPoint("TOP", content, "TOP", 0, -(top + 60))
+        page.scroll:SetContentHeight(top + 300)
         return
     end
     local side = w >= 720 and SIDE_W or 0
     local heroW = sel and min(HERO_W, floor(w * 0.36)) or 0
     local heroH = floor(heroW * RATIO)
-    local y = 0
+    local y = top
     if sel then
         page.hero:Fit(heroW)
         page.hero:SetEntry(sel)
@@ -696,6 +802,12 @@ UI:RegisterPage({
 GF:On("GF_WANTED_CHANGED", function()
     GF:Debounce("wanted-refresh", 0.5, function() UI:RefreshPage(PAGE) end)
 end)
+GF:On("GF_WANTED_REPORTS", function()
+    GF:Debounce("wanted-refresh", 0.3, function() UI:RefreshPage(PAGE) end)
+end)
+GF:On("GF_WANTED_SNOOZE", function()
+    GF:Debounce("wanted-refresh", 0.1, function() UI:RefreshPage(PAGE) end)
+end)
 GF:On("GF_WANTED_SEEN", function()
     GF:Debounce("wanted-refresh", 2, function() UI:RefreshPage(PAGE) end)
 end)
@@ -710,6 +822,11 @@ local DEATH_CAPTIONS = {
     "Rolled. The street's been told, and there's a price on their head.",
     "Put in the dirt. Nobody's calling the cops, but everybody's been told.",
     "Dog act. Their mugshot's already on the poles.",
+}
+local PACK_CAPTIONS = {
+    "Jumped by a pack of {n}. Every one of them's going up on the poles.",
+    "Took {n} of them to do you. Dog act. They're all on the poles now.",
+    "{n} on one. Every face is going up, and every one's worth a point.",
 }
 local CLAIM_CAPTIONS = {
     "Paid in full.",
@@ -740,15 +857,72 @@ local function buildPop()
     f.caption:SetPoint("TOP", 0, -10)
     f.caption:SetWidth(226)
     f.caption:SetJustifyH("CENTER")
+    -- the rest of the pack: a small mugshot each, name underneath
+    f.mates = {}
+    for i = 1, 4 do
+        local m = CreateFrame("Frame", nil, f.plate)
+        m:SetSize(MATE, MATE + 14)
+        m.edge = m:CreateTexture(nil, "ARTWORK", nil, 1)
+        m.edge:SetPoint("TOPLEFT")
+        m.edge:SetSize(MATE, MATE)
+        m.edge:SetColorTexture(C.bronze[1], C.bronze[2], C.bronze[3], 0.7)
+        m.photo = m:CreateTexture(nil, "ARTWORK", nil, 2)
+        m.photo:SetPoint("TOPLEFT", m.edge, "TOPLEFT", 1, -1)
+        m.photo:SetPoint("BOTTOMRIGHT", m.edge, "BOTTOMRIGHT", -1, 1)
+        m.name = UI:Text(m, 9, "red", "ui")
+        m.name:SetPoint("TOP", m.edge, "BOTTOM", 0, -2)
+        m.name:SetWidth(MATE + 8)
+        m.name:SetJustifyH("CENTER")
+        -- while it's asking, a click leaves a mate off (or puts them back)
+        m:SetScript("OnMouseUp", function(self)
+            if not (f.ask and self.who) then return end
+            f.leaveOff[self.who] = not f.leaveOff[self.who] or nil
+            local off = f.leaveOff[self.who]
+            self.photo:SetDesaturated(off and true or false)
+            self:SetAlpha(off and 0.35 or 1)
+            UI.Sound(856)
+        end)
+        UI.AttachTip(m, function(self)
+            if not f.ask then return nil end
+            return f.leaveOff[self.who] and "Left off. Click to put them back." or "Click to leave them off."
+        end)
+        m:Hide()
+        f.mates[i] = m
+    end
     f.big = UI:Text(f, 22, "wowGold", "title")
     f.big:SetPoint("BOTTOM", f.poster, "TOP", 0, 8)
     f.big:SetShadowOffset(1, -2)
     f.wasnt = UI:Button(f.plate, "Wasn't them", { style = "ghost", height = 20, onClick = function()
-        if f.recordId then N:Retract(f.recordId) end
-        f.recordId = nil
+        for _, id in ipairs(f.recordIds or {}) do N:Retract(id) end
+        f.recordIds = nil
         f.outro:Play()
     end })
     f.wasnt:SetPoint("BOTTOM", f.plate, "BOTTOM", 0, 6)
+    -- the question: put them up, a fair fight, or leave me alone for a bit
+    f.yes = UI:Button(f.plate, "Put them up", { style = "primary", width = 108, height = 22, onClick = function()
+        local r = f.ask
+        if not r then return end
+        local up = 1
+        for _, m in ipairs(r.crew or {}) do
+            if not f.leaveOff[m.name] then up = up + 1 end
+        end
+        N:File(r.id, f.leaveOff)
+        UI:Shine(f.poster, 0.8)
+        f.Answered("Up on the poles", up > 1 and ("%d faces going up on every pole in Greenfields."):format(up)
+            or "Their face is going up on every pole in Greenfields.", 2.5)
+    end })
+    f.no = UI:Button(f.plate, "Fair fight", { style = "secondary", width = 108, height = 22, onClick = function()
+        if f.ask then N:Drop(f.ask.id) end
+        f.Answered("Fair fight", "Nothing goes up. Respect.", 1.8)
+    end })
+    f.snooze = UI:Button(f.plate, "Snooze for an hour", { style = "ghost", height = 18, onClick = function()
+        if f.ask then N:Drop(f.ask.id) end
+        N:Snooze(3600)
+        f.Answered("Snoozed", "An hour off: no posters, no sightings. /gf wanted wake brings it back.", 2.5)
+    end })
+    f.yes:SetPoint("BOTTOMRIGHT", f.plate, "BOTTOM", -4, 30)
+    f.no:SetPoint("BOTTOMLEFT", f.plate, "BOTTOM", 4, 30)
+    f.snooze:SetPoint("BOTTOM", f.plate, "BOTTOM", 0, 6)
 
     local intro = f:CreateAnimationGroup()
     local drop = intro:CreateAnimation("Translation")
@@ -810,6 +984,7 @@ local function buildPop()
     f.shake = shake
 
     f:SetScript("OnClick", function(self, button)
+        if self.ask then return end   -- it wants an answer, not a click on the paper
         if button == "LeftButton" and self.entry and UI.OpenMain then UI:OpenMain(PAGE, self.entry.name) end
         self.outro:Play()
     end)
@@ -831,20 +1006,63 @@ local function hideLater(sec)
     GF:After(sec, check)
 end
 
+local function answered(big, caption, sec)
+    pop.ask = nil
+    pop.yes:Hide()
+    pop.no:Hide()
+    pop.snooze:Hide()
+    for _, m in ipairs(pop.mates) do m:EnableMouse(false) end
+    pop.big:SetText(big)
+    pop.caption:SetText(caption)
+    local textH = pop.caption:GetStringHeight() or 14
+    pop.plate:SetHeight(max(44, textH + 20 + (pop.rowH or 0)))
+    hideLater(sec)
+end
+
 local function present(p, opts)
     if GF.gateShut or type(p) ~= "table" then return end
-    pop = pop or buildPop()
+    if not pop then
+        pop = buildPop()
+        pop.Answered = answered
+    end
     pop.outro:Stop()
     pop.slam:Stop()
     pop.entry = p
-    pop.recordId = opts.recordId
+    pop.ask = opts.ask
+    pop.leaveOff = {}
+    pop.recordIds = opts.recordIds
     pop.poster:SetEntry(p, opts.fresh and "fresh" or nil)
     pop.poster.stampBox:Hide()
     pop.big:SetText(opts.big or "")
     pop.caption:SetText(opts.caption or "")
-    pop.wasnt:SetShown(opts.recordId ~= nil)
+    local hasIds = opts.recordIds ~= nil and #opts.recordIds > 0 and not opts.ask
+    pop.wasnt:SetShown(hasIds)
+    pop.yes:SetShown(opts.ask ~= nil)
+    pop.no:SetShown(opts.ask ~= nil)
+    pop.snooze:SetShown(opts.ask ~= nil)
+    pop.wasnt:SetText(opts.recordIds and #opts.recordIds > 1 and "Wasn't them (takes all of them down)" or "Wasn't them")
     local textH = pop.caption:GetStringHeight() or 14
-    pop.plate:SetHeight(max(44, textH + 20 + (opts.recordId and 26 or 0)))
+    -- the rest of the pack, in a row under the words
+    local crew = opts.crew or {}
+    local n = math.min(#crew, #pop.mates)
+    local rowW = n * MATE + (n - 1) * 12
+    for i, m in ipairs(pop.mates) do
+        local e = crew[i]
+        m:SetShown(i <= n)
+        m:EnableMouse(opts.ask ~= nil and i <= n)
+        m.who = e and e.name or nil
+        m.photo:SetDesaturated(false)
+        m:SetAlpha(1)
+        if i <= n then
+            setMug(m.photo, e)
+            m.name:SetText(e.name or "?")
+            m:ClearAllPoints()
+            m:SetPoint("TOPLEFT", pop.plate, "TOP", -rowW / 2 + (i - 1) * (MATE + 12), -(10 + textH + 8))
+        end
+    end
+    local rowH = n > 0 and (8 + MATE + 14) or 0
+    pop.rowH = rowH
+    pop.plate:SetHeight(max(44, textH + 20 + rowH + (opts.ask and 54 or (hasIds and 26 or 0))))
     pop.hover = false
     hideLater(opts.duration or 10)
     pop:ClearAllPoints()
@@ -866,11 +1084,53 @@ local function present(p, opts)
     end
 end
 
-GF:On("GF_WANTED_DEATH", function(p, id)
+local function packCaption(n)
+    return (U.Pick(PACK_CAPTIONS):gsub("{n}", tostring(n)))
+end
+
+WHY = {
+    ["had you targeted"] = "had you targeted",
+    ["was your target"] = "was your target",
+    ["standing over you"] = "was standing over you",
+    ["only enemy about"] = "was the only one about",
+    ["death recap"] = "landed the killing blow",
+}
+
+--- The poster as a question: "Put them up?" Ignored, it waits on the Most Wanted page.
+ask = function(r)
+    if type(r) ~= "table" or type(r.killer) ~= "table" then return end
+    local p = N:Preview(r)
+    local crew = {}
+    for _, m in ipairs(r.crew or {}) do crew[#crew + 1] = N:Preview(r, m) end
+    local caption
+    if #crew > 0 then
+        caption = ("Jumped by a pack of %d. Put them all up on the poles? Click a face to leave them off. If you started it, call it a fair fight.")
+            :format(#crew + 1)
+    else
+        caption = ("%s %s. Put them up on the poles? If you started it, call it a fair fight.")
+            :format(r.killer.name, WHY[r.why or ""] or "did you over")
+    end
+    present(p, { ask = r, big = #crew > 0 and "Jumped" or "Done over", caption = caption, crew = crew,
+        sound = SOUND_DEATH, duration = 45 })
+end
+N.AskAgain = ask
+
+GF:On("GF_WANTED_ASK", function(r)
+    -- posters off: the question waits on the page instead
     if settings().wantedPosters == false then return end
     -- a moment for the game's own death screen first
+    GF:After(1.2, function() ask(r) end)
+end)
+
+GF:On("GF_WANTED_DEATH", function(p, ids, _, crew, filed)
+    if filed or settings().wantedPosters == false then return end
+    if type(ids) == "string" then ids = { ids } end
+    crew = type(crew) == "table" and crew or {}
+    -- a moment for the game's own death screen first
     GF:After(1.2, function()
-        present(p, { big = "Done over", caption = U.Pick(DEATH_CAPTIONS), recordId = id, sound = SOUND_DEATH, duration = 12 })
+        local caption = #crew > 0 and packCaption(#crew + 1) or U.Pick(DEATH_CAPTIONS)
+        present(p, { big = #crew > 0 and "Jumped" or "Done over", caption = caption, recordIds = ids, crew = crew,
+            sound = SOUND_DEATH, duration = #crew > 0 and 14 or 12 })
     end)
 end)
 
@@ -891,6 +1151,19 @@ function N:TestPoster(kind)
             guild = "Darnassus Neighbourhood Watch", status = "wanted", bounty = 4, open = { {}, {}, {} }, spread = 2,
             dogs = 1, priors = 6, victims = {}, seen = { t = API.ServerTime() - 600, z = "Ashenvale" } }
     end
+    if kind == "pack" then
+        local crew = {}
+        for i = 2, #b.wanted do
+            if #crew < 3 then crew[#crew + 1] = b.wanted[i] end
+        end
+        if #crew == 0 then
+            crew = { { name = "Brightblade", race = "human", class = "PALADIN", sex = 2 },
+                { name = "Fizzlecrank", race = "gnome", class = "WARLOCK", sex = 2 } }
+        end
+        present(p, { big = "Jumped", caption = packCaption(#crew + 1) .. " (Just a preview.)", crew = crew,
+            sound = SOUND_DEATH, duration = 14 })
+        return
+    end
     if kind == "collect" then
         present(p, { big = "Collected", caption = "Paid in full. +" .. N:PointsText(p.bounty) .. ". (Just a preview.)",
             fresh = true, stamp = "dealt", duration = 9 })
@@ -903,5 +1176,15 @@ GF:RegisterSlash("wanted", function(args)
     local a = (args or ""):lower():match("^%s*(%S*)")
     if a == "test" then return N:TestPoster("death") end
     if a == "collect" or a == "claim" then return N:TestPoster("collect") end
+    if a == "pack" or a == "gang" then return N:TestPoster("pack") end
+    if a == "snooze" then
+        local mins = tonumber((args or ""):match("snooze%s+(%d+)")) or 60
+        N:Snooze(mins * 60)
+        return GF:Print(("Most Wanted snoozed for %d minutes: no posters, no sightings. /gf wanted wake brings it back."):format(mins))
+    end
+    if a == "wake" then
+        N:Snooze(0)
+        return GF:Print("Most Wanted's back on.")
+    end
     UI:OpenMain(PAGE)
-end, "Most Wanted (test: preview a poster, collect: preview the stamp)")
+end, "Most Wanted (test, pack, collect: previews; snooze [minutes], wake)")

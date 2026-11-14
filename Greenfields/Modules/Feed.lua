@@ -555,6 +555,9 @@ local function onRemote(p, sender, channel)
     if not t or abs(t - now) > CLOCK_SLACK then t = now end
     local e = append({ kind = kind, text = text, t = floor(t), from = sender, icon = cleanIcon(p.i), key = key }, now)
     if not e then return end
+    -- a 60 gets fireworks (Modules/Sixty.lua) instead of a sign; the row stays in the feed
+    if kind == "level" and key and key:find(":60$") and GF.Sixty and GF.Sixty.Heard
+        and GF.Sixty:Heard(sender, { line = text, t = e.t }) then return end
     -- raiders already got Fun's kill sign; everyone else hears it from the Watch
     if kind == "kill" and GF.Roster and GF.Roster.InGroup and GF.Roster:InGroup(sender) then return end
     toast(e, p.o == 1)

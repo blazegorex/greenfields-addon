@@ -2,7 +2,7 @@
 ## Title: |cff3ddb78Greenfields|r
 ## Notes: The Greenfields guild addon for WoW Forever: rostering, soft reserves, attendance, a Hall of Fame (and Shame), guild profession browser, raid buff + camp planner, and the Neighbourhood Watch. Est. Mandurah, WA.
 ## Author: Greenfields
-## Version: 1.3.0
+## Version: 1.4.0
 ## SavedVariables: GreenfieldsDB
 ## SavedVariablesPerCharacter: GreenfieldsCharDB
 ## IconTexture: Interface\AddOns\Greenfields\Media\art\crest
@@ -51,6 +51,8 @@ Modules\Stats.lua
 Modules\HallOfFame.lua
 Modules\Nemesis.lua
 Modules\NemesisUI.lua
+Modules\Sixty.lua
+Modules\SixtyUI.lua
 Modules\Professions.lua
 Modules\ProfessionsUI.lua
 Modules\Buffs.lua

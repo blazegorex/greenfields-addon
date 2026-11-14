@@ -17,6 +17,8 @@ GF.Profile = Profile
 local API, U, Store = GF.API, GF.Util, GF.Store
 local contributors = {}
 
+local SIXTY_FIELDS = { t = true, p = true, f = true, s = true, n = true }
+
 -- Remote profiles are shown everywhere, so junk is rejected at the door.
 local function validProfile(_, d)
     if type(d) ~= "table" then return false end
@@ -29,6 +31,14 @@ local function validProfile(_, d)
         if type(d.profs) ~= "table" then return false end
         for k, v in pairs(d.profs) do
             if type(k) ~= "number" or type(v) ~= "number" then return false end
+        end
+    end
+    -- Modules/Sixty.lua: { t = hit 60 at, p = /played, f = from level, s = from time, n = place }
+    if d.sixty ~= nil then
+        if type(d.sixty) ~= "table" then return false end
+        for k, v in pairs(d.sixty) do
+            if not SIXTY_FIELDS[k] or type(v) ~= "number" or v ~= v
+                or v < 0 or v > 4e9 then return false end
         end
     end
     return true

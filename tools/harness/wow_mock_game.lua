@@ -330,7 +330,20 @@ G.PlaySoundFile = function(file, channel)
     MOCK.sounds[tostring(file)] = (MOCK.sounds[tostring(file)] or 0) + 1
     return true, 1
 end
-G.StopSound = function() end
+G.StopSound = function(handle)
+    MOCK.soundsStopped = (MOCK.soundsStopped or 0) + 1
+end
+-- /played: the server answers a moment later (MOCK.played seconds; nil = it never answers)
+G.RequestTimePlayed = function()
+    MOCK.playedAsked = (MOCK.playedAsked or 0) + 1
+    local total = MOCK.played
+    if total then
+        MOCK.C_Timer.After(0.4, function() fire("TIME_PLAYED_MSG", total, MOCK.playedLevel or 3600) end)
+    end
+end
+G.Screenshot = function()
+    MOCK.screenshots = (MOCK.screenshots or 0) + 1
+end
 G.PlayMusic = function() end
 G.StopMusic = function() end
 

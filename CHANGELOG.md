@@ -4,6 +4,19 @@ Add notes under **Unreleased** as you go; `tools/release.py` moves them under th
 
 ## Unreleased
 
+## 1.4.0 - 2026-11-14
+
+- Hitting 60 is a moment now. The screen goes dark, fireworks go up over the estuary, a fanfare plays and your 60 medal comes down. Then your climb: time played, days on the road, quests, deaths, jumps, a chart of every level, where you came in on the street, and whoever put you down the most on the way. Tell the guild, Frame it for a screenshot without the buttons, or Done. A fight takes it down; `/gf sixty` plays it again.
+- Already 60? If Greenfields saw you ding, you get the ceremony you missed, once, the next time you log in.
+- When a guildie hits 60, everyone online gets a banner across the top with fireworks, the first bars of the fanfare and a Grats button for guild chat. It waits until you're out of a fight. Settings has switches for the fanfare and the fireworks.
+- The Hall of Fame has a Sixty Club tab: everyone who's made it, in order, with the date, days on the road and time played, and who's next through the door.
+
+- Most Wanted asks first now. When you're done over, the poster drops as a question: Put them up, or Fair fight if you started it. Jumped by a pack? Click a face to leave them off. Ignore it and it waits on the Most Wanted page for you to answer later. Settings has "Ask before putting them up" if you'd rather they went straight up.
+- Snooze: an hour off from the question, or 30 minutes to two hours from the Snooze button on the Most Wanted page. While it's snoozed your deaths ask nothing and wanted faces don't pop a sign, but a kill on someone wanted still collects. `/gf wanted snooze` and `/gf wanted wake` do it too.
+- Most Wanted sits out battlegrounds and arenas entirely: no posters, no collecting, no sightings.
+
+- Most Wanted: get jumped by a pack and they all go on the poles, not just whoever landed the blow. Everyone who had you targeted, was your target, or shows up hitting you in the death recap gets a poster and a point. Someone just walking past doesn't. The poster that drops shows the rest of the pack underneath. `/gf wanted pack` shows you one.
+
 ## 1.3.0 - 2026-11-13
 
 - Most Wanted: when an Alliance player does one of us over, their mugshot goes up on every pole in Greenfields with a price on their head. There's a mugshot for every Alliance race, class and sex. A point a body, more for doing different locals and for dog acts on lowbies. Drop them and the points are yours; revenge is worth one more and a hand in the kill is worth one.

@@ -3,7 +3,8 @@
      standings for every stat, and your own badge collection.
 
      Tabs: Hall of Fame / Hall of Shame (a grid of title cards), Leaderboards (one stat,
-     every main ranked), My Badges (earned chips + progress toward the next milestone).
+     every main ranked), My Badges (earned chips + progress toward the next milestone), Sixty Club
+     (everyone who's hit 60, in order: Modules/SixtyUI.lua draws that one).
      The All time / This week control on the tab row switches the scope. Wealth is a rank
      stat: the page only ever shows positions, never amounts.
 
@@ -57,8 +58,9 @@ local TABS = {
     { key = "shame", text = "Hall of Shame", icon = "skull" },
     { key = "boards", text = "Leaderboards", icon = "trophy" },
     { key = "badges", text = "My Badges", icon = "star" },
+    { key = "sixty", text = "Sixty Club", icon = "star_fill" },
 }
-local TAB_KEYS = { fame = true, shame = true, boards = true, badges = true }
+local TAB_KEYS = { fame = true, shame = true, boards = true, badges = true, sixty = true }
 
 local LINES = {
     fameNone = "Nobody's earned a crown yet. The bar's on the floor, legends. Step over it.",
@@ -1034,7 +1036,7 @@ end
 -- Page
 -------------------------------------------------------------------------------
 local function styleScope(page)
-    page.scopeCtl:SetShown(page.tab ~= "badges")
+    page.scopeCtl:SetShown(page.tab ~= "badges" and page.tab ~= "sixty")
     page.scopeCtl:Select(page.scope, true)
 end
 
@@ -1046,6 +1048,11 @@ function Fame:Render(page)
         page.views.grid = page.views.grid or buildGrid(page)
         page.views.grid:Show()
         renderGrid(page, tab)
+    elseif tab == "sixty" and GF.SixtyUI then
+        -- Modules/SixtyUI.lua draws it: everyone who's hit 60, in order
+        page.views.sixty = page.views.sixty or GF.SixtyUI:BuildClub(page.body)
+        page.views.sixty:Show()
+        GF.SixtyUI:RenderClub(page.views.sixty)
     elseif tab == "boards" then
         page.views.boards = page.views.boards or buildBoards(page)
         page.views.boards:Show()

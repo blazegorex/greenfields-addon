@@ -186,6 +186,7 @@ Read the file; every function is documented there. The most used:
 | Raids | `RQ` |
 | Attendance | `AQ` |
 | Most Wanted | `WS` (a wanted enemy sighted) |
+| Level 60 | `S6` (I just hit 60: `{t, p, n}`) |
 
   Use only your own ops. Ask in your report if you need another.
 
@@ -253,6 +254,7 @@ GF.Store:Mine(name)  GF.Store:PutMine(name, data)  GF.Store:CanWrite(name, id, d
 | Buffs | `caps`, `camp` |
 | Stats | `wealth` |
 | Professions | `pv` (recipe digest) |
+| Sixty | `sixty` = `{t, p, f, s, n}`: when you hit 60, /played, the level and time Greenfields started watching you, which 60 in the guild you were. Numbers only; Core/Profile.lua turns away anything else. |
 
 ### 2.9 Data
 
@@ -406,7 +408,15 @@ Every function must return safe defaults (an empty table, nil or 0) when there i
 - `GF.Nemesis:Get(name)` → entry or nil. `GF.Nemesis:NemesisOf(key)` → the entry that's killed that guildie (and their alts) the most, and how many times.
 - `GF.Nemesis:HunterOf(key)` → `{key, points, claims, assists, revenge, best}` or nil (alts roll up to their main).
 - `GF.Nemesis:Mug(entry)` → texture, left, right, top, bottom: the mugshot. `:Describe(entry)` → "Night Elf Rogue, level 34". `:PointsText(n)`.
-- Fires `GF_WANTED_CHANGED` when the board moves, `GF_WANTED_DEATH(entry, docId, why)` for your own death, `GF_WANTED_CLAIMED(entry, points, revenge)` when you collect, `GF_WANTED_SEEN(entry)` on a sighting.
+- Fires `GF_WANTED_CHANGED` when the board moves, `GF_WANTED_ASK(report)` when a death wants an answer, `GF_WANTED_REPORTS` when the waiting list changes, `GF_WANTED_SNOOZE`, `GF_WANTED_DEATH(entry, docIds, why, crew, filed)` for your own death once it's up (crew = the killer's mates, entries; filed = put up from the question), `GF_WANTED_CLAIMED(entry, points, revenge)` when you collect, `GF_WANTED_SEEN(entry)` on a sighting.
+
+### GF.Sixty (Modules/Sixty*.lua)
+- `GF.Sixty:Climb()` → `{ {l, t}, ... }` this character's levels from Core/Books.lua, oldest first, only ever up.
+- `GF.Sixty:Of(key)` → `{t, p, f, s, n}` or nil: someone's 60 from their profile (yours from your own books).
+- `GF.Sixty:Club()` → everyone on the roster at 60, dated first: `{key, t, p, f, s, n, place, me}`. `place` is the `n` they counted on the day, or the order here when every date is known. `:Next(n)` → the closest under 60, `{key, level}`. `:Count()` → at 60, on the roster.
+- `GF.Sixty:Recap()` → everything the ceremony shows; `:Preview()` → the same with made-up numbers. `:Play()` plays yours; `:Queue(delay)` plays it once you're out of a fight and alive.
+- `GF.Sixty:Heard(key, info)` → true when a guildie's 60 gets fireworks (Modules/Feed.lua calls it for the Watch's level-60 line and keeps its own sign when it says no).
+- Fires `GF_SIXTY_CEREMONY(recap)`, `GF_SIXTY_HEARD(key, info, fresh)` and `GF_SIXTY_CHANGED`. Modules/SixtyUI.lua draws them and the Hall of Fame's Sixty Club tab (`GF.SixtyUI:BuildClub(parent)`, `:RenderClub(view)`).
 
 ### GF.UI (Modules/Residents.lua)
 - `GF.UI:OpenProfile(key)` opens the profile view for a player.

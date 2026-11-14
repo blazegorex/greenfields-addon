@@ -2586,6 +2586,8 @@ def scenario_wanted(res, render_dir):
 
     mine = spencer.eval_json("UnitFactionGroup('player')")
     enemy = "Horde" if mine == "Alliance" else "Alliance"
+    for c in sim.clients:
+        c.lua("Greenfields.db.settings.wantedAsk = false")
 
     def stranger(name, **kw):
         rec = {"name": name, "race": "NightElf", "class": "ROGUE", "faction": enemy, "level": 60, "sex": 2,
@@ -2849,6 +2851,162 @@ def scenario_wanted(res, render_dir):
     after = board(spencer, "(function() local h = b.hunterOf['%s'] return h and {h.points, h.assists} or {0, 0} end)()" % shazza.name)
     check("honour first: the bounty, no extra point for a hand in it", after == [before[0] + 1, before[1]], [before, after])
 
+    # --- jumped by a pack: the killer and every mate on you get a poster ------------------------
+    sim.advance(15)
+    put(spencer, "nameplate12", stranger("Gangboss", race="Human", targets=spencer.name, **{"class": "WARRIOR"}))
+    put(spencer, "nameplate13", stranger("Gangmate", race="Dwarf", targets=spencer.name, **{"class": "HUNTER"}))
+    put(spencer, "nameplate14", stranger("Walkpast", race="Gnome", **{"class": "MAGE"}))   # about, but not on you
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(5)
+    gang = spencer.eval_json("(function() local out = {} for id, d in pairs(Greenfields.Store:All('wanted')) do "
+                             "if d.v == '%s' and (d.e == 'Gangboss' or d.e == 'Gangmate' or d.e == 'Walkpast') then "
+                             "out[#out + 1] = d.e .. (d.a and '+' or '') end end table.sort(out) return out end)()" % spencer.name)
+    check("pack: the killer and the mate on you both go up, the passer-by doesn't",
+          sorted(g.rstrip("+") for g in (gang or [])) == ["Gangboss", "Gangmate"] and sum(g.endswith("+") for g in gang) == 1, gang)
+    shown = spencer.eval_json("(function() for _, f in ipairs({UIParent:GetChildren()}) do if f.mates and f:IsShown() then "
+                              "local n = 0 for _, m in ipairs(f.mates) do if m:IsShown() then n = n + 1 end end return n end end end)()")
+    check("pack: the popup shows the mate", shown == 1, shown)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-pack.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-pack.png"), crop_frame="(screen)")
+    sim.advance(10)
+    pack = board(bazza, "{N:Get('Gangmate') and N:Get('Gangmate').pack, N:Get('Gangboss') and N:Get('Gangboss').pack}")
+    check("pack: synced, and the mate's poster knows it was a gang job", sorted(pack or []) == [0, 1], pack)
+    # "Wasn't them" on the popup takes every poster from that death down
+    spencer.lua("for _, f in ipairs({UIParent:GetChildren()}) do if f.mates and f.wasnt and f:IsShown() then f.wasnt:Click() end end")
+    sim.advance(10)
+    gone = board(bazza, "{N:Get('Gangboss') == nil, N:Get('Gangmate') == nil}")
+    check("pack: wasn't them takes them all down", gone == [True, True], gone)
+    spencer.Game.Release()
+    spencer.Game.Resurrect()
+    for np in ("nameplate12", "nameplate13", "nameplate14"):
+        put(spencer, np, None)
+
+    # --- the recap shows two of them hitting you: both go up, nobody seen needed --------------
+    side = "Orc" if enemy == "Horde" else "Human"
+    hitter1 = stranger("Bonecrush", race=side, **{"class": "WARRIOR"})
+    hitter2 = stranger("Sneakstab", race=side, **{"class": "ROGUE"})
+    bazza.Game.SetUnit("arena1", bazza.rt.execute("return " + to_lua(hitter1)))
+    bazza.Game.SetUnit("arena2", bazza.rt.execute("return " + to_lua(hitter2)))
+    bazza.MOCK["deathRecap"] = bazza.rt.execute("return " + to_lua([
+        {"timestamp": 3, "sourceGUID": hitter1["guid"], "sourceName": "Bonecrush", "amount": 700, "overkill": 90},
+        {"timestamp": 2, "sourceGUID": hitter2["guid"], "sourceName": "Sneakstab", "amount": 500, "overkill": -1}]))
+    bazza.Game.Die()
+    sim.advance(5)
+    bazza.MOCK["deathRecap"] = None
+    bazza.Game.SetUnit("arena1", None)
+    bazza.Game.SetUnit("arena2", None)
+    bazza.Game.Release()
+    bazza.Game.Resurrect()
+    recap2 = board(bazza, "{N:Get('Bonecrush') and N:Get('Bonecrush').pack, N:Get('Sneakstab') and N:Get('Sneakstab').pack}")
+    check("pack from the recap: the killing blow and the other hitter", recap2 == [0, 1], recap2)
+
+    # --- asking first ----------------------------------------------------------------------
+    sim.advance(15)
+    spencer.lua("Greenfields.db.settings.wantedAsk = true")
+    popup = "(function() for _, f in ipairs({UIParent:GetChildren()}) do if f.yes and f.mates then return f end end end)()"
+
+    def docs_for(c, names):
+        return c.eval_json("(function() local want, out = {%s}, {} for _, d in pairs(Greenfields.Store:All('wanted')) do "
+                           "if d.k == 'd' and want[d.e] then out[#out + 1] = d.e end end table.sort(out) return out end)()"
+                           % ", ".join("['%s'] = true" % n for n in names)) or []
+
+    def gank(c, names, slot=20):
+        for i, n in enumerate(names):
+            put(c, "nameplate%d" % (slot + i), stranger(n, targets=c.name))
+        sim.advance(1)
+        c.Game.Die()
+        sim.advance(5)
+
+    def upagain(c, names, slot=20):
+        c.Game.Release()
+        c.Game.Resurrect()
+        for i in range(len(names)):
+            put(c, "nameplate%d" % (slot + i), None)
+        sim.advance(1)
+
+    gank(spencer, ["Asker"])
+    check("ask: nothing goes up until you say", docs_for(spencer, ["Asker"]) == [] and
+          spencer.eval_json("#Greenfields.Nemesis:Reports()") == 1, spencer.eval_json("#Greenfields.Nemesis:Reports()"))
+    asking = spencer.eval_json("(function() local f = %s return f and f:IsShown() and f.yes:IsShown() and f.no:IsShown() end)()" % popup)
+    check("ask: the poster asks", asking is True, asking)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-ask.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-ask.png"), crop_frame="(screen)")
+    spencer.lua("local f = %s f.yes:Click()" % popup)
+    sim.advance(10)
+    check("ask: Put them up puts them up, everywhere", docs_for(bazza, ["Asker"]) == ["Asker"] and
+          spencer.eval_json("#Greenfields.Nemesis:Reports()") == 0, docs_for(bazza, ["Asker"]))
+    upagain(spencer, ["Asker"])
+
+    gank(spencer, ["Brawler"])
+    spencer.lua("local f = %s f.no:Click()" % popup)
+    sim.advance(5)
+    check("ask: Fair fight puts nobody up", docs_for(spencer, ["Brawler"]) == [] and
+          spencer.eval_json("#Greenfields.Nemesis:Reports()") == 0)
+    upagain(spencer, ["Brawler"])
+
+    pack3 = ["Packlead", "Packmate", "Packfriend"]
+    gank(spencer, pack3)
+    left = spencer.eval_json("(function() local f = %s local m = f.mates[1] m:GetScript('OnMouseUp')(m) return m.who end)()" % popup)
+    spencer.lua("local f = %s f.yes:Click()" % popup)
+    sim.advance(10)
+    check("ask: a mate you click off stays off", docs_for(bazza, pack3) == sorted(n for n in pack3 if n != left),
+          [left, docs_for(bazza, pack3)])
+    upagain(spencer, pack3)
+
+    gank(spencer, ["Ignored"])
+    sim.advance(60)
+    waiting = spencer.eval_json("(function() local f = %s return {#Greenfields.Nemesis:Reports(), f:IsShown()} end)()" % popup)
+    check("ask: ignored, it goes away but waits on the page", waiting == [1, False], waiting)
+    upagain(spencer, ["Ignored"])
+    spencer.lua("Greenfields.UI:OpenMain('wanted')")
+    sim.advance(1)
+    row = spencer.eval_json("(function() local r = Greenfields.Nemesis.page.reports.rows[1] return r:IsShown() and r.rep.killer.name end)()")
+    check("ask: the page shows what's waiting", row == "Ignored", row)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "wanted-waiting.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-waiting.png"))
+    spencer.lua("Greenfields.Nemesis.page.reports.rows[1].yes:Click()")
+    sim.advance(10)
+    check("ask: answered from the page", docs_for(bazza, ["Ignored"]) == ["Ignored"])
+    spencer.lua("Greenfields.UI:HideMain()")
+
+    # --- snooze ---------------------------------------------------------------------------
+    gank(spencer, ["Snoozer"])
+    spencer.lua("local f = %s f.snooze:Click()" % popup)
+    snoozed = spencer.eval_json("Greenfields.Nemesis:Snoozed()")
+    check("snooze: an hour off", isinstance(snoozed, (int, float)) and 3500 < snoozed <= 3600, snoozed)
+    upagain(spencer, ["Snoozer"])
+    gank(spencer, ["Sleeper"])
+    check("snooze: a death while snoozed asks nothing and posts nothing",
+          spencer.eval_json("#Greenfields.Nemesis:Reports()") == 0 and docs_for(spencer, ["Snoozer", "Sleeper"]) == [])
+    upagain(spencer, ["Sleeper"])
+    spencer.lua("SlashCmdList.GREENFIELDS('wanted wake')")
+    sim.advance(1)
+    check("snooze: wake brings it back", spencer.eval_json("Greenfields.Nemesis:Snoozed()") is None)
+    spencer.lua("Greenfields.db.settings.wantedAsk = false")
+
+    # --- battlegrounds: it sits out --------------------------------------------------------
+    bg = {"name": "Warsong Gulch", "type": "pvp", "maxPlayers": 10, "instanceID": 489}
+    shazza.Game.EnterInstance(shazza.rt.execute("return " + to_lua(bg)))
+    sim.advance(1)
+    gank(shazza, ["Flagrunner"])
+    upagain(shazza, ["Flagrunner"])
+    check("battleground: no poster for a death", docs_for(shazza, ["Flagrunner"]) == [])
+    hunted = board(shazza, "(function() local h = b.hunterOf['%s'] return h and h.claims or 0 end)()" % shazza.name)
+    wanted_one = board(shazza, "b.wanted[1] and b.wanted[1].name")
+    put(shazza, "nameplate30", stranger(wanted_one))
+    sim.advance(1)
+    shazza.fire("PARTY_KILL", guid(shazza), stranger(wanted_one)["guid"])
+    sim.advance(10)
+    put(shazza, "nameplate30", None)
+    after = board(shazza, "(function() local h = b.hunterOf['%s'] return h and h.claims or 0 end)()" % shazza.name)
+    check("battleground: no collecting either", after == hunted, [wanted_one, hunted, after])
+    shazza.Game.LeaveInstance()
+    sim.advance(1)
+
     # --- the page --------------------------------------------------------------------------
     sim.advance(15)     # the last poster's gone off the screen
     for c in (spencer, bazza):
@@ -2867,6 +3025,216 @@ def scenario_wanted(res, render_dir):
     if scene_dir:
         sp = os.path.join(scene_dir, "wanted-profile.json")
         queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "wanted-profile.png"))
+    for c in sim.clients:
+        rep = collect_client_report(c)
+        check("no Lua errors on " + c.name, not rep["errors"] and not rep["addonErrors"], rep["errors"] + rep["addonErrors"])
+    sc["time"] = round(time.time() - t0, 1)
+    return sim
+
+
+def scenario_sixty(res, render_dir):
+    """Level 60 (Modules/Sixty*.lua): the ceremony when you ding, the street's fireworks and Grats, the
+    Sixty Club in the Hall of Fame, a ceremony waiting out a fight, and the one you missed."""
+    sc = res.scenario("sixty")
+    t0 = time.time()
+
+    def check(name, ok, got=None):
+        sc["checks"].append({"name": name, "ok": bool(ok), "got": got})
+        if not ok:
+            sc["status"] = "fail"
+            sc["notes"].append(name)
+            res.harness_failures.append("sixty: %s (got %r)" % (name, got))
+
+    sim = Sim(3, "sixty")
+    spencer, bazza, shazza = sim.clients[:3]
+    spencer.Game.SetLevel(59)
+    shazza.Game.SetLevel(59)
+    for c in sim.clients:
+        c.set_scenario("sixty")
+        sim.login(c)
+    sim.advance(30)
+
+    def level(name, lvl):
+        for c in sim.clients:
+            c.Game.SetMemberField(name, "level", lvl)
+            c.fire("GUILD_ROSTER_UPDATE", False)
+
+    # everyone's under 60 but Bazza, who got there first (and has no date: before the books)
+    members = spencer.eval_json("(function() local out = {} for k in pairs(Greenfields.Roster:All()) do out[#out + 1] = k end return out end)()")
+    for n in members:
+        for c in sim.clients:
+            c.Game.SetMemberField(n, "level", 60 if n == bazza.name else (59 if n in (spencer.name, shazza.name) else 52))
+    for c in sim.clients:
+        c.fire("GUILD_ROSTER_UPDATE", False)
+    sim.advance(30)
+    scene_dir = None
+    if render_dir:
+        scene_dir = os.path.join(render_dir, "scenes")
+        os.makedirs(scene_dir, exist_ok=True)
+
+    def now(c):
+        return c.eval_json("GetServerTime()")
+
+    # nine days of dings in Spencer's books, quick early and slow late
+    start = now(spencer) - 9 * 86400
+    spencer.lua("local b = Greenfields.cdb.books b.floor = { l = 1, t = %d } b.dings = {} "
+                "local t = %d for l = 2, 59 do t = t + math.floor(300 + l * l * 10) b.dings[l] = t end" % (start, start))
+    spencer.lua("local s = Greenfields.cdb.stats s.quests = 412 s.deaths_total = 37 s.jumps = 18204")
+    spencer.MOCK["played"] = 4 * 86400 + 7 * 3600
+
+    cer = "_G.GreenfieldsSixty"
+    banner = ("(function() for _, f in ipairs({UIParent:GetChildren()}) do if f.grats and f.medal and f:IsShown() "
+              "then return f end end end)()")
+
+    # --- the ding --------------------------------------------------------------------------
+    sim.chat_routed.clear()
+    spencer.Game.SetLevel(60)
+    level(spencer.name, 60)
+    sim.advance(1)
+    m = spencer.eval_json("Greenfields.cdb.sixty")
+    check("ding: written down", isinstance(m, dict) and isinstance(m.get("t"), (int, float)), m)
+    check("ding: 2nd in Greenfields, after Bazza", m and m.get("n") == 2, m and m.get("n"))
+    check("ding: no ceremony over the game's own ding", spencer.eval_json(cer + " == nil or not " + cer + ":IsShown()") is True)
+    sim.advance(3)
+    check("ding: the ceremony comes up", spencer.eval_json(cer + " and " + cer + ":IsShown()") is True)
+    played = spencer.MOCK["sounds"]["Interface\\AddOns\\Greenfields\\Media\\sound\\sixty_fanfare.ogg"]
+    check("ding: the fanfare plays", played == 1, played)
+    sim.advance(7)
+    m = spencer.eval_json("Greenfields.cdb.sixty")
+    check("ding: /played lands", m.get("p") == 4 * 86400 + 7 * 3600, m.get("p"))
+    tiles = spencer.eval_json("(function() local f = GreenfieldsSixty local out = {} for i = 1, f.tileCount do "
+                              "out[i] = {f.tiles[i].value:GetText(), f.tiles[i].label:GetText()} end return out end)()")
+    check("ding: the numbers count up to the real ones",
+          tiles and tiles[0][0] == "4d 7h" and ["9", "Days on the road"] in tiles and ["412", "Quests handed in"] in tiles
+          and ["18,204", "Jumps, for some reason"] in tiles, tiles)
+    words = spencer.eval_json("(function() local f = GreenfieldsSixty return {f.made:GetText(), f.place:GetText(), "
+                              "f.climbNote:GetText(), f.chart:IsShown(), f.chart.shown} end)()")
+    check("ding: made it, 2nd, and the climb", words and words[0] == "Made it." and words[1].startswith("2nd in Greenfields")
+          and words[2] == "Level 1 to 60 in 9 days" and words[3] is True and words[4] == 120, words)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "sixty-ceremony.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "sixty-ceremony.png"), crop_frame="(screen)")
+
+    # --- the street --------------------------------------------------------------------------
+    b = bazza.eval_json("(function() local f = %s return f and {f.title:GetText(), f.sub:GetText(), f.line:GetText()} end)()" % banner)
+    check("street: fireworks on Bazza's screen", b is not None and spencer.name in b[0] and "60" in b[0], b)
+    check("street: it knows the order and the /played", b and "2nd in Greenfields to 60" in b[1] and "4d 7h played" in b[1], b)
+    check("street: the Watch's line rides along, without saying the name twice", b and b[2] and spencer.name not in b[2], b)
+    short = bazza.MOCK["sounds"]["Interface\\AddOns\\Greenfields\\Media\\sound\\sixty_short.ogg"]
+    check("street: the first bars of the fanfare", short == 1, short)
+    row = bazza.eval_json("(function() for _, e in ipairs(Greenfields.Feed:Recent(10)) do if e.kind == 'level' then return e.text end end end)()")
+    check("street: the ding's still in the Watch", row is not None and spencer.name in row, row)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "sixty-street.json")
+        queue_render(res, bazza, export_scene(bazza, sp), sp, os.path.join(render_dir, "sixty-street.png"), crop_frame="(screen)")
+    bazza.lua("local f = %s f.grats:Click()" % banner)
+    sim.advance(1)
+    grats = [x for x in sim.chat_routed if x["from"] == bazza.name and x["chatType"] == "GUILD"]
+    check("street: Grats says it in guild chat", len(grats) == 1 and spencer.name in grats[0]["text"], grats)
+    check("street: one Grats a banner", bazza.eval_json("(function() local f = %s return f.grats:IsEnabled() end)()" % banner) is False)
+
+    # --- the buttons -------------------------------------------------------------------------
+    spencer.lua("GreenfieldsSixty.tell:Click()")
+    sim.advance(1)
+    told = [x for x in sim.chat_routed if x["from"] == spencer.name and x["chatType"] == "GUILD"]
+    check("tell the guild: one line in guild chat", len(told) == 1, told)
+    spencer.lua("GreenfieldsSixty.frameIt:Click()")
+    sim.advance(0.2)
+    check("frame it: no buttons in the shot", spencer.eval_json("GreenfieldsSixty.done:GetAlpha()") == 0)
+    sim.advance(1)
+    check("frame it: a screenshot, then the buttons are back",
+          spencer.MOCK["screenshots"] == 1 and spencer.eval_json("GreenfieldsSixty.done:GetAlpha()") == 1, spencer.MOCK["screenshots"])
+    spencer.lua("GreenfieldsSixty.done:Click()")
+    sim.advance(1)
+    check("done: it goes", spencer.eval_json(cer + ":IsShown()") is False)
+    check("done: and the music fades", (spencer.MOCK["soundsStopped"] or 0) >= 1)
+
+    # --- a fight ------------------------------------------------------------------------------
+    spencer.lua("SlashCmdList.GREENFIELDS('sixty')")
+    sim.advance(1)
+    check("/gf sixty plays it again", spencer.eval_json(cer + ":IsShown()") is True)
+    spencer.Game.SetCombat(True)
+    sim.advance(1)
+    check("a fight takes it down", spencer.eval_json(cer + ":IsShown()") is False)
+    spencer.Game.SetCombat(False)
+
+    shazza.MOCK["played"] = 5 * 86400
+    shazza.Game.SetCombat(True)
+    bazza.Game.SetCombat(True)
+    shazza.Game.SetLevel(60)
+    level(shazza.name, 60)
+    sim.advance(6)
+    check("in a fight: the ceremony waits", shazza.eval_json(cer + " == nil or not " + cer + ":IsShown()") is True)
+    check("in a fight: so does the street's banner",
+          bazza.eval_json("(function() local f = %s return f and f.key end)()" % banner) != shazza.name)
+    shazza.Game.SetCombat(False)
+    bazza.Game.SetCombat(False)
+    sim.advance(4)
+    check("fight over: the ceremony", shazza.eval_json(cer + " and " + cer + ":IsShown()") is True)
+    check("fight over: the banner", bazza.eval_json("(function() local f = %s return f and f.key end)()" % banner) == shazza.name)
+    check("Shazza's 3rd", shazza.eval_json("Greenfields.cdb.sixty.n") == 3, shazza.eval_json("Greenfields.cdb.sixty.n"))
+    shazza.lua("GreenfieldsSixty:Hide()")
+
+    # --- the Sixty Club ---------------------------------------------------------------------
+    sim.advance(45)    # profiles go round
+    s6 = bazza.eval_json("(function() local p = Greenfields.Profile:Get('%s') return p and p.sixty end)()" % spencer.name)
+    check("club: Spencer's 60 is in his profile, everywhere", s6 and s6.get("t") == m.get("t") and s6.get("n") == 2
+          and s6.get("f") == 1 and s6.get("p") == 4 * 86400 + 7 * 3600, s6)
+    club = bazza.eval_json("(function() local out = {} for _, e in ipairs(Greenfields.Sixty:Club()) do "
+                           "out[#out + 1] = {e.key, e.place or 0} end return out end)()")
+    check("club: in order, the undated last", club == [[spencer.name, 2], [shazza.name, 3], [bazza.name, 0]], club)
+    bazza.lua("Greenfields.UI:OpenMain('fame', 'sixty')")
+    sim.advance(1)
+    rows = bazza.eval_json("(function() local v = Greenfields.UI.pages.fame.frame v = v and v.views and v.views.sixty "
+                           "if not v then return nil end local out = {} for i = 1, v.rowCount do local r = v.rows[i] "
+                           "out[i] = {r.place:GetText(), r.when:GetText(), r.how:GetText()} end return out end)()")
+    check("club: the tab shows them", rows and len(rows) == 3 and rows[0][0] == "2" and "9 days" in rows[0][2]
+          and rows[2][0] == "", rows)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "sixty-club.json")
+        queue_render(res, bazza, export_scene(bazza, sp), sp, os.path.join(render_dir, "sixty-club.png"))
+    bazza.lua("Greenfields.UI:HideMain()")
+
+    # --- the one you missed ------------------------------------------------------------------
+    bazza.lua("Greenfields.cdb.sixty = {} Greenfields.Fire(Greenfields, 'GF_LOGIN')")
+    sim.advance(16)
+    check("missed: no ding in the books, no ceremony", bazza.eval_json(cer + " == nil or not " + cer + ":IsShown()") is True)
+    when = now(bazza) - 5 * 3600
+    bazza.lua("Greenfields.cdb.books.dings[60] = %d Greenfields.cdb.sixty = {} Greenfields.Fire(Greenfields, 'GF_LOGIN')" % when)
+    sim.advance(16)
+    late = bazza.eval_json("(function() local f = GreenfieldsSixty return f and f:IsShown() and {f.made:GetText(), "
+                           "Greenfields.cdb.sixty.t, Greenfields.cdb.sixty.late} end)()")
+    check("missed: the ceremony you should have had", late and late[0] == "Made it. A while back." and late[1] == when and late[2] is True, late)
+    sim.advance(7)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "sixty-missed.json")
+        queue_render(res, bazza, export_scene(bazza, sp), sp, os.path.join(render_dir, "sixty-missed.png"), crop_frame="(screen)")
+    bazza.lua("GreenfieldsSixty:Hide() Greenfields.Fire(Greenfields, 'GF_LOGIN')")
+    sim.advance(16)
+    check("missed: once only", bazza.eval_json(cer + ":IsShown()") is False)
+
+    # --- the rules ------------------------------------------------------------------------------
+    old = bazza.eval_json("Greenfields.Sixty:Heard('%s', { t = GetServerTime() - 7200 })" % shazza.name)
+    check("old news gets no fireworks", old is False, old)
+    bazza.lua("Greenfields.db.settings.sixtyBanners = false")
+    off = bazza.eval_json("Greenfields.Sixty:Heard('%s', { t = GetServerTime() })" % shazza.name)
+    check("fireworks off: the Watch keeps its sign", off is False, off)
+    bazza.lua("Greenfields.db.settings.sixtyBanners = true")
+    stranger = bazza.eval_json("Greenfields.Sixty:Heard('Randomguy', { t = GetServerTime() })")
+    check("not a guildie: nothing", stranger is False, stranger)
+    v = bazza.eval_json("(function() local V = Greenfields.Store.defs.profile.validate "
+                        "return {V(nil, {sixty = {t = 5, p = 6, f = 1, s = 2, n = 3}}), V(nil, {sixty = {t = 'x'}}), "
+                        "V(nil, {sixty = {zz = 1}}), V(nil, {sixty = 7})} end)()")
+    check("profile: a junk 60 is turned away", v == [True, False, False, False], v)
+    spencer.lua("SlashCmdList.GREENFIELDS('sixty test')")
+    sim.advance(8)
+    prev = spencer.eval_json("(function() local f = GreenfieldsSixty return {f:IsShown(), f.tell:IsShown(), f.notes:GetText()} end)()")
+    check("/gf sixty test: a preview, and it can't tell the guild", prev[0] is True and prev[1] is False and "preview" in prev[2], prev)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "sixty-preview.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "sixty-preview.png"), crop_frame="(screen)")
+    spencer.lua("GreenfieldsSixty:Hide()")
+
     for c in sim.clients:
         rep = collect_client_report(c)
         check("no Lua errors on " + c.name, not rep["errors"] and not rep["addonErrors"], rep["errors"] + rep["addonErrors"])
@@ -4777,8 +5145,8 @@ def main(argv):
         ADDON_DIR = os.path.abspath(args.addon)
     wanted = [s.strip() for s in args.scenario.split(",") if s.strip()]
     if "all" in wanted:
-        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted"]
-    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted"}
+        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty"]
+    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty"}
     bad = [s for s in wanted if s not in valid]
     if bad:
         ap.error("unknown scenario(s): %s" % ", ".join(bad))
@@ -4844,6 +5212,9 @@ def main(argv):
         if "wanted" in wanted:
             log("== wanted (Most Wanted: posters, bounties, collecting)")
             sims.append(scenario_wanted(res, args.render))
+        if "sixty" in wanted:
+            log("== sixty (level 60: the ceremony, the street's fireworks, the Sixty Club)")
+            sims.append(scenario_sixty(res, args.render))
     except Exception:
         tb = traceback.format_exc()
         res.harness_failures.append(tb)
