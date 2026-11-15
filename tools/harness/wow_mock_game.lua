@@ -549,6 +549,129 @@ G.UnitIsGroupAssistant = function(unit, category)
     local rec, e = resolve(unit)
     return rec ~= nil and e ~= nil and e.rank == 1 and state.group ~= nil and state.group.kind == "raid"
 end
+-- Raid target icons, the game's rules: one of each about (putting one on someone takes it off whoever
+-- had it), the same icon again takes it off, 0 clears, and in a raid only the leader and assistants
+-- can. Solo it's yours alone, like the real thing. MOCK.marksSet / MOCK.marksRefused count them.
+-- Since Midnight's changes (and so on Forever) SetRaidTarget is protected: only secure code, like a
+-- secure button's macro, may call it, and GetRaidTargetIndex answers addon code in secret.
+local function markId(unit)
+    local rec = resolve(unit)
+    if not rec then return nil end
+    return rec.guid or rec.name
+end
+local function markOf(id)
+    for i, who in pairs(state.marks or {}) do if who == id then return i end end
+end
+G.SetRaidTarget = function(unit, index)
+    unitCheck(unit, "SetRaidTarget")
+    if type(index) ~= "number" or index < 0 or index > 8 then error("Usage: SetRaidTarget(unit, index)", 2) end
+    if not MOCK.inSecure then
+        MOCK.NoteForbidden("SetRaidTarget() from addon code (protected: ADDON_ACTION_FORBIDDEN, the 'blocked' popup)", 2)
+        later(0, function() fire("ADDON_ACTION_FORBIDDEN", "Greenfields", "SetRaidTarget()") end)
+        return
+    end
+    local id = markId(unit)
+    if not id then return end
+    if state.group and state.group.kind == "raid" and not (G.UnitIsGroupLeader("player") or G.UnitIsGroupAssistant("player")) then
+        MOCK.marksRefused = (MOCK.marksRefused or 0) + 1
+        return
+    end
+    state.marks = state.marks or {}
+    local had = markOf(id)
+    if had then state.marks[had] = nil end
+    if index ~= 0 and had ~= index then
+        state.marks[index] = id
+        MOCK.marksSet = (MOCK.marksSet or 0) + 1
+    end
+    fire("RAID_TARGET_UPDATE")
+end
+G.GetRaidTargetIndex = function(unit)
+    unitCheck(unit, "GetRaidTargetIndex")
+    local id = markId(unit)
+    local v = id and markOf(id)
+    if v ~= nil and not MOCK.inSecure then return MOCK.Secret(v) end
+    return v
+end
+G.CanBeRaidTarget = function(unit)
+    unitCheck(unit, "CanBeRaidTarget")
+    return resolve(unit) ~= nil
+end
+--- Game.SetMark(token, index): someone else in the group marks whoever's on that token.
+function Game.SetMark(token, index)
+    local id = markId(token)
+    if not id then return end
+    state.marks = state.marks or {}
+    for i, who in pairs(state.marks) do if who == id or i == index then state.marks[i] = nil end end
+    if index and index > 0 then state.marks[index] = id end
+    fire("RAID_TARGET_UPDATE")
+end
+--- Game.MarkOf(name) -> the icon whoever's about by that name is wearing (for run.py).
+function Game.MarkOf(name)
+    for token, rec in pairs(state.units or {}) do
+        if type(rec) == "table" and rec.name == name then return markOf(rec.guid or rec.name) end
+    end
+end
+
+-- [@unit,cond,cond] the way SecureCmdOptionParse reads them (the few Greenfields uses)
+local function macroCond(args)
+    local conds, rest = match(args, "^%[(.-)%]%s*(.*)$")
+    if not conds then return true, "target", args end
+    local unit = "target"
+    for c in R.gmatch(conds, "[^,%s]+") do
+        local u = match(c, "^@(.+)$")
+        if u then unit = u end
+    end
+    local rec = resolve(unit)
+    for c in R.gmatch(conds, "[^,%s]+") do
+        if c == "exists" and not rec then return false end
+        if c == "harm" and not (rec and rec.faction and rec.faction ~= G.UnitFactionGroup("player")) then return false end
+        if c == "nodead" and rec and rec.dead then return false end
+        if c == "dead" and not (rec and rec.dead) then return false end
+    end
+    return true, unit, rest
+end
+
+--- What a secure button's macro does when it's clicked (the bits Greenfields uses): /target and
+-- /targetexact put whoever's about by that name on your target, /tm puts an icon on them the way
+-- Blizzard's /tm does ("!8": the skull, unless they've got it already). MOCK.secureMacros logs every
+-- run. Macro text over 255 characters is cut off by the real client, so it's flagged.
+function MOCK.RunSecureMacro(text)
+    MOCK.secureMacros = MOCK.secureMacros or {}
+    MOCK.secureMacros[#MOCK.secureMacros + 1] = text
+    text = tostring(text or "")
+    if #text > 255 then MOCK.NoteForbidden("macrotext over 255 characters (the client cuts it off)", 3) end
+    MOCK.inSecure = true
+    for line in R.gmatch(text, "[^\n]+") do
+        local who = match(line, "^%s*/targetexact%s+(.-)%s*$") or match(line, "^%s*/target%s+(.-)%s*$")
+        local tm = match(line, "^%s*/tm%s+(.-)%s*$") or match(line, "^%s*/targetmarker%s+(.-)%s*$")
+        if who and who ~= "" then
+            local found
+            for token, rec in pairs(state.units or {}) do
+                if token ~= "target" and type(rec) == "table" and rec.name == who then found = rec break end
+            end
+            if found then
+                Game.SetUnit("target", found)
+            elseif W.byName[who] then
+                state.target = who
+                fire("PLAYER_TARGET_CHANGED")
+            end
+        elseif tm then
+            local ok, unit, marker = macroCond(tm)
+            if ok and marker then
+                local n = tonumber(match(marker, "%d+"))
+                if find(marker, "^!") then
+                    if n and G.GetRaidTargetIndex(unit) ~= n then G.SetRaidTarget(unit, n) end
+                elseif find(marker, "^~") then
+                    if n and G.GetRaidTargetIndex(unit) == nil then G.SetRaidTarget(unit, n) end
+                elseif n then
+                    G.SetRaidTarget(unit, n)
+                end
+            end
+        end
+    end
+    MOCK.inSecure = false
+end
+
 G.UnitGroupRolesAssigned = function(unit)
     unitCheck(unit, "UnitGroupRolesAssigned")
     local _, e = resolve(unit)

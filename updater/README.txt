@@ -10,7 +10,8 @@ Installs the Greenfields guild addon and keeps it up to date.
    If Windows says "Windows protected your PC", click "More info" > "Run anyway".
    If it can't find WoW, a window opens: pick your "World of Warcraft" folder.
 3. Want it hands-free? Double-click "Turn On Auto Updates" once. It then checks quietly when you
-   log in to Windows and every 6 hours (a window may flash up for a moment).
+   log in to Windows and every 6 hours, with no window (a note pops up by the clock when an
+   update lands).
    It keeps its own copy in %LOCALAPPDATA%\GreenfieldsUpdater, so this folder can be tidied away.
    To stop it: double-click "Turn Off Auto Updates".
 

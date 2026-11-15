@@ -3241,6 +3241,232 @@ def scenario_sixty(res, render_dir):
     sc["time"] = round(time.time() - t0, 1)
     return sim
 
+def scenario_nearby(res, render_dir):
+    """Most Wanted's lookout (Modules/NemesisNearby.lua): a pack of wanted enemies makes one small list,
+    not a pile of signs. A click targets them and marks them (skull first) through a secure button,
+    never from addon code; a fight never touches a secure button; a guildie's word shows too."""
+    sc = res.scenario("nearby")
+    t0 = time.time()
+
+    def check(name, ok, got=None):
+        sc["checks"].append({"name": name, "ok": bool(ok), "got": got})
+        if not ok:
+            sc["status"] = "fail"
+            sc["notes"].append(name)
+            res.harness_failures.append("nearby: %s (got %r)" % (name, got))
+
+    sim = Sim(3, "nearby")
+    spencer, bazza, shazza = sim.clients[:3]
+    for c in sim.clients:
+        c.set_scenario("nearby")
+        sim.login(c)
+    sim.advance(60)
+    scene_dir = None
+    if render_dir:
+        scene_dir = os.path.join(render_dir, "scenes")
+        os.makedirs(scene_dir, exist_ok=True)
+
+    mine = spencer.eval_json("UnitFactionGroup('player')")
+    enemy = "Horde" if mine == "Alliance" else "Alliance"
+    for c in sim.clients:
+        c.lua("Greenfields.db.settings.wantedAsk = false")
+
+    def stranger(name, **kw):
+        rec = {"name": name, "race": "NightElf", "class": "ROGUE", "faction": enemy, "level": 60, "sex": 2,
+               "guid": "Player-1-0B22%04X" % (sum(map(ord, name)) % 65536), "guildName": "Darnassus Neighbourhood Watch"}
+        rec.update(kw)
+        return rec
+
+    def put(c, token, rec):
+        c.Game.SetUnit(token, c.rt.execute("return " + to_lua(rec)) if rec is not None else None)
+
+    pack = [stranger("Thrandor", targets=spencer.name),
+            stranger("Brightblade", race="Human", targets=spencer.name, **{"class": "PALADIN"}),
+            stranger("Fizzlecrank", race="Gnome", sex=3, targets=spencer.name, **{"class": "WARLOCK"}),
+            stranger("Moonwhisper", targets=spencer.name, **{"class": "DRUID"})]
+    names = [p["name"] for p in pack]
+
+    # --- a pack of four does Spencer over: all four go on the poles ------------------------------
+    for i, p in enumerate(pack):
+        put(spencer, "nameplate%d" % (i + 1), p)
+    sim.advance(1)
+    spencer.Game.Die()
+    sim.advance(5)
+    spencer.Game.Release()
+    spencer.Game.Resurrect()
+    for i in range(len(pack)):
+        put(spencer, "nameplate%d" % (i + 1), None)
+    sim.advance(15)
+    wanted = bazza.eval_json("(function() local out = {} for _, n in ipairs(%s) do local p = Greenfields.Nemesis:Get(n) "
+                             "out[#out + 1] = p and p.status or 'none' end return out end)()" % to_lua(names))
+    check("setup: the pack's all wanted on Bazza's board", wanted == ["wanted"] * 4, wanted)
+
+    def frames(c):
+        return "local f, slots, shown = Greenfields.Nemesis:NearbyFrames() "
+
+    def listed(c):
+        return c.eval_json("(function() " + frames(c) + "if not (f and f:IsShown()) then return nil end local out = {} "
+                           "for i, e in ipairs(shown) do local r = f.rows[i] out[#out + 1] = { n = e.name, m = e.here and e.mark or 0, "
+                           "here = e.here and true or false, gone = e.gone and true or false, a = math.floor(r:GetAlpha() * 100 + 0.5), "
+                           "right = r.right:GetText() } end return out end)()")
+
+    def slot(c, i):
+        return c.eval_json("(function() " + frames(c) + "local b = slots[%d] if not b then return nil end "
+                           "return { shown = b:IsShown(), macro = b:GetAttribute('macrotext1'), type = b:GetAttribute('type1'), "
+                           "prot = (b:IsProtected()) } end)()" % i)
+
+    def signs(c):
+        return c.eval_json("(function() local n = 0 for _, f in ipairs({UIParent:GetChildren()}) do "
+                           "if f.signs and f.title and f:IsShown() and (f.title:GetText() or ''):find('^WANTED') then n = n + 1 end end return n end)()")
+
+    def forbidden(c):
+        return [f.get("what") for f in collect_client_report(c)["forbidden"]]
+
+    def target(c):
+        return c.eval_json("UnitName('target')")
+
+    # --- three of them walk up on Bazza: one small list, no pile of signs, nothing marked yet ------
+    for i, p in enumerate(pack[:3]):
+        put(bazza, "nameplate%d" % (i + 1), dict(p, targets=None))
+    sim.advance(1)
+    rows = listed(bazza)
+    check("list: one row each, skull first", rows and [(r["n"], r["m"]) for r in rows] == [("Thrandor", 8), ("Brightblade", 7), ("Fizzlecrank", 6)], rows)
+    check("list: no road signs for a sighting", signs(bazza) == 0, signs(bazza))
+    h = bazza.eval_json("(function() " + frames(bazza) + "return math.floor(f:GetHeight() + 0.5) end)()")
+    check("list: small (three rows under 100 high)", h is not None and h < 100, h)
+    b1 = bazza.eval_json("Greenfields.Nemesis:Get('Thrandor').bounty")
+    check("list: the bounty on each row", rows and rows[0]["right"] == ("%d pt%s" % (b1, "" if b1 == 1 else "s")), [rows and rows[0]["right"], b1])
+    check("marks: nobody's marked till you click", [bazza.Game.MarkOf(n) for n in names[:3]] == [None] * 3, [bazza.Game.MarkOf(n) for n in names[:3]])
+    s1 = slot(bazza, 1)
+    check("click: row 1 has a secure button, set to target and skull Thrandor",
+          s1 and s1["shown"] and s1["prot"] and s1["type"] == "macro" and s1["macro"] == "/targetexact Thrandor\n/tm [@target,harm,nodead] !8", s1)
+    over = bazza.eval_json("(function() " + frames(bazza) + "local r, b = f.rows[2], slots[2] local s = r:GetEffectiveScale() / UIParent:GetEffectiveScale() "
+                           "return { math.abs(r:GetLeft() * s - b:GetLeft()) < 1 and math.abs(r:GetTop() * s - b:GetTop()) < 1, "
+                           "math.abs(r:GetWidth() * s - b:GetWidth()) < 1 } end)()")
+    check("click: the secure buttons sit right over their rows", over == [True, True], over)
+    if scene_dir:
+        sp = os.path.join(scene_dir, "nearby-list.json")
+        queue_render(res, bazza, export_scene(bazza, sp), sp, os.path.join(render_dir, "nearby-list.png"), crop_frame="(screen)")
+
+    # --- clicks: target and mark, and a second click never takes the mark off -----------------------
+    bazza.lua("select(2, Greenfields.Nemesis:NearbyFrames())[1]:Click('LeftButton')")
+    sim.advance(0.5)
+    check("click: Thrandor's targeted", target(bazza) == "Thrandor", target(bazza))
+    check("click: and wearing the skull", bazza.Game.MarkOf("Thrandor") == 8, bazza.Game.MarkOf("Thrandor"))
+    bazza.lua("select(2, Greenfields.Nemesis:NearbyFrames())[1]:Click('LeftButton')")
+    sim.advance(0.5)
+    check("click: again, and the skull stays on", bazza.Game.MarkOf("Thrandor") == 8, bazza.Game.MarkOf("Thrandor"))
+    bazza.lua("select(2, Greenfields.Nemesis:NearbyFrames())[2]:Click('LeftButton')")
+    sim.advance(0.5)
+    check("click: row 2 targets Brightblade and crosses him", target(bazza) == "Brightblade" and bazza.Game.MarkOf("Brightblade") == 7,
+          [target(bazza), bazza.Game.MarkOf("Brightblade")])
+    check("click: Greenfields never called SetRaidTarget itself", not any("SetRaidTarget" in (w or "") for w in forbidden(bazza)), forbidden(bazza))
+    check("click: counted for the doctor", bazza.eval_json("Greenfields.Nemesis.diag.clicks") == 3, bazza.eval_json("Greenfields.Nemesis.diag.clicks"))
+    bazza.lua("select(2, Greenfields.Nemesis:NearbyFrames())[3]:Click('RightButton')")
+    sim.advance(0.5)
+    check("right-click: their poster", bazza.eval_json("Greenfields.UI:CurrentPage()") == "wanted" and target(bazza) == "Brightblade",
+          [bazza.eval_json("Greenfields.UI:CurrentPage()"), target(bazza)])
+    bazza.lua("Greenfields.UI:HideMain()")
+
+    # --- a fight: the rows stay put, nothing secure is touched, the new one waits for the end -----
+    bazza.Game.SetCombat(True)
+    sim.advance(1)
+    put(bazza, "nameplate4", dict(pack[3], targets=bazza.name))
+    sim.advance(1)
+    put(bazza, "nameplate2", None)
+    put(bazza, "target", None)          # the click left him targeted: now he's really out of sight
+    sim.advance(25)
+    rows = listed(bazza)
+    check("fight: someone gone stays, greyed out, and nobody moves",
+          rows and [(r["n"], r["gone"]) for r in rows] == [("Thrandor", False), ("Brightblade", True), ("Fizzlecrank", False), ("Moonwhisper", False)], rows)
+    check("fight: gone says so", rows and rows[1]["right"] == "gone" and rows[1]["a"] < 50, rows and rows[1])
+    s4 = slot(bazza, 4)
+    check("fight: the one who turned up mid-fight has no secure button yet", s4 is None or not s4["shown"], s4)
+    check("fight: row 2's button is still Brightblade's (it can't change in a fight)",
+          (slot(bazza, 2) or {}).get("macro", "").startswith("/targetexact Brightblade"), slot(bazza, 2))
+    check("fight: no secure frame touched", not forbidden(bazza), forbidden(bazza))
+    bazza.Game.SetCombat(False)
+    sim.advance(1.5)
+    rows = listed(bazza)
+    check("after: the list closes up", rows and [r["n"] for r in rows] == ["Thrandor", "Fizzlecrank", "Moonwhisper"], rows)
+    s3 = slot(bazza, 3)
+    check("after: the new one can be clicked now, with the next mark (moon)",
+          s3 and s3["shown"] and s3["macro"] == "/targetexact Moonwhisper\n/tm [@target,harm,nodead] !5", s3)
+    s4 = slot(bazza, 4)
+    check("after: the spare button's put away", s4 is None or not s4["shown"], s4)
+
+    # --- a guildie's word: Shazza spots Brightblade in the zone ----------------------------------
+    put(shazza, "nameplate1", dict(pack[3], targets=None))
+    sim.advance(3)
+    check("heard: another zone's sighting stays off the list", "Moonwhisper" in [r["n"] for r in (listed(bazza) or [])]
+          and all(r["here"] for r in (listed(bazza) or [])), listed(bazza))
+    put(shazza, "nameplate1", None)
+    bazza.Game.SetZone(shazza.eval_json("GetZoneText()"))
+    put(shazza, "nameplate1", dict(pack[1], targets=None))
+    sim.advance(3)
+    rows = listed(bazza)
+    heard = [r for r in (rows or []) if r["n"] == "Brightblade"]
+    check("heard: Shazza's sighting joins Bazza's list, at the end, unmarked",
+          heard and not heard[0]["here"] and heard[0]["m"] == 0 and rows[-1]["n"] == "Brightblade", rows)
+    i = [r["n"] for r in rows].index("Brightblade") + 1 if heard else 1
+    sh = slot(bazza, i)
+    check("heard: a click just targets (they mightn't be in reach)", sh and sh["macro"] == "/targetexact Brightblade", sh)
+    put(shazza, "nameplate1", None)
+
+    # --- everyone gone: the list goes, and so do the secure buttons ---------------------------------
+    for n in range(1, 5):
+        put(bazza, "nameplate%d" % n, None)
+    put(bazza, "target", None)
+    sim.advance(70)
+    check("gone: the list goes", listed(bazza) is None, listed(bazza))
+    left = [k for k in range(1, 6) if (slot(bazza, k) or {}).get("shown")]
+    check("gone: no secure buttons left over", left == [], left)
+
+    # --- settings: no marks, no list ----------------------------------------------------------------
+    bazza.lua("Greenfields.db.settings.wantedMarks = false")
+    put(bazza, "nameplate1", dict(pack[0], targets=None))
+    sim.advance(1)
+    check("settings: marks off, a click just targets", (slot(bazza, 1) or {}).get("macro") == "/targetexact Thrandor", slot(bazza, 1))
+    bazza.lua("Greenfields.db.settings.wantedMarks = true")
+    put(bazza, "nameplate1", None)
+    sim.advance(70)
+    bazza.lua("Greenfields.db.settings.wantedSightings = false")
+    put(bazza, "nameplate1", dict(pack[0], targets=None))
+    sim.advance(2)
+    check("settings: sighting alerts off, no list", listed(bazza) is None, listed(bazza))
+    bazza.lua("Greenfields.db.settings.wantedSightings = true")
+    put(bazza, "nameplate1", None)
+    sim.advance(70)
+
+    # --- in a raid without lead or assist the marks aren't yours: a click just targets ---------------
+    members = [{"name": spencer.name, "rank": 2}, {"name": bazza.name, "rank": 0}, {"name": shazza.name, "rank": 0}]
+    bazza.Game.SetGroup(bazza.rt.execute("return " + to_lua({"kind": "raid", "category": 1, "members": members})))
+    put(bazza, "nameplate1", dict(pack[0], targets=None))
+    sim.advance(2)
+    check("raid: no assist, no /tm", (slot(bazza, 1) or {}).get("macro") == "/targetexact Thrandor", slot(bazza, 1))
+    put(bazza, "nameplate1", None)
+    bazza.Game.SetGroup(None)
+    sim.advance(70)
+
+    # --- the preview ------------------------------------------------------------------------------
+    spencer.lua("SlashCmdList.GREENFIELDS('wanted nearby')")
+    sim.advance(0.5)
+    rows = listed(spencer)
+    check("preview: three made-up rows", rows and len(rows) == 3, rows)
+    check("preview: no secure buttons for made-up names", not any((slot(spencer, k) or {}).get("shown") for k in range(1, 4)))
+    if scene_dir:
+        sp = os.path.join(scene_dir, "nearby-preview.json")
+        queue_render(res, spencer, export_scene(spencer, sp), sp, os.path.join(render_dir, "nearby-preview.png"), crop_frame="(screen)")
+    sim.advance(16)
+    check("preview: goes by itself", listed(spencer) is None, listed(spencer))
+
+    for c in sim.clients:
+        rep = collect_client_report(c)
+        check("no Lua errors on " + c.name, not rep["errors"] and not rep["addonErrors"], rep["errors"] + rep["addonErrors"])
+        check("nothing blocked on " + c.name, not rep["forbidden"], rep["forbidden"])
+    sc["time"] = round(time.time() - t0, 1)
+    return sim
+
 
 def scenario_rules(res):
     """Launch-week rules on their own clients: stats that can't be redone later (world map emotes, double
@@ -5145,8 +5371,8 @@ def main(argv):
         ADDON_DIR = os.path.abspath(args.addon)
     wanted = [s.strip() for s in args.scenario.split(",") if s.strip()]
     if "all" in wanted:
-        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty"]
-    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty"}
+        wanted = ["selftest", "boot", "pages", "raid", "misc", "secrets", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty", "nearby"]
+    valid = {"selftest", "boot", "pages", "raid", "secrets", "misc", "gate", "whispers", "clash", "forever", "doctor", "rules", "release", "upgrades", "wanted", "sixty", "nearby"}
     bad = [s for s in wanted if s not in valid]
     if bad:
         ap.error("unknown scenario(s): %s" % ", ".join(bad))
@@ -5215,6 +5441,9 @@ def main(argv):
         if "sixty" in wanted:
             log("== sixty (level 60: the ceremony, the street's fireworks, the Sixty Club)")
             sims.append(scenario_sixty(res, args.render))
+        if "nearby" in wanted:
+            log("== nearby (Most Wanted's list of who's about: click to target and mark)")
+            sims.append(scenario_nearby(res, args.render))
     except Exception:
         tb = traceback.format_exc()
         res.harness_failures.append(tb)

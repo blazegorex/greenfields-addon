@@ -606,6 +606,28 @@ end
 
 local M_ScriptRegion = {}
 
+-- Blizzard's combat lock. A protected frame (one made from a secure template) can't be shown, hidden,
+-- moved, resized, reparented or have its attributes changed in combat; neither can an ordinary frame
+-- holding one be shown or hidden. Anchoring a protected frame to an ordinary one makes that one
+-- protected too, so it's flagged whenever it happens.
+local function holdsProtected(st)
+    for _, c in ipairs(st.children or {}) do
+        local cs = S[c]
+        if cs and (cs.protected or holdsProtected(cs)) then return true end
+    end
+    return false
+end
+local function lockdown(self, what)
+    if not (MOCK.state and MOCK.state.combat) then return end
+    local st = S[self]
+    if st.protected then
+        MOCK.NoteForbidden(format("%s on a protected frame in combat (ADDON_ACTION_BLOCKED)", what), 3)
+    elseif (what == "Show()" or what == "Hide()") and holdsProtected(st) then
+        MOCK.NoteForbidden(format("%s on a frame holding a protected frame, in combat (ADDON_ACTION_BLOCKED)", what), 3)
+    end
+end
+MOCK.Lockdown = lockdown
+
 local function normPoint(p, fname)
     if type(p) ~= "string" then error(format("Usage: %s(\"point\" [, region, \"relativePoint\"] [, x, y])", fname), 3) end
     local u = upper(p)
@@ -616,6 +638,7 @@ end
 function M_ScriptRegion:SetPoint(point, a, b, c, d)
     local st = ST(self)
     if st.isScreenRoot then return end
+    lockdown(self, "SetPoint()")
     point = normPoint(point, st.otype .. ":SetPoint")
     local rel, relPoint, x, y
     if a == nil and b == nil and c == nil and d == nil then
@@ -640,6 +663,9 @@ function M_ScriptRegion:SetPoint(point, a, b, c, d)
     local effRel = rel or st.parent
     if effRel and dependsOn(effRel, self, {}) then
         error("Action[SetPoint] failed because[Cannot anchor to a region dependent on it]", 2)
+    end
+    if st.protected and effRel and not S[effRel].protected and not S[effRel].isScreenRoot and effRel ~= rawget(_G, "UIParent") then
+        MOCK.NoteForbidden("a protected frame anchored to an ordinary frame (that frame turns protected)", 2)
     end
     st.points = st.points or {}
     st.anchoredAt = MOCK.addonWhere(2)
@@ -668,6 +694,7 @@ function M_ScriptRegion:SetAllPoints(rel, doResize)
 end
 function M_ScriptRegion:ClearAllPoints()
     local st = ST(self)
+    lockdown(self, "ClearAllPoints()")
     if st.points and #st.points > 0 then st.points = {}; dirty() end
 end
 function M_ScriptRegion:ClearPoint(point)
@@ -699,6 +726,7 @@ function M_ScriptRegion:GetPointByName(name)
 end
 function M_ScriptRegion:SetSize(w, h)
     local st = ST(self)
+    lockdown(self, "SetSize()")
     if not isNum(w) then argErr("SetSize", 1, "number", w) end
     if h == nil then h = w end
     if not isNum(h) then argErr("SetSize", 2, "number", h) end
@@ -707,12 +735,14 @@ function M_ScriptRegion:SetSize(w, h)
 end
 function M_ScriptRegion:SetWidth(w)
     local st = ST(self)
+    lockdown(self, "SetWidth()")
     if not isNum(w) then argErr("SetWidth", 1, "number", w) end
     st.width = w
     dirty()
 end
 function M_ScriptRegion:SetHeight(h)
     local st = ST(self)
+    lockdown(self, "SetHeight()")
     if not isNum(h) then argErr("SetHeight", 1, "number", h) end
     st.height = h
     dirty()
@@ -750,7 +780,7 @@ end
 function M_ScriptRegion:IsRectValid() ST(self) return rectOf(self) ~= nil end
 function M_ScriptRegion:IsAnchoringRestricted() ST(self) return false end
 function M_ScriptRegion:CanChangeProtectedState() ST(self) return not (MOCK.state and MOCK.state.combat) end
-function M_ScriptRegion:IsProtected() ST(self) return false, false end
+function M_ScriptRegion:IsProtected() local st = ST(self) return st.protected == true, st.protected == true end
 function M_ScriptRegion:GetSourceLocation() return ST(self).where end
 
 -------------------------------------------------------------------------------
@@ -794,6 +824,7 @@ end
 function M_ScriptRegion:Show()
     local st = ST(self)
     if st.shown then return end
+    lockdown(self, "Show()")
     st.shown = true
     dirty()
     if isVisible(self) then fireShowTree(self, "OnShow", true) end
@@ -801,6 +832,7 @@ end
 function M_ScriptRegion:Hide()
     local st = ST(self)
     if not st.shown then return end
+    lockdown(self, "Hide()")
     local was = isVisible(self)
     st.shown = false
     dirty()
@@ -844,6 +876,7 @@ MOCK.SetParentRaw = setParent
 
 function M_ScriptRegion:SetParent(p)
     local st = ST(self)
+    lockdown(self, "SetParent()")
     if type(p) == "string" then
         local g = rawget(_G, p)
         if not (g and S[g]) then error(st.otype .. ":SetParent(): Couldn't find frame named '" .. p .. "'", 2) end
@@ -1490,6 +1523,7 @@ end
 function M_Frame:GetID() return ST(self).frameID or 0 end
 function M_Frame:SetAttribute(k, v)
     local st = ST(self)
+    lockdown(self, "SetAttribute()")
     st.attributes = st.attributes or {}
     st.attributes[k] = v
     runScript(self, "OnAttributeChanged", k, v)
@@ -1664,6 +1698,12 @@ function M_Button:Click(button, down)
     button = button or "LeftButton"
     if st.isCheckButton then st.checked = not st.checked end
     runScript(self, "PreClick", button, down and true or false)
+    if st.secureAction and not down then
+        local a = st.attributes or {}
+        local n = button == "RightButton" and "2" or button == "MiddleButton" and "3" or "1"
+        local kind = a["type" .. n] or a.type
+        if kind == "macro" then MOCK.RunSecureMacro(a["macrotext" .. n] or a.macrotext) end
+    end
     runScript(self, "OnClick", button, down and true or false)
     runScript(self, "PostClick", button, down and true or false)
 end

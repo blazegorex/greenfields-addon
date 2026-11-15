@@ -5,6 +5,10 @@
 local _, GF = ...
 
 GF.Changelog = {
+    { v = "1.4.1", date = "2026-11-15", notes = {
+        "Wanted faces nearby are one small list now, not a road sign each: a pack of five used to fill the screen. The list sits under the first sign and drags anywhere by its red bar. Click a name to target them and put a raid mark on them: the skull for the first one about, then a cross, a square, a moon. Right-click for their poster. In a fight a click can't be set up for someone new, so they're clickable once it's over; until then the skull's your friend. /gf wanted nearby shows you one.",
+        "Automatic updates check with no window now. The black box popping up every few hours had people thinking they'd been hacked. Already got auto updates on? It sorts itself out within a check or two.",
+    } },
     { v = "1.4.0", date = "2026-11-14", notes = {
         "Hitting 60 is a moment now. The screen goes dark, fireworks go up over the estuary, a fanfare plays and your 60 medal comes down. Then your climb: time played, days on the road, quests, deaths, jumps, a chart of every level, where you came in on the street, and whoever put you down the most on the way. Tell the guild, Frame it for a screenshot without the buttons, or Done. A fight takes it down; /gf sixty plays it again.",
         "Already 60? If Greenfields saw you ding, you get the ceremony you missed, once, the next time you log in.",

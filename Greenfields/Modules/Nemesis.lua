@@ -113,7 +113,8 @@ local function plainField(v, n)
 end
 
 -- what the client says it saw, kept for /gf doctor
-local diag = { deaths = 0, named = 0, reads = 0, hidden = 0, recap = "not asked", why = "none yet", claims = 0, kbHidden = 0 }
+local diag = { deaths = 0, named = 0, reads = 0, hidden = 0, recap = "not asked", why = "none yet", claims = 0, kbHidden = 0,
+               clicks = 0, blocked = "nothing" }
 N.diag = diag
 
 -------------------------------------------------------------------------------
@@ -1170,9 +1171,21 @@ local function onHonor(_, text)
 end
 
 -------------------------------------------------------------------------------
--- Sightings
+-- Sightings: who's about right now (the little list, Modules/NemesisNearby.lua), the raid mark each
+-- one gets when it's clicked, and the street told once in a while.
+-- Raid marks can't be put on by an addon on this client (SetRaidTarget is Blizzard's alone since
+-- Midnight's changes, and GetRaidTargetIndex only answers in secret), so a click on the list does
+-- it: the list's secure buttons run /targetexact and /tm. Here just hands out which mark is whose.
 -------------------------------------------------------------------------------
 local sightAt, heardAt = {}, {}
+-- name -> { name, first, t, here (I can see them) | by, zone (a guildie's word), mark }
+local near = {}
+local HERE_FOR = 20         -- seen with my own eyes: on the list this long after they were last about
+local HEARD_FOR = 60        -- a guildie's word: this long
+local FORGET = 90           -- then gone; back after this and they start again
+-- skull for the first, then cross, square, moon, triangle, diamond, circle, star
+local MARKS = { 8, 7, 6, 5, 4, 3, 2, 1 }
+N.MARKS = MARKS
 
 local function remember(name, z, by)
     local l = localState()
@@ -1183,27 +1196,81 @@ local function remember(name, z, by)
     if p then p.seen = l.seen[name] end
 end
 
-local function alert(p, text)
-    local UI = GF.UI
-    if not (UI and UI.Toast) or settings().wantedSightings == false then return end
-    UI:Toast({
-        title = "Wanted: " .. p.name, text = text, icon = "skull", style = "red",
-        key = "wanted-sight:" .. p.name, sound = 8959, duration = 8,
-        onClick = function() if UI.OpenMain then UI:OpenMain("wanted", p.name) end end,
-    })
+local function fresh(e, now)
+    return not e or now - e.t > (e.here and HERE_FOR or HEARD_FOR)
+end
+
+--- The first mark nobody else on the list has: the skull goes to whoever turned up first.
+local function freeMark(e, now)
+    local used = {}
+    for _, o in pairs(near) do
+        if o ~= e and o.mark and o.here and not fresh(o, now) then used[o.mark] = true end
+    end
+    for _, i in ipairs(MARKS) do
+        if not used[i] then return i end
+    end
 end
 
 sighted = function(s)
     local p = N:Get(s.name)
     if not p or p.status ~= "wanted" or API.UnitIsDead("player") or inBattle() or N:Snoozed() then return end
     local now = API.Time()
+    local e = near[s.name]
+    local new = fresh(e, now) or not e.here
+    if not e or now - e.t > FORGET then
+        e = { name = s.name, first = now }
+        near[s.name] = e
+    end
+    -- back after a while: the mark they had may be someone else's by now
+    if new and e.mark then
+        local keep = e.mark
+        e.mark = nil
+        for _, o in pairs(near) do
+            if o ~= e and o.mark == keep and o.here and not fresh(o, now) then keep = nil break end
+        end
+        e.mark = keep
+    end
+    e.t, e.here, e.by, e.zone = now, true, nil, nil
+    e.mark = e.mark or freeMark(e, now)
+    if new then GF:Fire("GF_WANTED_NEAR", e) end
     if sightAt[s.name] and now - sightAt[s.name] < SIGHT_GAP then return end
     sightAt[s.name] = now
     local zone = API.ZoneName()
     remember(s.name, zone, API.MyKey())
-    alert(p, ("They're right here. %s on their head."):format(N:PointsText(p.bounty)))
     if GF.Comm and GF.Comm.Guild then GF.Comm:Guild("WS", { e = s.name, z = zone }, "NORMAL") end
     GF:Fire("GF_WANTED_SEEN", p)
+end
+
+--- Who's on the list right now: the ones I can see first, then the guild's word, longest about first.
+-- { e = { name, p, here, t, first, by, zone, mark }, ... }
+function N:Nearby()
+    local now, out = API.Time(), {}
+    local off = settings().wantedSightings == false or inBattle() or N:Snoozed()
+    for name, e in pairs(near) do
+        local p = N:Get(name)
+        if not (p and p.status == "wanted") or now - e.t > FORGET then
+            near[name] = nil
+        elseif not off and not fresh(e, now) then
+            e.p = p
+            out[#out + 1] = e
+        end
+    end
+    tsort(out, function(a, b)
+        if a.here ~= b.here then return a.here end
+        if a.first ~= b.first then return a.first < b.first end
+        -- turned up together: skull, cross, square, in that order
+        local am, bm = a.mark or 0, b.mark or 0
+        if am ~= bm then return am > bm end
+        return a.name < b.name
+    end)
+    return out
+end
+
+--- Looks round again (the list does it every second it's up: a nameplate that just sits there
+-- fires nothing).
+function N:Rescan()
+    if pending or API.UnitIsDead("player") then return end
+    scanAll("plate")
 end
 
 GF.Comm:Register("WS", function(msg, sender)
@@ -1218,10 +1285,17 @@ GF.Comm:Register("WS", function(msg, sender)
     local now = API.Time()
     if heardAt[msg.e] and now - heardAt[msg.e] < SIGHT_GAP then return end
     heardAt[msg.e] = now
-    -- only worth a sign if you're close enough to do something about it
+    -- only on the list if you're close enough to do something about it, and not if you can see them
     local here = API.ZoneName()
     if msg.z and here and msg.z == here and not inBattle() and not N:Snoozed() then
-        alert(p, ("Spotted in %s by %s. %s on their head."):format(msg.z, nameOf(sender), N:PointsText(p.bounty)))
+        local e = near[msg.e]
+        if e and e.here and not fresh(e, now) then return end
+        if not e or now - e.t > FORGET then
+            e = { name = msg.e, first = now }
+            near[msg.e] = e
+        end
+        e.t, e.here, e.by, e.zone = now, false, sender, msg.z
+        GF:Fire("GF_WANTED_NEAR", e)
     end
 end)
 
@@ -1268,6 +1342,7 @@ function N:DoctorLines(add)
     add("Most Wanted APIs: GetPlayerInfoByGUID %s, UnitSex %s, C_DeathRecap %s, honour line %s",
         tostring(has("GetPlayerInfoByGUID")), tostring(has("UnitSex")), tostring(has("C_DeathRecap.GetRecapEvents")),
         tostring(fmtToPattern(CleanString(G("COMBATLOG_HONORGAIN"))) ~= nil))
+    add("Most Wanted list: %d clicks to target; last thing the client blocked for Greenfields: %s", diag.clicks, diag.blocked)
     local b = self:Board()
     add("Most Wanted board: %d wanted, %d dealt with, %d bounty hunters", #b.wanted, #b.dealt, #b.hunters)
 end
@@ -1295,6 +1370,15 @@ function N:OnInit()
     GF:RegisterEvent("PARTY_KILL", onPartyKill, owner)
     GF:RegisterEvent("CHAT_MSG_COMBAT_HONOR_GAIN", onHonor, owner)
     GF:RegisterEvent("PLAYER_ENTERING_WORLD", function() myGUID = nil end, owner)
+    -- anything the client stops Greenfields doing goes in /gf doctor
+    local function stopped(kind)
+        return function(_, addon, fn)
+            if CleanString(addon) ~= GF.ADDON then return end
+            diag.blocked = ("%s (%s)"):format(tostring(CleanString(fn) or "?"), kind)
+        end
+    end
+    GF:RegisterEvent("ADDON_ACTION_BLOCKED", stopped("blocked"), owner)
+    GF:RegisterEvent("ADDON_ACTION_FORBIDDEN", stopped("forbidden"), owner)
 end
 
 function N:OnLogin()

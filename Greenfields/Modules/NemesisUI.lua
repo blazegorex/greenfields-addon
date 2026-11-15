@@ -10,6 +10,7 @@
        /gf wanted test       the poster you'd get for being done over (nothing's recorded)
        /gf wanted collect    the stamp you'd get for collecting (nothing's recorded)
        /gf wanted pack       the poster you'd get for being jumped by a pack (nothing's recorded)
+       /gf wanted nearby     the little list of who's about (made-up names), to see it or move it
        /gf wanted snooze [m] no posters or sightings for m minutes (60 if you don't say)
        /gf wanted wake       back on ]]
 
@@ -1177,6 +1178,7 @@ GF:RegisterSlash("wanted", function(args)
     if a == "test" then return N:TestPoster("death") end
     if a == "collect" or a == "claim" then return N:TestPoster("collect") end
     if a == "pack" or a == "gang" then return N:TestPoster("pack") end
+    if a == "nearby" or a == "list" then return N:PreviewNearby() end
     if a == "snooze" then
         local mins = tonumber((args or ""):match("snooze%s+(%d+)")) or 60
         N:Snooze(mins * 60)
@@ -1187,4 +1189,4 @@ GF:RegisterSlash("wanted", function(args)
         return GF:Print("Most Wanted's back on.")
     end
     UI:OpenMain(PAGE)
-end, "Most Wanted (test, pack, collect: previews; snooze [minutes], wake)")
+end, "Most Wanted (test, pack, collect, nearby: previews; snooze [minutes], wake)")

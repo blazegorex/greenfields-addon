@@ -33,7 +33,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
-$UpdaterVersion = '1.0.1'
+$UpdaterVersion = '1.0.2'
 $AddonName = 'Greenfields'
 $TaskName = 'Greenfields Updater'
 $ScriptPath = $MyInvocation.MyCommand.Path
@@ -87,6 +87,8 @@ function Unlock-Updater {
     }
 }
 function Finish([int]$code) {
+    # older automatic updates showed a window; quietly fix that before going (only once we hold the lock)
+    if ($script:HaveLock -and -not $RemoveSchedule) { try { Repair-Schedule } catch { } }
     # let go of the lock first, so a window left open doesn't block the background schedule
     Unlock-Updater
     if ($PauseAtEnd) {
@@ -519,14 +521,34 @@ function Install-Schedule {
         $cfg = Join-Path $Here 'updater.json'
         if (Test-Path -LiteralPath $cfg) { Copy-Item -LiteralPath $cfg -Destination (Join-Path $AppDir 'updater.json') -Force }
     }
-    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    Register-Schedule $appScript
+    Say "Automatic updates are ON: checks quietly at Windows login and every 6 hours, with no window." 'Green'
+    Say "They use a copy of the updater kept in $AppDir, so this folder can be moved or deleted." 'Gray'
+}
+function Get-ConsoleHost {
+    # PowerShell started straight from the schedule gets a console window, and on Windows 11 that's
+    # a Terminal window that stays up for the whole check: people took it for something nasty.
+    # conhost.exe --headless runs it with no window at all (Windows 10 1809 and later).
+    $win = $env:SystemRoot
+    if (-not $win) { $win = $env:WINDIR }
+    $conhost = Join-Path $win 'System32\conhost.exe'
+    if ([Environment]::OSVersion.Version.Build -ge 17763 -and (Test-Path -LiteralPath $conhost -PathType Leaf)) { return $conhost }
+    return $null
+}
+function New-UpdaterAction([string]$appScript) {
     $win = $env:SystemRoot
     if (-not $win) { $win = $env:WINDIR }
     $ps = Join-Path $win 'System32\WindowsPowerShell\v1.0\powershell.exe'
     # -File "..." keeps spaces, apostrophes and brackets in the path intact; -NonInteractive means
     # nothing can ever sit waiting for input in the background
     $arg = '-NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File "{0}" -Quiet' -f $appScript
-    $action = New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $AppDir
+    $conhost = Get-ConsoleHost
+    if ($conhost) { return New-ScheduledTaskAction -Execute $conhost -Argument ('--headless "{0}" {1}' -f $ps, $arg) -WorkingDirectory $AppDir }
+    return New-ScheduledTaskAction -Execute $ps -Argument $arg -WorkingDirectory $AppDir
+}
+function Register-Schedule([string]$appScript) {
+    $me = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    $action = New-UpdaterAction $appScript
     $logon = New-ScheduledTaskTrigger -AtLogOn -User $me
     $logon.Delay = 'PT2M'   # give the network a moment after login
     $every = New-ScheduledTaskTrigger -Once -At ((Get-Date).AddMinutes(5)) -RepetitionInterval (New-TimeSpan -Hours 6) -RepetitionDuration (New-TimeSpan -Days 3650)
@@ -534,8 +556,22 @@ function Install-Schedule {
     $principal = New-ScheduledTaskPrincipal -UserId $me -LogonType Interactive -RunLevel Limited
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger @($logon, $every) -Settings $settings -Principal $principal `
         -Description 'Keeps the Greenfields WoW addon up to date.' -Force | Out-Null
-    Say "Automatic updates are ON: checks at Windows login and every 6 hours." 'Green'
-    Say "They use a copy of the updater kept in $AppDir, so this folder can be moved or deleted." 'Gray'
+}
+function Repair-Schedule {
+    # Automatic updates turned on by an older updater start PowerShell straight up, which shows a
+    # window every check. Move them onto the windowless launcher, keeping the script they run.
+    # Done last thing in a run: it re-registers the task this run may have been started by.
+    if (-not (Get-ConsoleHost)) { return }
+    $task = $null
+    try { $task = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop } catch { return }
+    $old = @($task.Actions)[0]
+    if (-not $old -or [string]$old.Arguments -notmatch '-File "([^"]+GreenfieldsUpdater\.ps1)"') { return }
+    $appScript = $Matches[1]
+    if ([IO.Path]::GetFileName([string]$old.Execute) -ieq 'conhost.exe') { return }
+    try {
+        Register-Schedule $appScript
+        Write-Log 'automatic updates now check without a window'
+    } catch { Write-Log ('couldn''t move automatic updates off the window: ' + (Get-Why $_)) }
 }
 function Remove-Schedule {
     $task = $null

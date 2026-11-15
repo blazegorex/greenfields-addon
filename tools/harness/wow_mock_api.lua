@@ -777,9 +777,16 @@ local function stubTemplate(tname)
     end
 end
 for _, n in ipairs({ "MinimalScrollBar", "WowScrollBoxList", "WowScrollBox", "WowStyle1DropdownTemplate",
-    "WowStyle1FilterDropdownTemplate", "NineSlicePanelTemplate", "InsetFrameTemplate", "SecureActionButtonTemplate",
+    "WowStyle1FilterDropdownTemplate", "NineSlicePanelTemplate", "InsetFrameTemplate",
     "SecureHandlerBaseTemplate", "SecureFrameTemplate" }) do
     T[n] = stubTemplate(n)
+end
+-- a secure button: protected (Blizzard's combat lock applies, wow_mock_widgets.lua) and, clicked, it
+-- does what its type/macrotext attributes say (MOCK.RunSecureMacro)
+T.SecureActionButtonTemplate = function(f, st)
+    needType(st, { "Button", "CheckButton" }, "SecureActionButtonTemplate")
+    st.protected = true
+    st.secureAction = true
 end
 local function panelTemplate(tname)
     return function(f, st)

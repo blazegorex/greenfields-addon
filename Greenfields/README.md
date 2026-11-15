@@ -83,7 +83,12 @@ When an Alliance player kills one of us, Greenfields puts their face on the pole
 - **Battlegrounds and arenas:** Most Wanted sits them out. No posters, no collecting, no sightings.
 - **Collecting:** whoever lands the killing blow takes every point since the last time they were sorted out. Revenge on someone who did you is worth 1 more, and anyone else who gets the honourable kill gets 1 for a hand in it. The poster gets stamped and stays up for a week.
 - **The page:** Public Enemy No. 1's case file, every other poster on the wall, your nemesis, and the bounty hunters' board. Your resident file shows your points and your nemesis too.
-- **In the world:** a poster drops when you're done over, a stamp slams down when you collect, enemy tooltips show the price on their head, and you get a sign when a wanted face is near you or a guildie spots one in your zone. Switch any of it off in Settings.
+- **In the world:** a poster drops when you're done over, a stamp slams down when you collect, and enemy tooltips show the price on their head. Switch any of it off in Settings.
+- **Wanted nearby:** when a wanted face is about (or a guildie spots one in your zone), a small list comes up under the first road sign, one row each. Drag its red bar to move it.
+  - **Click a name** to target them and put a raid mark on them: the skull for the first one about, then a cross, a square, a moon. A second click never takes it off. In a raid you need lead or assist for the mark; on your own only you see it.
+  - **Right-click** for their poster.
+  - **In a fight** the rows stay put: whoever's gone is greyed out until it's over. Someone who turns up mid-fight can be clicked once it's over (the game won't let an addon set up a click mid-fight).
+  - Settings: "Sighting alerts" and "Raid-mark wanted players".
 - **How it knows:** the game doesn't tell addons who killed you, so Greenfields watches the enemy players around you (nameplates, your target, who's got you targeted) and asks the death recap. It only names someone it has good reason to. If it gets it wrong, click **Wasn't them** on the poster, or right-click it on the page. Officers can tear a poster down for everyone.
 
 ### Level 60
@@ -152,7 +157,7 @@ In game, a yellow **UPDATE** pill and a toast appear when a guildie is running a
 | `/gf main <name>` | mark this character as an alt of `<name>` (blank = this is a main) |
 | `/gf sync` | force a data sync with guildies |
 | `/gf stats` | print your own stats |
-| `/gf wanted` | open Most Wanted (`/gf wanted test` shows the poster you'd get, `/gf wanted pack` the one for a gank, `/gf wanted collect` the stamp) |
+| `/gf wanted` | open Most Wanted (`/gf wanted test` shows the poster you'd get, `/gf wanted pack` the one for a gank, `/gf wanted collect` the stamp, `/gf wanted nearby` the list of who's about) |
 | `/gf wanted snooze [minutes]` | a break from Most Wanted, 60 minutes if you don't say; `/gf wanted wake` ends it |
 | `/gf sixty` | play your level 60 ceremony again (`/gf sixty test` shows anyone a preview, `/gf sixty street` a guildie's banner) |
 | `/gf doctor` | check what this game client supports (run this on launch day) |

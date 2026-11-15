@@ -154,7 +154,7 @@ Read the file; every function is documented there. The most used:
 
 ### 2.4 SavedVariables (Core/DB.lua)
 
-- **`GF.db.settings`:** account-wide toggles. Existing keys: `toasts`, `toastSounds`, `feedToasts`, `welcome`, `minimap`, `shareWealth`, `wipeRoastsLocal`, `wipeRoastsRaid`, `srAutoAnnounce`, `srPopups`, `campPings`, `tooltipSR`, `tooltipCrafters`, `tooltipTitles`, `wantedPosters`, `wantedSightings`, `tooltipWanted`, `scale`, `debug`.
+- **`GF.db.settings`:** account-wide toggles. Existing keys: `toasts`, `toastSounds`, `feedToasts`, `welcome`, `minimap`, `shareWealth`, `wipeRoastsLocal`, `wipeRoastsRaid`, `srAutoAnnounce`, `srPopups`, `campPings`, `tooltipSR`, `tooltipCrafters`, `tooltipTitles`, `wantedPosters`, `wantedSightings`, `wantedMarks`, `tooltipWanted`, `scale`, `debug`.
   - Read them with `GF.db.settings.X ~= false` for default-on toggles.
   - If you need a new toggle, keep it inside your own table: `GF.db.settings.myModule = GF.db.settings.myModule or {}`.
 - **`GF.gdb`:** per-guild partition. Holds `store` (replicated), `feed`, and `local`. Use `GF.DB:Local("ModuleName")` for a per-guild, non-replicated scratch table.
@@ -409,6 +409,8 @@ Every function must return safe defaults (an empty table, nil or 0) when there i
 - `GF.Nemesis:HunterOf(key)` → `{key, points, claims, assists, revenge, best}` or nil (alts roll up to their main).
 - `GF.Nemesis:Mug(entry)` → texture, left, right, top, bottom: the mugshot. `:Describe(entry)` → "Night Elf Rogue, level 34". `:PointsText(n)`.
 - Fires `GF_WANTED_CHANGED` when the board moves, `GF_WANTED_ASK(report)` when a death wants an answer, `GF_WANTED_REPORTS` when the waiting list changes, `GF_WANTED_SNOOZE`, `GF_WANTED_DEATH(entry, docIds, why, crew, filed)` for your own death once it's up (crew = the killer's mates, entries; filed = put up from the question), `GF_WANTED_CLAIMED(entry, points, revenge)` when you collect, `GF_WANTED_SEEN(entry)` on a sighting.
+- `GF.Nemesis:Nearby()` → who's on the nearby list right now, the ones you can see first: `{ {name, p = entry, here, first, t, mark, by, zone}, ... }`. `here` = seen with your own eyes in the last 20 s; otherwise a guildie spotted them in your zone in the last minute (`by`, `zone`). `mark` is the raid mark a click puts on them (8 skull, 7 cross, ...), handed out in the order they turned up. Fires `GF_WANTED_NEAR(e)` when someone joins it. `:Rescan()` looks round again (the list does every second it's up).
+- Raid marks: `SetRaidTarget` is protected on this client (Midnight's changes) and `GetRaidTargetIndex` answers in secret, so Greenfields never calls either. Modules/NemesisNearby.lua puts a `SecureActionButtonTemplate` button over each row, set out of fights to `/targetexact <name>` and `/tm [@target,harm,nodead] !<mark>`. Those buttons are top-level and placed by hand, never anchored to the list, so the list itself stays an ordinary frame that can show and hide in a fight.
 
 ### GF.Sixty (Modules/Sixty*.lua)
 - `GF.Sixty:Climb()` → `{ {l, t}, ... }` this character's levels from Core/Books.lua, oldest first, only ever up.
